@@ -6,6 +6,8 @@ Manta — паттерн параллельной работы Claude Code, в �
 
 Это paradigm shift. Аналогов на рынке нет (CrewAI / AutoGPT / LangGraph все используют специализацию ролей). Manta — первый same-system-prompt cloning с full transcript inheritance.
 
+**Вертикаль:** Phase 0..N → **код** (worktrees, file locks, tests, commits, Claude Code как раннер). Другие вертикали (research / writing / design / ops) — отдельный roadmap **после** того, как код-вертикаль доказана в продакшене. Не пихать non-code примитивы в Phase 0-плэйн до этого момента — рискуем абстракцией ради абстракции.
+
 **Источник истины по дизайну:** `docs/superpowers/specs/2026-05-06-manta-pattern-design.md`. Любой ответ или PR должен соответствовать этому документу. Расхождение → правим спек явно (с обновлением Status и changelog в спеке), не «по тихому».
 
 ## Quality bar — PROD only
@@ -23,6 +25,16 @@ Manta — паттерн параллельной работы Claude Code, в �
 
 При сомнении — кастуй `recon-swarm` чтобы проверить, не «пишу как помню».
 
+### Plan-writing discipline (non-negotiable)
+
+Каждый sub-plan (≤ ~3-4k строк, 1-2 чанка) проходит **reviewer-per-chunk loop**:
+1. Написать план полностью на диск (не в чате — disk дешевле context'а)
+2. Dispatch `general-purpose` subagent в фоне с `plan-document-reviewer-prompt.md` template + явным critical-checks списком
+3. Применить **все** must-fix + дешёвые advisory **до** коммита (defer-nothing)
+4. Один атомарный коммит с длинным телом, перечисляющим каждый reviewer-fix
+
+Класс блокеров #1 в Phase 0 был **cross-plan field-name drift** (план A вызывает API плана B с не теми именами полей). Лекарство: перед написанием вызова в чужой пакет — `grep -n` сигнатуры в плане-предшественнике. 30 секунд страховки.
+
 ## Bootstrap strategy — Manta builds Manta
 
 Главный принцип реализации: как только клоны рабочие — мейн (я, Claude Code) использую их для постройки остальной Manta. Это даёт real-world dogfooding и нелинейный рост скорости.
@@ -32,6 +44,13 @@ Phasing (детали в Sec 15 спека):
 - Phase 2: forking-realities + начало dogfood
 - Phase 3+: heavy dogfood — клоны строят клонов
 - Phase 8: Aghs-unlocked mode'ы только после 90 дней prod-наработки
+
+**Phase 1-8 plan-файлы НЕ пишем заранее** — это by-design. Bootstrap-by-Manta значит: следующая фаза планируется *с помощью* предыдущей. Pre-планирование Phase 1+ сейчас:
+1. Сжигает dogfood-сигнал (планируем против воображаемой системы)
+2. Закрепляет ассумпции до того, как Phase 0f e2e-cast скажет работает ли это
+3. Теряет нелинейный рост скорости (Phase N+1 строится с участием Phase N клонов)
+
+После подписи `docs/acceptance/phase-0.md` юзером — открывается Phase 1 milestone, и его plan-файл пишется первым; кастуем `recon-swarm` для помощи если полезно.
 
 С Phase 1 и далее каждая сессия включает:
 1. **Triage** — проверить `docs/manta-bugs.md` на блокеры
@@ -135,7 +154,7 @@ Cast если хотя бы одно:
 
 ## Roadmap-источник истины
 
-Полный план реализации — `docs/superpowers/plans/` (создаётся через `superpowers:writing-plans`). Когда план есть — он становится оперативным источником истины о порядке работ. Спек остаётся источником истины о *что строим*, план — о *как и в каком порядке*.
+Полный план реализации — `docs/superpowers/plans/` (создаётся через `superpowers:writing-plans`). Карта планов — `docs/superpowers/plans/INDEX.md` (статус каждого sub-плана: TODO / Under review / Approved). Когда план есть — он становится оперативным источником истины о порядке работ. Спек остаётся источником истины о *что строим*, план — о *как и в каком порядке*, INDEX — о *что распланировано и что нет*.
 
 ---
 
