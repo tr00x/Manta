@@ -1,0 +1,56 @@
+# Manta runtime state — ephemeral, not source
+.manta/clones/
+.manta/locks/
+.manta/state/
+.manta/reports/
+.manta/audit/
+.manta/sandbox/
+.manta/graveyard/
+.manta/active.json
+
+# Graphify runtime artifacts (regenerable, not source)
+graphify-out/
+
+# Local Claude Code settings (not source)
+.claude/
+
+# Node / build
+node_modules/
+dist/
+build/
+*.log
+.turbo/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.cursor/
+
+# Secrets
+.env
+.env.local
+.env.*.local
+credentials.json
+*.pem
+*.key
+
+# Tests / coverage
+coverage/
+.nyc_output/
+.pytest_cache/
+
+# Test artifacts
+junit.xml
