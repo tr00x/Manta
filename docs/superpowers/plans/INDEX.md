@@ -9,7 +9,7 @@
 | План | Статус | Содержит |
 |---|---|---|
 | `2026-05-06-phase-0-foundation.md` | **In progress** — Chunks 1-2 written + reviewer-approved + fixes applied | Chunk 1 (monorepo bootstrap), Chunk 2 (`@manta/snapshot` package) |
-| `2026-05-06-phase-0b-bus.md` | TODO (next session) | `@manta/bus` — MCP server extension over claude-peers, full Manta Bus API (Sec 4) |
+| `2026-05-06-phase-0b-bus.md` | **Approved** — Chunks 1-2 written (~3.8k lines, 98 atomic tasks), reviewer-approved with advisories applied | `@manta/bus` — state foundations (Chunk 1) + MCP server with 18 tools across 6 families (Chunk 2), integration test (registry/locks/claims/contracts persistence across restart), README + ARCHITECTURE |
 | `2026-05-06-phase-0c-orchestrator.md` | TODO | `@manta/orchestrator` — heartbeat tracking, dead-clone cleanup, post-mortem trigger, append-only event log |
 | `2026-05-06-phase-0d-cli.md` | TODO | `@manta/cli` — `cast`, `status`, `kill`, `abort`, `recover` commands |
 | `2026-05-06-phase-0e-skills-and-commands.md` | TODO | 4 skills (`manta-as-clone`, `manta-coordinate`, `manta-graceful-death`, `manta-cast-decide`) + `/manta` slash commands |
