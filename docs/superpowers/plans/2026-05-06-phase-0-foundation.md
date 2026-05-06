@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build production-ready end-to-end `recon-swarm` mode — main agent can `/manta cast recon-swarm` and get a unified codebase map back from N batch-spawned clones, with full lifecycle management (spawn, heartbeat, dead-clone cleanup, post-mortem, merge).
+**Goal:** Build production-ready end-to-end `recon-swarm` mode — main agent can `/manta cast recon-swarm` and get **N independent codebase maps** (one per clone, in each clone's worktree + per-clone ZK notes) back from N batch-spawned clones, with full lifecycle management (spawn, heartbeat, dead-clone cleanup, post-mortem). Synthesis / merge is the user's job in Phase 0; an automated `manta-merge-review` step is Phase 2 (`forking-realities`).
 
 **Architecture:** TypeScript pnpm-workspace monorepo with 4 packages (`manta-snapshot`, `manta-bus`, `manta-orchestrator`, `manta-cli`) + skill suite (4 skills) + slash commands (`/manta cast/status/kill/abort/recover`). Manta Bus runs as MCP server (extension over `claude-peers`). Clones are headless `claude --print` processes per worktree. State persisted to `.manta/state/` with versioned JSON; locks heartbeat-based; events flow through orchestrator's append-only event log.
 

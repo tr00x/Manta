@@ -579,7 +579,25 @@ pnpm -r build
 
 Expected: every workspace package emits a `dist/`. If any package fails: read its build log; the predecessor plan's verification steps will tell you what's expected.
 
-## 2. Validate skills
+## 2. Register the Manta Bus as an MCP server
+
+**This step is mandatory.** Real `claude --print` clones spawned by `manta cast` need to talk to `manta-bus` over MCP — without this registration every clone-side tool call fails at the transport layer and the cast times out silently.
+
+```
+claude mcp add manta-bus --command "node $(pwd)/packages/manta-bus/dist/bin/server.cjs"
+```
+
+Verify:
+
+```
+claude mcp list | grep manta-bus
+```
+
+Expected: at least one line containing `manta-bus`.
+
+If you skip this, the CLI's pre-flight (`runCastCommand` calls `verifyMantaBusRegistered` before spawning) will fail with a friendly `spawn_failed` error pointing back at this step.
+
+## 3. Validate skills
 
 ```
 node packages/manta-skill-validator/dist/bin/manta-validate-skills.cjs --root .
@@ -587,7 +605,7 @@ node packages/manta-skill-validator/dist/bin/manta-validate-skills.cjs --root .
 
 Expected: `9 file(s), 0 error(s), 0 warning(s)`.
 
-## 3. Run the pre-flight smoke
+## 4. Run the pre-flight smoke
 
 Cheap (~2 min), no API spend:
 
@@ -597,7 +615,7 @@ pnpm --filter @manta/e2e test preflight.test.ts
 
 Expected: 3/3 passing.
 
-## 4. Run a real recon-swarm cast
+## 5. Run a real recon-swarm cast
 
 In a repo of your choice (or use the sample fixture in `packages/manta-e2e/tests/fixtures/sample-repo/`):
 
@@ -605,7 +623,8 @@ In a repo of your choice (or use the sample fixture in `packages/manta-e2e/tests
 node packages/manta-cli/dist/bin/manta.cjs cast recon-swarm \
     --clones 2 \
     --task "Map every public export in src/" \
-    --budget-per-clone-usd 5
+    --budget-per-clone-usd 5 \
+    --budget-per-cast-usd 15
 ```
 
 The CLI:
@@ -615,7 +634,7 @@ The CLI:
 4. Ticks the orchestrator while clones are alive.
 5. When both clones exit (or after the 25-minute budget), prints `Cast cast-<ts> complete: 2 clone(s).`
 
-## 5. Inspect outputs
+## 6. Inspect outputs
 
 - `docs/post-mortems/<date>-cast-<ts>-A.md` — what clone A did, the bus events it emitted, the reason it died.
 - `docs/post-mortems/<date>-cast-<ts>-B.md` — same for clone B.
@@ -623,7 +642,7 @@ The CLI:
 - `docs/para/projects.md` — append-only fact log.
 - `.manta/worktrees/clone-A/`, `clone-B/` — the actual worktrees, kept for inspection.
 
-## 6. If something goes wrong
+## 7. If something goes wrong
 
 - `manta status` — current view of the bus.
 - `manta recover` — runs one orchestrator cycle, reaping zombies.
@@ -632,7 +651,7 @@ The CLI:
 
 If a worktree won't go away or a lock is stuck, see `docs/manta-bugs.md` first; if it's not there, file it.
 
-## 7. What's not in Phase 0
+## 8. What's not in Phase 0
 
 - Modes other than `recon-swarm` (forking-realities, refactor-wave, bug-hunt, …) — Phase 2+.
 - The other 30+ slash commands (`/manta inspect`, `/manta tail`, `/manta promote`, …) — Phase 1+.
@@ -861,7 +880,7 @@ git -c user.email="tr00x@proton.me" -c user.name="Tim Hunt" add \
 git -c user.email="tr00x@proton.me" -c user.name="Tim Hunt" commit -m "$(cat <<'EOF'
 docs(phase-0): user docs + acceptance checklist + CHANGELOG + README
 
-- docs/user/getting-started.md: 7-step walkthrough from clone to first cast
+- docs/user/getting-started.md: 8-step walkthrough from clone to first cast (incl. mandatory `claude mcp add manta-bus` step)
 - docs/user/recon-swarm.md: how the mode works, when to use it, where to
   find the artifacts
 - docs/acceptance/phase-0.md: checklist + human sign-off line for the

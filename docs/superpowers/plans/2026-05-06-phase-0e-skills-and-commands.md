@@ -1108,7 +1108,10 @@ You're the main agent. The user gave you a task. Before you `/manta cast`, run t
   4. Is it a **multi-layer bug** with unknown root cause? → bug-hunt (Phase 2+).
   - If none match: do it solo. Skip the cast.
 - **Cooldown** (50 s between casts per spec Sec 6.1) is **operator discipline** in Phase 0 — there is no automatic gate. Read `/manta status`; if the previous cast hasn't settled (any clone still WORKING), wait. Phase 3 ships enforcement via the charge ledger.
-- **Charges & daily budget** are Phase 3 (spec Sec 6.4). In Phase 0 these gates do not exist; rely on `--budget-per-clone-usd` (default 5) and your own judgement to stay under the day's intended spend.
+- **Cost gates** in Phase 0 are interim:
+  - `--budget-per-clone-usd` (default $5) caps per-clone spend.
+  - `--budget-per-cast-usd` (default $15) caps cumulative spend; the CLI rejects `cloneCount × per-clone > per-cast` before spawning.
+  - These prevent the dumbest accidents but do **not** track actual spend (no token-counting yet) and do **not** enforce a daily cap. A daily-spend env gate (`MANTA_DAILY_BUDGET_USD`) lands in Phase 1; the full charge ledger lands in Phase 3.
 - **Run dry-run** (Phase 1+ feature, deferred).
 
 ## Forbidden
@@ -1173,6 +1176,7 @@ Mode is required. Phase 0: `recon-swarm` only. Other modes throw `invalid_input`
 | `--cycle-interval-ms <ms>` | integer > 0 | 5000 | orchestrator cycle interval |
 | `--tick-budget-ms <ms>` | integer > 0 | 1500000 (25 min) | aborts the cast after this |
 | `--budget-per-clone-usd <amt>` | number > 0 | 5 | dollarsTotal in each clone's snapshot |
+| `--budget-per-cast-usd <amt>` | number > 0 | 15 | cumulative dollar cap; rejects with `invalid_input` if `cloneCount × budget-per-clone-usd > this` |
 
 ## Behavior
 
