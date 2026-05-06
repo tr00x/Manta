@@ -10,7 +10,7 @@
 |---|---|---|
 | `2026-05-06-phase-0-foundation.md` | **In progress** — Chunks 1-2 written + reviewer-approved + fixes applied | Chunk 1 (monorepo bootstrap), Chunk 2 (`@manta/snapshot` package) |
 | `2026-05-06-phase-0b-bus.md` | **Approved** — Chunks 1-2 written (~3.8k lines, 98 atomic tasks), reviewer-approved with advisories applied | `@manta/bus` — state foundations (Chunk 1) + MCP server with 18 tools across 6 families (Chunk 2), integration test (registry/locks/claims/contracts persistence across restart), README + ARCHITECTURE |
-| `2026-05-06-phase-0c-orchestrator.md` | TODO | `@manta/orchestrator` — heartbeat tracking, dead-clone cleanup, post-mortem trigger, append-only event log |
+| `2026-05-06-phase-0c-orchestrator.md` | **Approved** — Chunks 1-2 written (~2.0k lines, 65 atomic tasks), reviewer-approved with advisories applied | `@manta/orchestrator` — Chunk 1: thresholds, parent-pid probe, death-detector, lock/claim reapers, post-mortem composer + writer. Chunk 2: `Orchestrator` class with `runCycle`/`getStatus`, integration test against real bus. Adds `ClaimsStore.reapExpired` + `BusContext` re-export to @manta/bus (split commit). |
 | `2026-05-06-phase-0d-cli.md` | TODO | `@manta/cli` — `cast`, `status`, `kill`, `abort`, `recover` commands |
 | `2026-05-06-phase-0e-skills-and-commands.md` | TODO | 4 skills (`manta-as-clone`, `manta-coordinate`, `manta-graceful-death`, `manta-cast-decide`) + `/manta` slash commands |
 | `2026-05-06-phase-0f-recon-swarm-integration.md` | TODO | End-to-end integration test on Manta repo itself, smoke verification, docs |
