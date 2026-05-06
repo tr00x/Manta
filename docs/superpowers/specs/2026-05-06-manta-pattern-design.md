@@ -580,7 +580,7 @@ manta/
 
 ### 14.3 Operational
 
-- **Observability** — все 5 tier'ов (Sec 11.0) работают с release 1, не «потом докрутим».
+- **Observability** — все 5 tier'ов (Sec 11.0) работают **к Phase 1 GA**, не «потом докрутим». Phase 0 ship'ит tier 0 (events log) + tier 1 partial (post-mortems on disk + stderr reporter); tier 2-4 enforced в Phase 1 per Sec 15.1. Это compromise между "release 1 = ground floor" и реальностью bootstrap-by-Manta — без рабочих клонов observability tier 3-4 (auto-cast triggers, drift dashboards) построить нечем.
 - **Error budgets** — daily SLO: ≥ 95% castов завершаются без catastrophic failure (zombie processes, orphan locks, corrupted state).
 - **Rollback plan** для каждой волны — известный набор шагов чтобы откатить на предыдущую версию без потери данных.
 - **Cost dashboards** в `docs/ops/cost-dashboard.md` (текстовое описание; runtime — `/manta cost`).
