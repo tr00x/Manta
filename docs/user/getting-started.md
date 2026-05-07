@@ -18,8 +18,10 @@ Expected: every workspace package emits a `dist/`. If any package fails: read it
 **This step is mandatory.** Real `claude --print` clones spawned by `manta cast` need to talk to `manta-bus` over MCP — without this registration every clone-side tool call fails at the transport layer and the cast times out silently.
 
 ```
-claude mcp add manta-bus --command "node $(pwd)/packages/manta-bus/dist/bin/server.cjs"
+claude mcp add -s user manta-bus -- node "$(pwd)/packages/manta-bus/dist/bin/server.cjs"
 ```
+
+(The `--` separator passes everything after it as the stdio command + args. Older Claude Code releases used `--command "<cmd>"`; if you're on `claude` < 2.x, use that form instead.)
 
 Verify:
 

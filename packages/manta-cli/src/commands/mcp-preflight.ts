@@ -54,7 +54,7 @@ export async function verifyMantaBusRegistered(
   if (!result.stdout.includes('manta-bus')) {
     throw new CliError(
       'manta-bus MCP server is not registered with Claude Code. Run:\n' +
-        '  claude mcp add manta-bus --command "node $(pwd)/packages/manta-bus/dist/bin/server.cjs"\n' +
+        '  claude mcp add -s user manta-bus -- node "$(pwd)/packages/manta-bus/dist/bin/server.cjs"\n' +
         'See docs/user/getting-started.md for full setup.',
       { kind: 'spawn_failed' },
     );

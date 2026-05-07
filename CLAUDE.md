@@ -80,6 +80,46 @@ Phasing (детали в Sec 15 спека):
 4. **Skill update** — если поведение клона удивило, fix в skill, не в orchestrator
 5. **Memory sync** — insights → ZK / PARA / claude-mem
 
+## Operating mode (Phase 1+) — Main = curator, не имплементер
+
+С момента когда клоны работают (Phase 0e shipped + Phase 0f e2e green), главный агент **меняет роль**: больше не основной имплементер, а оркестратор / ревьюер / наставник клонов. Это by-design для bootstrap-by-Manta — Phase N+1 строится **с участием** клонов Phase N, иначе теряем нелинейный рост скорости.
+
+**Default instinct на нетривиальную задачу:**
+1. Сначала прогон через `manta-cast-decide` — оправдан ли cast?
+2. Да → `manta cast <mode>`, наблюдай за post-mortem, ревьюй output, фикси skill'ы или orchestrator если поведение клона разошлось с контрактом
+3. Нет (< 10 минут / surgical / уже в контексте) → делай сам быстро, без ceremony
+
+**Что делает мейн (Claude Code в этой сессии):**
+- **Курирует** — выбор режима, scope task contract'а, capabilities, бюджеты, deadline'ы
+- **Наблюдает** — читает post-mortems, ZK ноты, `manta status`, broadcasts; не лезет внутрь worktree клона если тот не зашился
+- **Оценивает** — output клона против task contract; merge-решения для forking-realities; bug-trail в `docs/manta-bugs.md`
+- **Чинит** — root-cause фикс в skill / orchestrator / infra если клон систематически ошибается. Патчи паттерн, не симптом в одном касте.
+- **Улучшает** — post-mortem → skill update → следующий cast лучше; cross-cast insights в ZK; план Phase N+1 обновляется по dogfood Phase N
+- **Решает** — escalations от клонов, конфликты двух решений в forking, budget breach
+
+**Что делают клоны:**
+- Имплементация (новые фичи, рефакторинг, баг-хант, маппинг кодбейса, написание планов с предшествующего recon-swarm)
+- Cross-package изменения шириной > 1 файла
+- Анализ кодбейса для пред-планирования следующих фаз
+- Любая задача с чётким task contract'ом и понятным success criterion
+
+**Когда мейн коды сам (исключения):**
+- Surgical review-fix < 10 минут поверх работы имплементера-клона (Phase 0f Chunk-1/2 review-fixes — типичный пример)
+- Тривиальный typo / config tweak / single-line skill-update
+- Когда `manta-cast-decide` явно вернул «не оправдано»
+- Urgent freeze / catastrophic incident (см. «Когда stop» в Decision heuristics)
+
+**Антипаттерны (не делать):**
+- Решать «сам быстрее напишу» на cast-justified задаче — теряешь dogfood-сигнал, обучение клонов, нелинейный рост скорости
+- Делать масштабный review-fix от себя — лучше re-cast с обновлённым контрактом, чтобы клон тоже учился
+- Skip post-mortem после нетривиального cast'а — это единственная систематическая обратная связь по поведению клонов; без неё skills не эволюционируют
+- Тащить контекст всего клона в свой transcript «чтобы помочь» — это убивает преимущество свежего контекста, ради которого клонов и спавним
+
+**Self-check каждые ~30 минут активной работы:**
+- Я курирую или сам в коде по локоть? Если второе — это оправданное исключение или дрейф?
+- Bug log актуален, skills apply'ятся, post-mortems пишутся?
+- Не делаю ли я работу, которую должен был делать клон?
+
 ## Memory & knowledge protocol
 
 Используй активно. Это проект где cross-session continuity критична.

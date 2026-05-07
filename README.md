@@ -7,7 +7,7 @@ Self-cloning Claude Code pattern. Same system prompt, full transcript inheritanc
 ```
 git clone <manta-repo> && cd manta
 pnpm install && pnpm -r build
-claude mcp add manta-bus --command "node $(pwd)/packages/manta-bus/dist/bin/server.cjs"
+claude mcp add -s user manta-bus -- node "$(pwd)/packages/manta-bus/dist/bin/server.cjs"
 node packages/manta-cli/dist/bin/manta.cjs cast recon-swarm --clones 2 --task "Map this codebase"
 ```
 
