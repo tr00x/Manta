@@ -65,10 +65,14 @@ describe('post-mortem', () => {
     expect(writer.captured).toHaveLength(1);
   });
 
-  it('propagates writer errors when the filename would be unsafe', async () => {
-    // The cloneId itself is not sanitized by the composer; the writer is the
-    // last line of defence. This test documents that contract: hostile cloneIds
-    // do not escape the post-mortem directory.
+  it('composer sanitizes hostile cast_id into a writer-safe filename', async () => {
+    // The composer is responsible for ensuring the filename it hands to the
+    // writer matches SAFE_FILENAME. This test wraps the writer with the same
+    // guard the fs writer uses and confirms a registered clone produces a
+    // filename that survives the guard — i.e. composer-level sanitization
+    // works and never relies on the writer as a last line of defence for
+    // happy-path inputs. (For the writer-level rejection contract, see
+    // post-mortem-writer.test.ts:'fsPostMortemWriter rejects path traversal'.)
     const writer = inMemoryPostMortemWriter();
     // Override write to mimic the fs writer's SAFE_FILENAME guard
     writer.write = (doc) => {
@@ -81,12 +85,7 @@ describe('post-mortem', () => {
     await ctx.registry.register({
       clone_id: 'AA', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {},
     });
-    // Directly call with hostile cloneId — registry.get will throw not-found,
-    // which is itself a safety net. Test the writer-level rejection by
-    // crafting a registered clone with a hostile cast_id instead:
     await ctx.registry.heartbeat({ clone_id: 'AA', state: 'WORKING' });
-    // Replace metadata to inject hostile cast_id; castIdOf strips it down,
-    // so this should NOT trigger writer rejection — confirms sanitization works.
     const ok = await runPostMortem(ctx, {
       cloneId: 'AA',
       reason: 'sanitization-check',

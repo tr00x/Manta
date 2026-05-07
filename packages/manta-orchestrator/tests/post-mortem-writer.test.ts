@@ -51,4 +51,21 @@ describe('post-mortem-writer', () => {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+
+  it('fsPostMortemWriter writes a path that resolves under the configured dir', async () => {
+    // Defense-in-depth check: even on a clean filename, the resolved write path
+    // must land under the resolved post-mortem directory. This guards against
+    // future regressions where SAFE_FILENAME might admit a sequence that
+    // path.resolve would flatten upward.
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'manta-pm-'));
+    try {
+      const w = fsPostMortemWriter({ repoRoot: root, postMortemDir: 'docs/post-mortems' });
+      const result = await w.write({ filename: '2026-05-07-cast-x-A.md', body: 'body\n' });
+      const expectedDir = await fs.realpath(path.join(root, 'docs/post-mortems'));
+      const writtenReal = await fs.realpath(result.path);
+      expect(writtenReal.startsWith(expectedDir + path.sep)).toBe(true);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 });
