@@ -1,4 +1,6 @@
 {
   "include": [],
-  "references": []
+  "references": [
+    { "path": "./packages/manta-snapshot" }
+  ]
 }

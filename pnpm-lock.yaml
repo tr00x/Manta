@@ -42,6 +42,25 @@ importers:
         specifier: ^1.5.0
         version: 1.6.1(@types/node@20.19.39)
 
+  packages/manta-snapshot:
+    dependencies:
+      zod:
+        specifier: ^3.23.0
+        version: 3.25.76
+    devDependencies:
+      '@vitest/coverage-v8':
+        specifier: ^1.5.0
+        version: 1.6.1(vitest@1.6.1(@types/node@20.19.39))
+      tsup:
+        specifier: ^8.0.0
+        version: 8.5.1(postcss@8.5.14)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.5.0
+        version: 1.6.1(@types/node@20.19.39)
+
 packages:
 
   '@ampproject/remapping@2.3.0':
@@ -1574,6 +1593,9 @@ packages:
     resolution: {integrity: sha512-4LCcse/U2MHZ63HAJVE+v71o7yOdIe4cZ70Wpf8D/IyjDKYQLV5GD46B+hSTjJsvV5PztjvHoU580EftxjDZFQ==}
     engines: {node: '>=12.20'}
 
+  zod@3.25.76:
+    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
+
 snapshots:
 
   '@ampproject/remapping@2.3.0':
@@ -2977,3 +2999,5 @@ snapshots:
   yocto-queue@0.1.0: {}
 
   yocto-queue@1.2.2: {}
+
+  zod@3.25.76: {}
