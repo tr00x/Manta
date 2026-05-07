@@ -1,9 +1,10 @@
-// Public exports — extended in Chunk 2 once the MCP server is wired.
+// Public exports — Chunk 2 wires the MCP server on top of Chunk 1's stores.
 export * from './errors';
 export * from './schema';
 export type { Clock } from './clock';
 export { systemClock, FakeClock } from './clock';
 export { busPaths } from './state/paths';
+export type { BusPaths } from './state/paths';
 export { Registry } from './state/registry';
 export { LocksStore } from './state/locks';
 export { ClaimsStore } from './state/claims';
@@ -14,3 +15,8 @@ export type { LockLease } from './state/locks';
 export type { WorkClaim } from './state/claims';
 export type { StoredContract, ContractAck } from './state/contracts';
 export type { BusEvent } from './state/events';
+export { createBusServer } from './server';
+export type { CreateBusServerOptions, BusServerHandle } from './server';
+export { fsMemoryWriters } from './memory-writers';
+export type { MemoryWriters, ZkWriteRequest, ParaAppendRequest } from './memory-writers';
+export type { BusContext } from './tools/index';
