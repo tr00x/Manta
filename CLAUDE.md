@@ -12,16 +12,37 @@ Manta — паттерн параллельной работы Claude Code, в �
 
 ## Quality bar — PROD only
 
-**Никаких MVP, demo, mock, throwaway-кода.** Каждая написанная строка должна быть production-grade. Это закреплено в Sec 14 спека.
+**Никаких MVP, demo, mock, throwaway-кода. Никаких костылей. Никаких "потом починим".** Каждая написанная строка должна быть production-grade с дня 1. Это закреплено в Sec 14 спека.
 
-Ключевые правила:
-- Test coverage ≥ 80% на критичных путях (`manta-orchestrator`, `manta-bus`, `manta-cli`, `manta-snapshot`)
-- `// TODO: implement` запрещён в merged-коде
-- Никаких `if env == 'prod' else mock` — один код-путь
-- Никаких feature flags «потому что не уверен» — feature либо merged и работает, либо в branch
-- Никаких commits «фикс позже разберусь» — fix or revert
-- Каждая фича приходит с user-facing docs + architecture note
-- Все 5 tier'ов observability (Sec 11.0) работают с release 1, не «потом докрутим»
+### Запрещено в merged-коде
+
+- `// TODO`, `// TODO: implement`, `// FIXME`, `// HACK`, `// XXX` — любые маркеры отложенной работы. Если что-то не доделано — план в branch, не commit в main.
+- `it.skip`, `test.skip`, `describe.skip`, `it.todo`, `test.todo`, `xit`, `xdescribe`. Тест либо работает и проверяет реальное поведение, либо удалён.
+- `eslint-disable` / `@ts-ignore` / `@ts-nocheck` без `// Reason: <конкретное обоснование>` рядом. Молчаливое подавление ругани = тех-долг.
+- `if env == 'prod' else mock` / две ветки кода под "test" и "prod" — один код-путь. DI seam'ы (CloneRunner, MCP runner) — да; env-switch — нет.
+- Mock'и production-сервисов в production-коде. Mock только в тестах через явный seam, не через `if NODE_ENV`.
+- Feature flags "потому что не уверен" — feature либо merged и работает, либо живёт в branch до готовности.
+- Commits "фикс позже разберусь" / "знаю что баг, дойду" — **fix or revert**, третьего не дано.
+- Half-finished implementations — функция либо делает что обещает в имени, либо не существует.
+- Lint warnings, не только errors. Warnings → fix или явный обоснованный suppress, не "пусть висит".
+
+### Бэг найден — что делать
+
+1. Если bug блокирует текущую задачу → fix immediately, root-cause а не симптом.
+2. Если bug pre-existing и unrelated → запись в `docs/manta-bugs.md` (#N, Severity, Reproducer, Root cause if known, workaround). Никогда не молча оставляем.
+3. Если bug surfaced субагентом во время review → applied до коммита (defer-nothing).
+4. Если test упал и "не воспроизводится у меня" → flaky test, запись в `docs/manta-bugs.md`, но **не** `it.skip` чтобы зелёный CI.
+
+### Test / coverage / docs
+
+- Test coverage ≥ 80% на всех 5 пакетах: `@manta/snapshot`, `@manta/bus`, `@manta/orchestrator`, `@manta/cli`, `@manta/skill-validator`. Для каждого нового критичного пакета — то же.
+- Каждая фича приходит с user-facing docs + architecture note в том же коммите что и код.
+- Все 5 tier'ов observability (Sec 11.0) работают с release 1, не «потом докрутим».
+
+### Verification before claiming done
+
+- "Тесты прошли" / "build green" — verify прогоном гейта **самостоятельно** перед коммитом, не на слово subagent'а. Имплементаторы уже врали про test pass (см. `feedback-impl-self-reports.md` в memory).
+- Spec-reviewer subagent должен независимо перепрогнать гейты, не доверять numerical claims.
 
 При сомнении — кастуй `recon-swarm` чтобы проверить, не «пишу как помню».
 
