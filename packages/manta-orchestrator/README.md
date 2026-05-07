@@ -73,7 +73,7 @@ try {
 }
 ```
 
-`runCycle` is **fail-fast**: a thrown probe / writer / store error is propagated wrapped, and no half-applied state (events / post-mortems / registry transitions) is left behind for the next cycle to wonder about.
+`runCycle` is **fail-fast within a phase**: a thrown error is propagated wrapped in `OrchestratorError`, but earlier phases of the same cycle (e.g. `lock_reap` events, `claim_reap` events, partial post-mortem writes) may have already landed on disk. The cycle is idempotent on already-reaped state, so re-calling `runCycle` after handling the error is safe — the next pass simply skips already-DEAD clones, finds no fresh expirations, and exits clean.
 
 ## Non-goals (deferred)
 

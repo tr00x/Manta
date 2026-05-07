@@ -1,3 +1,6 @@
+// 'cycle_failed' is what runCycle currently emits. The other three are reserved
+// for Phase 0d when per-phase try/catch granularity is added — keep them in the
+// union so the type surface is stable across phase upgrades.
 export type OrchestratorErrorKind =
   | 'cycle_failed'
   | 'post_mortem_failed'
