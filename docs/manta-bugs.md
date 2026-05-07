@@ -24,6 +24,23 @@
 
 ## Open bugs
 
+### #9 — Heartbeat cadence is not interleaved with long read sequences (skill-level enforcement is non-functional)
+
+**Discovered:** 2026-05-07, Phase-2 research-prep cast `cast-1778187665150` (after bug #8 fix in `9ed5609`). Independently surfaced by clone A and clone C in their last-gasp reports, with concrete fix proposals.
+**Severity:** High — recurring across every research clone with non-trivial reading load. The 90 s threshold from bug #8 helps but does not eliminate the failure mode; it only widens the window.
+**Status:** Open.
+**Symptom:** A research clone reading multi-KB specs + drafting markdown can legitimately go 50–80 s between MCP calls (especially during batched parallel `Read` turns). The skill `manta-as-clone` says "heartbeat every ≤ 10 s" but Claude has no wallclock between assistant turns; it only sees "next turn." A clone doing 60 s of `Read` + `Grep` without any `manta.*` tool use lapses into heartbeat staleness despite working productively.
+**Reproducer:**
+1. Cast a clone with a research mission that requires reading >10 files (e.g. spec + plan + 5–8 source files).
+2. Observe the events.jsonl: typically one heartbeat at startup, then no further heartbeats until shutdown — the orchestrator marks DEAD between them.
+**Root cause:** Heartbeat cadence is treated as a wall-clock SLA in skill text, but enforcement requires either (a) priming-text instruction tied to the conversation loop ("heartbeat at the start of every assistant turn that contains tool calls"), (b) a bus-side keepalive variant that does not require `state` argument so it can be interleaved without semantic churn, or (c) a spawner-side periodic heartbeat ping decoupled from the clone's tool loop.
+**Fix:** Pending. Two design options under consideration (per clone C's last-gasp recommendation):
+1. **Priming text patch** + **`manta-as-clone` skill v0.0.3** — lift heartbeat from "Allowed" to "Required" with explicit "send `manta.heartbeat` at the start of every assistant turn that contains tool calls; the orchestrator's `heartbeatTimeoutMs=90 000ms` is hard, not advisory."
+2. **Bus-side `manta.heartbeat_keepalive`** — a no-state-change variant clones can interleave between Reads without semantic cost.
+**Lessons:**
+- A skill saying "every ≤ 10 s" is not a forcing function when the runtime has no concept of wall-clock between turns. Future skill thresholds must be expressed in terms of conversation-loop primitives ("every Nth turn", "before/after every Read"), not seconds.
+- Bugs #7 + #8 + #9 form a cluster — the orchestrator's death-detector treats one wallclock threshold as the universal liveness signal, but real clones operate on a conversation-loop clock. The structural fix is to **decouple** heartbeat semantics from wallclock: the bus-side keepalive proposal achieves this and should be evaluated for Phase-2.
+
 ### #8 — `heartbeatTimeoutMs` default (30 s) too tight for actively-working clones
 
 **Discovered:** 2026-05-07, Phase-2 research-prep dogfood re-run (`cast-1778187134719`, after bugs #6 + #7 fix in commit `ae192ec`).

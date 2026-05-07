@@ -29,7 +29,7 @@
 
 | План | Статус | Содержит |
 |---|---|---|
-| `2026-05-07-phase-2-forking-realities-research-prep.md` | **TODO — research prep** | Cast spec для recon-swarm: 3 клона (codebase map / best-of-N research / Bus isolation strategy). Output feeds Phase 2 plan. |
+| `2026-05-07-phase-2-forking-realities-research-prep.md` | **Executed** — three casts (`cast-1778185934043`, `cast-1778187134719`, `cast-1778187665150`); first two surfaced bugs #6/#7/#8 (fixed in `ae192ec` + `9ed5609`); third delivered all three research artifacts. See `docs/post-mortems/2026-05-07-phase-2-research-cast.md`. | Cast spec для recon-swarm: 3 клона (codebase map / best-of-N research / Bus isolation strategy). Outputs in `docs/research/phase-2-{codepath-map,best-of-n-patterns,bus-isolation}.md`; feeds Phase 2 plan. |
 | `2026-05-07-phase-2-forking-realities.md` | **TBD — pending research cast** | Будет написан после post-mortem'а recon-swarm каста. Ожидаемый scope: spawner-N-worktrees, manta-merge-review skill+command, plagiarism-prevention bus filter (Sec 5.8), Tier 3-4 observability commands. |
 
 ## Phase 3+ — TBD
