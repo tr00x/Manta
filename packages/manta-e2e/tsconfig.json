@@ -3,10 +3,17 @@
   "compilerOptions": {
     "rootDir": ".",
     "noEmit": true,
+    // TS5069: composite + noEmit cannot coexist. tsconfig.base.json sets
+    // composite & incremental to true; this is a tests-only leaf package
+    // (nothing references it back) so we override them off here.
+    // See plan §1.5 in docs/superpowers/plans/2026-05-06-phase-0f-recon-swarm-integration.md.
     "composite": false,
     "incremental": false
   },
   "include": ["src/**/*", "tests/**/*"],
+  // Fixture .ts files use bare relative imports because they are consumed by
+  // clones as raw source (not via this package's tsc). Excluding them keeps
+  // nodenext extension rejection quiet without polluting the fixture content.
   "exclude": ["tests/fixtures/**"],
   "references": [
     { "path": "../manta-bus" },

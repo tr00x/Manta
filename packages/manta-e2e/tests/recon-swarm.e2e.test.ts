@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,9 +23,12 @@ describe('recon-swarm end-to-end against real claude', () => {
     claude = await probeClaudeBin();
   });
 
+  afterAll(async () => {
+    if (fx) await fx.cleanup();
+  });
+
   it('runs a 2-clone recon-swarm cast and produces post-mortems and ZK notes', async () => {
     if (!claude.available) {
-      // eslint-disable-next-line no-console
       console.warn(`[recon-swarm.e2e] SKIPPED: ${claude.reason}`);
       return;
     }
@@ -45,9 +48,7 @@ describe('recon-swarm end-to-end against real claude', () => {
 
     // Surface stdout/stderr on failure for diagnosis
     if (r.exitCode !== 0) {
-      // eslint-disable-next-line no-console
       console.error('cast stdout:\n', r.stdout);
-      // eslint-disable-next-line no-console
       console.error('cast stderr:\n', r.stderr);
     }
     expect(r.exitCode).toBe(0);
