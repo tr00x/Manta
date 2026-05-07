@@ -101,6 +101,51 @@ describe('Registry', () => {
     expect(r.state).toBe('DEAD');
   });
 
+  it('touch updates last_heartbeat_at on a WORKING clone without changing state', async () => {
+    // Bug #9 structural fix (option d): any successful MCP call from a
+    // registered clone updates last_heartbeat_at as a side effect; explicit
+    // manta.heartbeat keeps its role for state transitions.
+    await registry.register({
+      clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {},
+    });
+    await registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    const before = await registry.get('A');
+    expect(before.state).toBe('WORKING');
+    expect(before.last_heartbeat_at).toBe(1_000_000);
+
+    clock.advance(45_000);
+    await registry.touch('A');
+
+    const after = await registry.get('A');
+    expect(after.last_heartbeat_at).toBe(1_045_000);
+    expect(after.state).toBe('WORKING'); // touch never changes state
+  });
+
+  it('touch is a silent no-op on a DEAD clone (death is terminal)', async () => {
+    // No zombie resurrection — once DEAD, even side-effect liveness updates
+    // are ignored so post-mortems and sibling references stay consistent.
+    await registry.register({
+      clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {},
+    });
+    await registry.markDead('A', 'rip');
+    const before = await registry.get('A');
+    const heartbeatBefore = before.last_heartbeat_at;
+
+    clock.advance(60_000);
+    await expect(registry.touch('A')).resolves.toBeUndefined();
+
+    const after = await registry.get('A');
+    expect(after.state).toBe('DEAD');
+    expect(after.last_heartbeat_at).toBe(heartbeatBefore); // unchanged
+  });
+
+  it('touch is a silent no-op on an unknown clone (no throw)', async () => {
+    // Main-side calls or typos must not crash the dispatcher. The contract
+    // is "best-effort liveness side-effect", not "strict id check".
+    await expect(registry.touch('GHOST')).resolves.toBeUndefined();
+    await expect(registry.list()).resolves.toEqual([]);
+  });
+
   it('list returns all registered clones', async () => {
     await registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
     await registry.register({ clone_id: 'B', mode: 'recon-swarm', parent_pid: 2, worktree: '/w', metadata: {} });

@@ -254,8 +254,25 @@ export async function createBusServer(opts: CreateBusServerOptions): Promise<Bus
         ],
       };
     }
+    const args = request.params.arguments ?? {};
     try {
-      const out = await t.handle(request.params.arguments ?? {});
+      const out = await t.handle(args);
+      // Bug #9 structural fix (option d): any successful MCP call from a
+      // registered clone is itself a liveness signal. Touch last_heartbeat_at
+      // as a side effect so the orchestrator's death-detector reflects real
+      // activity, not just explicit heartbeats. Silent no-op on unknown
+      // clone_id and on DEAD clones (Registry.touch contract). Failure of the
+      // touch must not fail the handler response — swallow errors and let the
+      // caller's normal flow continue.
+      const cloneId = extractCloneId(args);
+      if (cloneId) {
+        try {
+          await context.registry.touch(cloneId);
+        } catch {
+          // Touch failures are non-fatal observability; the handler already
+          // succeeded and the clone-side caller does not need to know.
+        }
+      }
       return { content: [{ type: 'text', text: JSON.stringify(out) }] };
     } catch (err) {
       const error = serializeError(err);
@@ -264,6 +281,21 @@ export async function createBusServer(opts: CreateBusServerOptions): Promise<Bus
   });
 
   return { server, context };
+}
+
+/**
+ * Extract a `clone_id` field from arbitrary tool arguments for the bus's
+ * auto-touch side effect. Returns the value only when it is a non-empty
+ * string; everything else (missing, wrong type, empty) → `undefined` so the
+ * dispatcher skips the touch. Tools that do not carry a clone_id (e.g. main-
+ * side broadcasts that may add one in Phase 2+, or unknown future shapes)
+ * must not crash this lookup — hence the defensive type narrowing.
+ */
+function extractCloneId(args: unknown): string | undefined {
+  if (typeof args !== 'object' || args === null) return undefined;
+  const v = (args as Record<string, unknown>).clone_id;
+  if (typeof v !== 'string' || v.length === 0) return undefined;
+  return v;
 }
 
 interface SerializedError {

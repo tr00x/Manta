@@ -246,3 +246,153 @@ describe('createBusServer', () => {
     expect(parsed.error).toBe('conflict');
   });
 });
+
+describe('createBusServer — auto-touch on every successful MCP call (bug #9)', () => {
+  // Bug #9 structural fix (option d): the bus dispatcher updates
+  // last_heartbeat_at as a side effect of any successful handler whose args
+  // include a clone_id, so the orchestrator's death-detector reflects real
+  // activity (lock/unlock/zk_write/etc.) without requiring the clone to call
+  // manta.heartbeat at any specific cadence. See
+  // docs/post-mortems/2026-05-07-cast-1778189501846-validation.md for why
+  // skill-level enforcement was insufficient.
+
+  it('non-heartbeat tool call updates last_heartbeat_at via auto-touch', async () => {
+    const { root: r, cleanup: clean } = await makeTmpRoot();
+    const clock = new FakeClock(1_000_000);
+    const { server, context } = await createBusServer({ repoRoot: r, clock });
+    const [c, s] = InMemoryTransport.createLinkedPair();
+    await server.connect(s);
+    const client = new Client(
+      { name: 'manta-bus-auto-touch', version: '0.0.0' },
+      { capabilities: {} },
+    );
+    await client.connect(c);
+    try {
+      await client.callTool({
+        name: 'manta.register',
+        arguments: {
+          clone_id: 'A',
+          mode: 'recon-swarm',
+          parent_pid: 1,
+          worktree: '/w',
+          metadata: {},
+        },
+      });
+      await client.callTool({
+        name: 'manta.heartbeat',
+        arguments: { clone_id: 'A', state: 'WORKING' },
+      });
+      const before = await context.registry.get('A');
+      expect(before.last_heartbeat_at).toBe(1_000_000);
+
+      // Advance clock far past heartbeatTimeoutMs and make a *non-heartbeat*
+      // call. With the auto-touch side effect, last_heartbeat_at must catch up
+      // to the new clock — proving any bus call IS a liveness signal.
+      clock.advance(120_000);
+      const lockResp = await client.callTool({
+        name: 'manta.lock',
+        arguments: { clone_id: 'A', path: 'docs/example.md' },
+      });
+      expect(lockResp.isError).toBeFalsy();
+
+      const after = await context.registry.get('A');
+      expect(after.last_heartbeat_at).toBe(1_120_000);
+      expect(after.state).toBe('WORKING'); // touch never changes state
+    } finally {
+      await client.close();
+      await server.close();
+      await clean();
+    }
+  });
+
+  it('failed tool call does NOT update last_heartbeat_at (auto-touch only on success)', async () => {
+    const { root: r, cleanup: clean } = await makeTmpRoot();
+    const clock = new FakeClock(1_000_000);
+    const { server, context } = await createBusServer({ repoRoot: r, clock });
+    const [c, s] = InMemoryTransport.createLinkedPair();
+    await server.connect(s);
+    const client = new Client(
+      { name: 'manta-bus-auto-touch-fail', version: '0.0.0' },
+      { capabilities: {} },
+    );
+    await client.connect(c);
+    try {
+      await client.callTool({
+        name: 'manta.register',
+        arguments: {
+          clone_id: 'A',
+          mode: 'recon-swarm',
+          parent_pid: 1,
+          worktree: '/w',
+          metadata: {},
+        },
+      });
+      const before = await context.registry.get('A');
+      expect(before.last_heartbeat_at).toBe(1_000_000);
+
+      clock.advance(60_000);
+      // task_contract.read for a clone that has no contract yet → not_found.
+      // Auto-touch must NOT fire on a failed handler — staleness should still
+      // be observable to the orchestrator if a clone is only making failing
+      // calls.
+      const failed = await client.callTool({
+        name: 'manta.task_contract.read',
+        arguments: { clone_id: 'A' },
+      });
+      expect(failed.isError).toBe(true);
+
+      const after = await context.registry.get('A');
+      expect(after.last_heartbeat_at).toBe(1_000_000); // unchanged
+    } finally {
+      await client.close();
+      await server.close();
+      await clean();
+    }
+  });
+
+  it('auto-touch is a silent no-op on a DEAD clone (death is terminal)', async () => {
+    const { root: r, cleanup: clean } = await makeTmpRoot();
+    const clock = new FakeClock(1_000_000);
+    const { server, context } = await createBusServer({ repoRoot: r, clock });
+    const [c, s] = InMemoryTransport.createLinkedPair();
+    await server.connect(s);
+    const client = new Client(
+      { name: 'manta-bus-auto-touch-dead', version: '0.0.0' },
+      { capabilities: {} },
+    );
+    await client.connect(c);
+    try {
+      await client.callTool({
+        name: 'manta.register',
+        arguments: {
+          clone_id: 'A',
+          mode: 'recon-swarm',
+          parent_pid: 1,
+          worktree: '/w',
+          metadata: {},
+        },
+      });
+      // Mark DEAD via direct registry call (markDead is internal).
+      await context.registry.markDead('A', 'killed for test');
+      const beforeHeartbeat = (await context.registry.get('A')).last_heartbeat_at;
+
+      // A DEAD clone making a (failed) bus call must NOT have its heartbeat
+      // touched — auto-touch's no-op-on-DEAD contract preserves the
+      // orchestrator's terminal-state guarantee.
+      clock.advance(60_000);
+      const resp = await client.callTool({
+        name: 'manta.heartbeat',
+        arguments: { clone_id: 'A', state: 'WORKING' },
+      });
+      expect(resp.isError).toBe(true); // heartbeat from DEAD is conflict
+
+      const after = await context.registry.get('A');
+      expect(after.state).toBe('DEAD');
+      expect(after.last_heartbeat_at).toBe(beforeHeartbeat); // unchanged
+    } finally {
+      await client.close();
+      await server.close();
+      await clean();
+    }
+  });
+});

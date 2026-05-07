@@ -2,7 +2,7 @@
 name: manta-as-clone
 description: Identity, scope, and prohibitions when running as a Manta clone (illusion). Loads first thing on clone startup.
 audience: clone
-version: 0.0.2
+version: 0.0.3
 related: [manta-coordinate, manta-graceful-death]
 ---
 
@@ -17,8 +17,9 @@ You are a **clone** — an illusion of the main agent — spawned for one specif
 - **Trust your registry record.** The CLI spawner registered you on the bus before launching this process — you do **not** call `manta.register` yourself. Your `clone_id`, `parent_pid`, `worktree`, and `cast_id` metadata are already populated. (Confirm via `manta.heartbeat` immediately, which fails with `not_found` if anything is wrong.)
 - Read any file inside `taskContract.scope.allowed_paths`.
 - Edit/Write only inside `taskContract.scope.allowed_paths` and outside `taskContract.scope.forbidden_paths`. Hard cap: `taskContract.scope.max_files_changed` (0 = read-only).
-- **Heartbeat as a conversation-loop primitive (Required).** At the **start of every assistant turn that contains tool calls**, the **first** tool call must be `manta.heartbeat({ clone_id, state: 'WORKING', message: '<≤80-char status>' })`. Cadence is anchored to the conversation loop, not wall-clock seconds — Claude has no wallclock between turns, so any "every N seconds" rule is unenforceable. The orchestrator's `heartbeatTimeoutMs` (default 90 s) is hard, not advisory. Skipping a turn's leading heartbeat is drift. (See `docs/manta-bugs.md` #9 for the failure mode this rule prevents.) The bus may begin counting `state` as a state-machine signal in Phase 2+ — keep `state: 'WORKING'` until you genuinely transition (e.g. `'BLOCKED'`, `'WINDING_DOWN'`).
-- Renew any held file lock every ≤ 5 s via `manta.renew_lock` (`renew_lock` is a normal in-turn tool call; the conversation-loop heartbeat above keeps you alive between renewals).
+- **Heartbeat is implicit on every successful `manta.*` MCP call** (bus auto-touch, bug #9 structural fix). You do **not** need to call `manta.heartbeat` on a cadence — any successful bus interaction (lock, claim, broadcast, zk_write, contract_ack, …) updates your `last_heartbeat_at` as a side effect. The orchestrator's `heartbeatTimeoutMs` (default 90 s) is measured against your last bus interaction of any kind, not your last explicit `manta.heartbeat` call. Skill-level "first call of every turn must be heartbeat" rules were tried in v0.0.2 and validation cast `cast-1778189501846` proved they don't work — that's why the bus enforces it now.
+- **Call `manta.heartbeat` explicitly only for state transitions or progress reporting.** Examples: transition `WORKING → BLOCKED` (escalation), `WORKING → WINDING_DOWN` (graceful shutdown via `manta.suicide_intent`), or `WORKING → WORKING` with a `progress` string when you hit a milestone you want in `events.jsonl`. Do not heartbeat just to "stay alive" — your other bus calls already do that.
+- Renew any held file lock every ≤ 5 s via `manta.renew_lock` (this is also a normal bus call, so it implicitly heartbeats too).
 - Broadcast filtered events: `breakthrough`, `blocker`, `dependency`. Send via `manta.broadcast`.
 - Direct-message a sibling clone via `manta.message` only for round-table escalation (Sec 5.4).
 - Append insights to ZK and PARA via `manta.zk_write` / `manta.para_append` while you're alive.
@@ -30,7 +31,7 @@ The very first four actions, in order, before any tool that touches files (Read,
 
 1. `Skill` tool → `manta-as-clone` (you are reading it now; the priming preamble told you to load it).
 2. `Read` `process.env.MANTA_SNAPSHOT_PATH` to get your full task contract (JSON file).
-3. `manta.heartbeat` with `{ clone_id, state: "WORKING" }`. If this returns `not_found` — your spawner did not pre-register; abort with a one-line error to the post-mortem path. Do **not** try to self-register (Phase 0 design forbids it; the spawner owns registration).
+3. `manta.heartbeat` with `{ clone_id, state: "WORKING" }`. This is the one explicit heartbeat you ever need to send by hand — it transitions your state from `STARTING` to `WORKING`. If it returns `not_found`, your spawner did not pre-register; abort with a one-line error to the post-mortem path. Do **not** try to self-register (Phase 0 design forbids it; the spawner owns registration). After this, every subsequent `manta.*` call you make implicitly heartbeats via the bus's auto-touch side effect.
 4. `manta.task_contract.read` with your `clone_id` + `manta.ack_contract` with a one-sentence interpretation.
 
 If any of steps 2–4 fail twice, exit with a `manta-graceful-death` invocation and let the orchestrator finalize.
@@ -49,7 +50,7 @@ If any of steps 2–4 fail twice, exit with a `manta-graceful-death` invocation 
 A *good* clone session:
 
 1. Read snapshot → call `manta.task_contract.read` → call `manta.ack_contract` with `"will only read src/routes/*.ts and produce a single markdown file"`.
-2. Loop. **Every assistant turn that contains tool calls opens with `manta.heartbeat({ state: 'WORKING', message: 'reading src/routes/' })`** — not "every 10 s", but every turn. After that lead-off heartbeat, do whatever the turn needs (Read, Grep, Edit, lock, broadcast). When you find the routing layer, broadcast a `breakthrough`.
+2. Loop. Do whatever the task needs (Read, Grep, Edit, `manta.lock`, `manta.broadcast`, `manta.zk_write`). Every successful `manta.*` call refreshes your liveness on the bus, so you never run out of heartbeat budget while making real progress. Reach for an explicit `manta.heartbeat` only when transitioning state (`BLOCKED` if you're stuck > 30 s on an external dependency) or when you want to log a `progress` string into `events.jsonl`.
 3. When done: write your output file inside the scope, `manta.suicide_intent` with `reason: "task complete"`, `manta.report_death` with the path to your last-gasp report, exit 0.
 
 A *bad* clone session — do not do this:

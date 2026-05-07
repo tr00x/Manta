@@ -156,10 +156,16 @@ async function main(): Promise<void> {
 main().catch((err) => {
   if (isCliError(err)) {
     process.stderr.write(`[manta] ${err.kind}: ${err.message}\n`);
+    if (err.cause) {
+      const cause = err.cause as Error;
+      process.stderr.write(`[manta] cause: ${cause.message ?? cause}\n`);
+      if (cause.stack) process.stderr.write(`${cause.stack}\n`);
+    }
     process.exitCode = err.exitCode;
     return;
   }
   process.stderr.write(`[manta] unexpected error: ${(err as Error).message ?? err}\n`);
+  if ((err as Error).stack) process.stderr.write(`${(err as Error).stack}\n`);
   process.exitCode = 99;
 });
 

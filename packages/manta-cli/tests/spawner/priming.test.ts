@@ -45,12 +45,13 @@ describe('buildPrimingText', () => {
     expect(text).toContain('recon-swarm');
   });
 
-  it('declares the in-loop heartbeat cadence as a conversation-loop primitive (closes bug #9)', () => {
+  it('declares heartbeat as implicit bus auto-touch (bug #9 structural fix, supersedes v0.0.2 per-turn rule)', () => {
     const text = buildPrimingText(snap);
-    expect(text).toMatch(/Heartbeat cadence \(Required, in-loop\)/);
-    expect(text).toMatch(/first.*tool call.*every.*assistant turn/i);
+    expect(text).toMatch(/Heartbeat is implicit \(bus auto-touch\)/);
     expect(text).toMatch(/heartbeatTimeoutMs/);
-    expect(text).toMatch(/conversation loop, not wall-clock/);
+    expect(text).toMatch(/last bus interaction of any kind/);
+    // Forbid the v0.0.2 per-turn formulation that proved unenforceable.
+    expect(text).not.toMatch(/first.*tool call.*every.*assistant turn/i);
   });
 
   it('requires final commit of deliverables in the shutdown ordering (closes bug seed #4)', () => {

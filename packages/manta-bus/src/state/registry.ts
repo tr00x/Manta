@@ -93,6 +93,42 @@ export class Registry {
     ).then((next) => next.clones[input.clone_id]!);
   }
 
+  /**
+   * Touch a clone's `last_heartbeat_at` as a side-effect of any successful
+   * MCP call from that clone. Any bus interaction IS a liveness signal — the
+   * server.ts dispatcher invokes this after every successful handler whose
+   * args include a `clone_id`, so the orchestrator's death-detector no longer
+   * depends on the clone explicitly calling `manta.heartbeat`.
+   *
+   * Silent no-op contract:
+   * - Clone not in registry → no-op (e.g. main-side calls with synthetic ids;
+   *   we do not want a typo to throw mid-dispatch).
+   * - Clone is DEAD → no-op (death is terminal; touching would resurrect a
+   *   record the orchestrator has already given up on, leaving sibling
+   *   references and post-mortems pointing into the void).
+   * - Clone is WORKING/STARTING/WINDING_DOWN/BLOCKED → update only
+   *   `last_heartbeat_at`; never change `state` (that's heartbeat's job, with
+   *   its explicit `state` argument).
+   *
+   * Closes `docs/manta-bugs.md` #9 (heartbeat cadence as bus side-effect, not
+   * skill discipline). See `docs/post-mortems/2026-05-07-cast-1778189501846-
+   * validation.md` for why skill-level enforcement was insufficient.
+   */
+  async touch(cloneId: string, auditAppend?: () => Promise<void>): Promise<void> {
+    await atomicMutateJson<RegistryFile>(
+      this.paths.registry,
+      empty,
+      (current) => {
+        const r = current.clones[cloneId];
+        if (!r) return current;
+        if (r.state === 'DEAD') return current;
+        r.last_heartbeat_at = this.clock.now();
+        return current;
+      },
+      auditAppend,
+    );
+  }
+
   async markDead(
     cloneId: string,
     reason: string,
