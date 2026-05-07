@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { ZodIssue } from 'zod';
 import {
   BusValidationError,
   BusStateError,
@@ -9,7 +10,8 @@ import {
 
 describe('errors', () => {
   it('BusValidationError carries zod issues', () => {
-    const err = new BusValidationError('bad input', [{ path: ['x'], message: 'm', code: 'custom' } as any]);
+    const issue: ZodIssue = { code: 'custom', path: ['x'], message: 'm' };
+    const err = new BusValidationError('bad input', [issue]);
     expect(err).toBeInstanceOf(Error);
     expect(err.name).toBe('BusValidationError');
     expect(err.issues).toHaveLength(1);

@@ -13,6 +13,14 @@ async function ensureDir(filePath: string): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
 }
 
+function errCode(err: unknown): string | undefined {
+  if (err && typeof err === 'object' && 'code' in err) {
+    const code = (err as { code?: unknown }).code;
+    return typeof code === 'string' ? code : undefined;
+  }
+  return undefined;
+}
+
 async function ensureExists(filePath: string, init: string): Promise<void> {
   try {
     await fs.access(filePath);
@@ -26,8 +34,8 @@ async function ensureExists(filePath: string, init: string): Promise<void> {
       } finally {
         await handle.close();
       }
-    } catch (err: any) {
-      if (err.code !== 'EEXIST') throw err;
+    } catch (err) {
+      if (errCode(err) !== 'EEXIST') throw err;
     }
   }
 }
@@ -36,8 +44,8 @@ export async function atomicReadJson<T>(filePath: string, defaultFactory: () => 
   try {
     const raw = await fs.readFile(filePath, 'utf8');
     return JSON.parse(raw) as T;
-  } catch (err: any) {
-    if (err && err.code === 'ENOENT') {
+  } catch (err) {
+    if (errCode(err) === 'ENOENT') {
       return defaultFactory();
     }
     throw new BusStateError(`atomicReadJson: failed to read ${filePath}`, { cause: err });

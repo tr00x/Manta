@@ -34,20 +34,20 @@ describe('atomic-fs', () => {
       () => ({ counter: 0 }),
       (current) => ({ counter: current.counter + 1 }),
     );
-    const after = JSON.parse(await fs.readFile(file, 'utf8'));
+    const after = JSON.parse(await fs.readFile(file, 'utf8')) as { counter: number };
     expect(after).toEqual({ counter: 1 });
   });
 
   it('atomicMutateJson is safe under concurrent calls (no lost updates)', async () => {
     const file = path.join(root, 'state.json');
-    const init = () => ({ counter: 0 });
+    const init = (): { counter: number } => ({ counter: 0 });
     const N = 25;
     await Promise.all(
       Array.from({ length: N }, () =>
         atomicMutateJson<{ counter: number }>(file, init, (cur) => ({ counter: cur.counter + 1 })),
       ),
     );
-    const after = JSON.parse(await fs.readFile(file, 'utf8'));
+    const after = JSON.parse(await fs.readFile(file, 'utf8')) as { counter: number };
     expect(after.counter).toBe(N);
   });
 
@@ -63,7 +63,7 @@ describe('atomic-fs', () => {
         },
       ),
     ).rejects.toThrow('boom');
-    const after = JSON.parse(await fs.readFile(file, 'utf8'));
+    const after = JSON.parse(await fs.readFile(file, 'utf8')) as { x: number };
     expect(after).toEqual({ x: 2 });
   });
 
@@ -74,7 +74,7 @@ describe('atomic-fs', () => {
     await appendJsonLine(file, { i: 3 });
     const lines = (await fs.readFile(file, 'utf8')).trim().split('\n');
     expect(lines).toHaveLength(3);
-    expect(lines.map((l) => JSON.parse(l).i)).toEqual([1, 2, 3]);
+    expect(lines.map((l) => (JSON.parse(l) as { i: number }).i)).toEqual([1, 2, 3]);
   });
 
   it('appendJsonLine is safe under concurrency', async () => {
@@ -85,7 +85,7 @@ describe('atomic-fs', () => {
     expect(lines).toHaveLength(N);
     // every line must be a parseable JSON object
     for (const l of lines) {
-      expect(() => JSON.parse(l)).not.toThrow();
+      expect(() => JSON.parse(l) as unknown).not.toThrow();
     }
   });
 });
