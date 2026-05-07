@@ -27,9 +27,16 @@ export interface CloneHandle {
   snapshotPath: string;
   exit: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
   kill: (signal: NodeJS.Signals) => void;
+  /**
+   * Graceful termination: SIGTERM, then SIGKILL after `gracefulMs` if the
+   * child is still alive. Returns the eventual exit record. Default
+   * `gracefulMs` is 5_000.
+   */
+  terminate: (opts?: { gracefulMs?: number }) => Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
 }
 
 const SAFE_KEY = /^[A-Za-z0-9._-]+$/;
+const DEFAULT_GRACEFUL_MS = 5_000;
 
 export async function spawnClone(opts: SpawnCloneOptions): Promise<CloneHandle> {
   const cloneId = opts.snapshot.taskContract.cloneId;
@@ -54,23 +61,80 @@ export async function spawnClone(opts: SpawnCloneOptions): Promise<CloneHandle> 
     },
     snapshotPath,
   });
+
+  // I-1 (Chunk-1 review): with `reject: false`, `claude --print` (or any
+  // runner) that fails to *start* (ENOENT, missing binary, permission)
+  // resolves the promise with `failed: true` and `exitCode == null`. The
+  // previous handler silently masked this as `{ code: null, signal: null }`,
+  // which the cast loop then interprets as "process exited cleanly". We
+  // surface it as a `spawn_failed` CliError instead, so the cast aborts at
+  // the spawn step rather than waiting for a heartbeat that never lands.
+  const exit: Promise<{ code: number | null; signal: NodeJS.Signals | null }> = (async () => {
+    type ExitLike = {
+      exitCode?: number | null;
+      signal?: NodeJS.Signals | null;
+      failed?: boolean;
+    };
+    let r: ExitLike;
+    try {
+      r = (await proc) as ExecaReturnValue & ExitLike;
+    } catch (err) {
+      r = err as ExitLike;
+    }
+    if (r.failed && r.exitCode == null && r.signal == null) {
+      throw new CliError('clone runner failed to start', {
+        kind: 'spawn_failed',
+        cause: r,
+      });
+    }
+    return {
+      code: r.exitCode ?? null,
+      signal: r.signal ?? null,
+    };
+  })();
+
+  // I-5 (Chunk-1 review): graceful kill with SIGKILL escalation. The kill
+  // command and abort command call this so a hung clone (e.g. `MANTA_FAKE_
+  // CLONE_STATE=hang` or a real wedged claude --print) cannot block the
+  // operator's CTRL-C. SIGTERM goes first, then 5s later SIGKILL.
+  const terminate = async (terminateOpts?: { gracefulMs?: number }) => {
+    const gracefulMs = terminateOpts?.gracefulMs ?? DEFAULT_GRACEFUL_MS;
+    try {
+      proc.kill('SIGTERM');
+    } catch {
+      // already exited — exit promise will resolve normally
+    }
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
+    const escalation = new Promise<void>((resolve) => {
+      killTimer = setTimeout(() => {
+        try {
+          proc.kill('SIGKILL');
+        } catch {
+          // already exited
+        }
+        resolve();
+      }, gracefulMs);
+    });
+    const settled: Promise<{ code: number | null; signal: NodeJS.Signals | null }> = exit.then(
+      (r) => r,
+      // If the exit promise threw (e.g. spawn_failed), best-effort report
+      // null/null so callers don't need to handle a rejected exit here.
+      () => ({ code: null, signal: null }),
+    );
+    const result = await Promise.race([settled, escalation.then(() => settled)]);
+    if (killTimer) clearTimeout(killTimer);
+    return result;
+  };
+
   return {
     cloneId,
     pid: proc.pid,
     snapshotPath,
-    exit: proc.then(
-      (r: ExecaReturnValue) => ({
-        code: r.exitCode ?? null,
-        signal: (r as { signal?: NodeJS.Signals }).signal ?? null,
-      }),
-      (err: { exitCode?: number; signal?: NodeJS.Signals }) => ({
-        code: err.exitCode ?? null,
-        signal: err.signal ?? null,
-      }),
-    ),
+    exit,
     kill: (signal) => {
       proc.kill(signal);
     },
+    terminate,
   };
 }
 

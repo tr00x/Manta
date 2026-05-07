@@ -21,6 +21,8 @@ import {
   type Thresholds,
 } from '@manta/orchestrator';
 
+import { CliError } from './errors.js';
+
 export interface CreateRuntimeOptions {
   repoRoot: string;
   thresholdOverrides?: Partial<Thresholds>;
@@ -36,6 +38,18 @@ export interface Runtime {
 
 export async function createRuntime(opts: CreateRuntimeOptions): Promise<Runtime> {
   const repoRoot = path.resolve(opts.repoRoot);
+  // I-3 (Chunk-1 review): validate repoRoot is a git repo before scribbling
+  // .manta/state into a non-repo directory. Operators who run `manta cast`
+  // outside a git checkout get a fast, actionable error instead of cryptic
+  // worktree failures three steps later.
+  try {
+    await fs.access(path.join(repoRoot, '.git'));
+  } catch (cause) {
+    throw new CliError(`not a git repo root: ${repoRoot}`, {
+      kind: 'invalid_input',
+      cause,
+    });
+  }
   const stateDir = path.join(repoRoot, '.manta', 'state');
   await fs.mkdir(path.join(stateDir, 'contracts'), { recursive: true });
   await fs.mkdir(path.join(stateDir, '.locks'), { recursive: true });

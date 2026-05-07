@@ -1,4 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { createRuntime } from '../src/runtime.js';
 import { makeRepoFixture, type RepoFixture } from './helpers/repoFixture.js';
 
@@ -40,5 +43,22 @@ describe('runtime', () => {
     );
     expect(exists).toBe(true);
     await rt.dispose();
+  });
+
+  // I-3 regression: createRuntime rejects non-git directories with invalid_input
+  // before scribbling .manta/state into a random folder.
+  it('createRuntime rejects a directory that is not a git repo', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'manta-cli-not-a-repo-'));
+    try {
+      await expect(createRuntime({ repoRoot: dir })).rejects.toMatchObject({
+        name: 'CliError',
+        kind: 'invalid_input',
+        message: expect.stringContaining('not a git repo root'),
+      });
+      // .manta/state must NOT have been created.
+      await expect(fs.access(path.join(dir, '.manta'))).rejects.toBeDefined();
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 });
