@@ -30,11 +30,34 @@ describe('walkSkillsAndCommands', () => {
   });
 
   it('rejects unsafe directory names with unsafe_path issue', async () => {
-    await fs.mkdir(path.join(root, 'skills', '..weird'), { recursive: true });
-    await fs.writeFile(path.join(root, 'skills', '..weird', 'SKILL.md'), '# x', 'utf8');
+    await fs.mkdir(path.join(root, 'skills', 'WEIRD-UPPER'), { recursive: true });
+    await fs.writeFile(path.join(root, 'skills', 'WEIRD-UPPER', 'SKILL.md'), '# x', 'utf8');
     const r = await walkSkillsAndCommands(root);
     expect(r.skills).toEqual([]);
     expect(r.warnings.some((w) => w.code === 'unsafe_path')).toBe(true);
+  });
+
+  it('silently skips dotfile entries under skills/ and commands/ without warnings', async () => {
+    // Simulate macOS Finder pollution + a generic dotdir.
+    await fs.mkdir(path.join(root, 'skills'), { recursive: true });
+    await fs.writeFile(path.join(root, 'skills', '.DS_Store'), 'binary-junk', 'utf8');
+    await fs.mkdir(path.join(root, 'skills', '.hidden-dir'), { recursive: true });
+    await fs.writeFile(path.join(root, 'skills', '.hidden-dir', 'SKILL.md'), '# x', 'utf8');
+    await fs.mkdir(path.join(root, 'commands'), { recursive: true });
+    await fs.writeFile(path.join(root, 'commands', '.DS_Store'), 'binary-junk', 'utf8');
+    await fs.writeFile(path.join(root, 'commands', '.hidden.md'), '# x', 'utf8');
+
+    const r = await walkSkillsAndCommands(root);
+
+    expect(r.skills.map((s) => s.name)).not.toContain('.DS_Store');
+    expect(r.skills.map((s) => s.name)).not.toContain('.hidden-dir');
+    expect(r.commands.map((c) => c.name)).not.toContain('.DS_Store');
+    expect(r.commands.map((c) => c.name)).not.toContain('.hidden');
+    // No warnings should mention any of these dotfile entries.
+    const joined = r.warnings.map((w) => w.message).join('\n');
+    expect(joined).not.toMatch(/\.DS_Store/);
+    expect(joined).not.toMatch(/\.hidden/);
+    expect(r.warnings).toEqual([]);
   });
 });
 

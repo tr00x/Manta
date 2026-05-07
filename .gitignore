@@ -28,8 +28,9 @@ __pycache__/
 .venv/
 venv/
 
-# OS
+# OS — macOS Finder artifacts (defensive: also ignored anywhere nested)
 .DS_Store
+**/.DS_Store
 Thumbs.db
 
 # Editor

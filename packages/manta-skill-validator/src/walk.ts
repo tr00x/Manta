@@ -30,6 +30,9 @@ async function walkSkills(repoRoot: string, warnings: ValidationIssue[]): Promis
   try { entries = await fs.readdir(dir); } catch { return []; }
   const out: DiscoveredFile[] = [];
   for (const e of entries) {
+    // Silently skip dotfile/dotdir entries — filesystem artifacts (e.g. macOS .DS_Store)
+    // that no Manta concept owns. Hostile non-dotfile names still surface below.
+    if (e.startsWith('.')) continue;
     if (!SAFE_DIR.test(e)) {
       warnings.push({ severity: 'warning', code: 'unsafe_path', message: `skipping unsafe skill directory name: ${e}` });
       continue;
@@ -47,6 +50,9 @@ async function walkCommands(repoRoot: string, warnings: ValidationIssue[]): Prom
   try { entries = await fs.readdir(dir); } catch { return []; }
   const out: DiscoveredFile[] = [];
   for (const e of entries) {
+    // Silently skip dotfile entries — filesystem artifacts (e.g. macOS .DS_Store)
+    // that no Manta concept owns. Hostile non-dotfile names still surface below.
+    if (e.startsWith('.')) continue;
     if (!SAFE_FILE.test(e)) {
       warnings.push({ severity: 'warning', code: 'unsafe_path', message: `skipping unsafe command file name: ${e}` });
       continue;
