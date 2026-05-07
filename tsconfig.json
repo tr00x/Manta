@@ -1,6 +1,7 @@
 {
   "include": [],
   "references": [
-    { "path": "./packages/manta-snapshot" }
+    { "path": "./packages/manta-snapshot" },
+    { "path": "./packages/manta-bus" }
   ]
 }

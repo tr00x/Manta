@@ -1,0 +1,46 @@
+{
+  "name": "@manta/bus",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Manta Bus — MCP server providing coordination primitives for Manta clones",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "bin": {
+    "manta-bus": "./dist/bin/server.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@manta/snapshot": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "nanoid": "^5.0.0",
+    "proper-lockfile": "^4.1.2",
+    "yaml": "^2.4.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.0",
+    "@types/proper-lockfile": "^4.1.4",
+    "@vitest/coverage-v8": "^1.6.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}
