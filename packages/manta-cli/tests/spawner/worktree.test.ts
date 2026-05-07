@@ -1,8 +1,13 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { addWorktree, removeWorktree, listWorktrees } from '../../src/spawner/worktree';
-import { makeRepoFixture, type RepoFixture } from '../helpers/repoFixture';
+import {
+  addWorktree,
+  removeWorktree,
+  listWorktrees,
+  type WorktreeRecord,
+} from '../../src/spawner/worktree.js';
+import { makeRepoFixture, type RepoFixture } from '../helpers/repoFixture.js';
 
 describe('worktree', () => {
   let fx: RepoFixture | undefined;
@@ -40,7 +45,7 @@ describe('worktree', () => {
     await addWorktree({ repoRoot: fx.root, name: 'clone-B', branch: 'manta/clone-B' });
     const all = await listWorktrees({ repoRoot: fx.root });
     expect(all.length).toBeGreaterThanOrEqual(3);
-    const branches = all.map((w) => w.branch);
+    const branches = all.map((w: WorktreeRecord) => w.branch);
     expect(branches).toContain('manta/clone-A');
     expect(branches).toContain('manta/clone-B');
   });

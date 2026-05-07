@@ -1,11 +1,11 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { execa, type ResultPromise as ExecaProcess } from 'execa';
+import { execa, type ExecaChildProcess, type ExecaReturnValue } from 'execa';
 import { serializeSnapshot, type Snapshot } from '@manta/snapshot';
-import { CliError } from '../errors';
+import { CliError } from '../errors.js';
 
 export interface CloneRunner {
-  run(input: CloneRunnerInput): ExecaProcess;
+  run(input: CloneRunnerInput): ExecaChildProcess;
 }
 
 export interface CloneRunnerInput {
@@ -59,7 +59,7 @@ export async function spawnClone(opts: SpawnCloneOptions): Promise<CloneHandle> 
     pid: proc.pid,
     snapshotPath,
     exit: proc.then(
-      (r) => ({
+      (r: ExecaReturnValue) => ({
         code: r.exitCode ?? null,
         signal: (r as { signal?: NodeJS.Signals }).signal ?? null,
       }),

@@ -1,9 +1,9 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnClone, runFakeCloneScript } from '../../src/spawner/clone-spawner';
-import { buildCloneSnapshot } from '../../src/spawner/snapshot-builder';
-import { makeRepoFixture, type RepoFixture } from '../helpers/repoFixture';
+import { spawnClone, runFakeCloneScript } from '../../src/spawner/clone-spawner.js';
+import { buildCloneSnapshot } from '../../src/spawner/snapshot-builder.js';
+import { makeRepoFixture, type RepoFixture } from '../helpers/repoFixture.js';
 
 const fixturePath = path.join(
   path.dirname(fileURLToPath(import.meta.url)),

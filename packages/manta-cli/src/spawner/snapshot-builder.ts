@@ -1,5 +1,5 @@
 import { captureState, type Mode, type Scope, type Snapshot } from '@manta/snapshot';
-import { CliError } from '../errors';
+import { CliError } from '../errors.js';
 
 export interface CloneSpawnRequest {
   cloneId: string;

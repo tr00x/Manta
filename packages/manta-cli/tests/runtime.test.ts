@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { createRuntime } from '../src/runtime';
-import { makeRepoFixture, type RepoFixture } from './helpers/repoFixture';
+import { createRuntime } from '../src/runtime.js';
+import { makeRepoFixture, type RepoFixture } from './helpers/repoFixture.js';
 
 describe('runtime', () => {
   let fx: RepoFixture | undefined;

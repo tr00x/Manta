@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CliError, isCliError } from '../src/errors';
+import { CliError, isCliError } from '../src/errors.js';
 
 describe('errors', () => {
   it('CliError carries kind + cause + exitCode', () => {

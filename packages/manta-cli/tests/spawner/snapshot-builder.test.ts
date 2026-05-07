@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildCloneSnapshot } from '../../src/spawner/snapshot-builder';
+import { buildCloneSnapshot } from '../../src/spawner/snapshot-builder.js';
 
 describe('snapshot-builder', () => {
   const baseReq = () => ({
