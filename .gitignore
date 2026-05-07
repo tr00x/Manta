@@ -54,3 +54,9 @@ coverage/
 
 # Test artifacts
 junit.xml
+
+# TypeScript build artifacts
+*.tsbuildinfo
+packages/*/dist/
+.tsbuild/
+pnpm-debug.log*
