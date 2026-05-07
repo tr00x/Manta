@@ -177,7 +177,7 @@ Cast если хотя бы одно:
 ## Project ergonomics
 
 - Working directory: `/Users/timur/projectos/manta`
-- Git: репо требует author-override на `commit` (см. Sec 9 в правилах commit'а ниже) или один раз настроенный `git config user.email/name` локально
+- Git: автор берётся из `git log -1 --format='%ae %an'` через `-c` override (детали — секция «Git правила» ниже). Локального `git config user.email/name` нет; `--global` не трогать.
 - Plugin distribution: Claude Code plugin, `npx manta@latest install` после release
 - Stack details: Sec 9 design spec
 
@@ -208,10 +208,23 @@ Cast если хотя бы одно:
 
 - Никогда не трогать `git config --global` без явного запроса
 - Author override через `-c user.email=... -c user.name=...` per command (это не config update, это override на один вызов)
-- Коммиты атомарные, conventional-commits-стиль (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`)
+- **Откуда брать author email/name** (HARD RULE — нарушал 2026-05-07):
+  - Всегда — `git log -1 --format='%ae %an'`. Дословно эту пару в `-c user.email=… -c user.name=…`. Без угадываний, без модификаций регистра, без сокращений.
+  - Если `git log` пустой (новый репо / первый коммит) — **остановиться и спросить юзера**. Не подставлять.
+  - **НИКОГДА** не использовать `<userEmail>` / `<userInfo>` из системного промпта как git author. Это identifier юзера для чата, не git identity.
+  - **НИКОГДА** не выдумывать имя «по контексту» (типа Timur из директории `/Users/timur/...`). Reading directory ≠ identity.
+  - Если хук заблокировал коммит из-за identity — это hard stop. **Не пробовать второй раз с другим guess'ом.** Спросить юзера.
+- Коммиты атомарные, conventional-commits-стиль (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`)
 - `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>` в каждом коммите
 - НЕ амендим pushed коммиты
 - НЕ форсим push на main без явного запроса
+- В auto mode коммиты OK без отдельного confirm'а — **кроме** когда впервые в сессии нужен новый author / эта identity ещё не использовалась. Тогда сначала спросить.
+
+## Self-editing this CLAUDE.md
+
+Когда юзер ловит меня на повторяющейся ошибке — **редактирую этот файл сразу, inline, hard rule'ом**, не закапываю в `memory/`. CLAUDE.md загружается в контекст каждой сессии целиком; memory/ загружается через MEMORY.md (тоже в контексте, но это индекс и индирекция). Для класса «не делать никогда» — место здесь, не в memory.
+
+Pattern: один-два предложения сути + `(нарушал YYYY-MM-DD)` + 2-3 пункта «как именно применять». Без многословных эссе.
 
 ## Roadmap-источник истины
 
