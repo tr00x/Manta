@@ -10,7 +10,7 @@ Startup sequence — do these in order, before any tool that mutates files (Read
 4. Call \`manta.task_contract.read\` with your clone_id and \`manta.ack_contract\` with a one-sentence interpretation of the contract.
 5. Begin the work described in the user prompt below, staying inside taskContract.scope.allowedPaths and outside taskContract.scope.forbiddenPaths (which always includes \`.manta/state\` and \`secrets/\`).
 
-When done — even on failure — invoke the \`manta-graceful-death\` skill and exit. Do not print the final report directly; the post-mortem path is your output channel.
+When done — even on failure — invoke the \`manta-graceful-death\` skill and exit. Required shutdown ordering (skipping any step is drift): (a) at least one \`manta.zk_write\` call with one paragraph of the most surprising thing you learned, tagged \`["clone-{CLONE_ID}", "cast-{CAST_ID}"]\`; (b) \`manta.unlock\` / \`manta.release_work\` for held resources; (c) \`manta.suicide_intent\`; (d) write last-gasp-report.md to worktree root; (e) \`manta.report_death\`. Do not print the final report directly; the post-mortem path is your output channel.
 
 Forbidden in this phase: recursive \`/manta cast\`, edits outside scope, direct user contact, quiet writes to \`.manta/state/*\`.
 `;

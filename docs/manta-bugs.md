@@ -38,20 +38,20 @@
 **Fix:** Pending. Workaround: run whole-repo sweep with `--workspace-concurrency=1` until rooted.
 **Lessons:** Tests that interact with real OS process state (PID probes, child spawns) are concurrency-sensitive. Consider isolating them into a serialized vitest pool or marking them with `test.serial` once we encounter another such case.
 
+## Fixed bugs
+
 ### #5 — Clones do not invoke `manta.zk_write` during graceful death
 
 **Discovered:** 2026-05-07, Phase-1 lockdown dogfood cast (commit `57551ef`)
-**Severity:** Medium — does not block Phase-1 lockdown but blocks Phase-2 graceful-death adherence
-**Status:** Open
-**Reproducer:**
-1. `MANTA_E2E=1 pnpm e2e:recon-swarm` against real `claude` binary
-2. Cast completes in ~4m36s with 2 clones DEAD, post-mortems on disk, snapshots persisted, worktrees retained
-3. `<repo>/docs/zk/` directory does NOT exist — clones never called `manta.zk_write`
-**Root cause (hypothesised):** Either clones drift from the `manta-graceful-death` skill (skill #18 says "1-3 atomic `manta.zk_write` calls"), or the bus subprocess receives a `MANTA_REPO_ROOT` other than the cast root and writes ZK notes elsewhere. Without the dogfood post-mortem on disk (e2e cleanup ran), root cause is uncertain.
-**Fix:** Phase-2 follow-up. Options: (a) tighten `manta-graceful-death` skill text + add a behavioural-fixture test asserting clones call `manta.zk_write`; (b) audit `manta-bus/bin/server.ts` MANTA_REPO_ROOT propagation to confirm bus subprocess writes ZK to the same `repoRoot` the cast uses. Track separately from Phase-1 lockdown.
-**Lessons:** Skill adherence is a clone-discipline issue distinct from infrastructure. Phase-1 lockdown e2e softened the ZK assertion to a warning so this bug does not block Phase-0 acceptance. Phase-2 should add a behavioural test that asserts ZK writes during graceful death.
-
-## Fixed bugs
+**Severity:** Medium — was flaky skill-adherence; root cause was skill text presenting ZK as merely "Allowed" rather than required
+**Status:** Fixed in Phase-1 follow-up commit (skill v0.0.2 + priming text update).
+**Reproducer (historical):**
+1. First Phase-1 dogfood: 0/2 ZK notes written
+2. Second Phase-1 dogfood (same code, same skill): 1/2 ZK notes written
+3. Pattern: flaky, not infrastructural — clones could write ZK but skipped because skill listed it under "Allowed" alongside optional actions, and "Massive ZK dumps" appearing in Forbidden discouraged any write.
+**Root cause:** Skill `manta-graceful-death` (v0.0.1) presented `manta.zk_write` as one of several "Allowed" actions, with a "Massive ZK dumps" Forbidden line that discouraged any writing. No required-actions section, no ordered shutdown checklist. Clones interpreted the skill conservatively and skipped ZK to avoid violating the "no massive dumps" guardrail.
+**Fix:** Skill `manta-graceful-death` v0.0.2 — added explicit "shutdown checklist is ordered and required" framing; promoted `manta.zk_write` to a "Required" bullet within Allowed (with bolded violation language); added "Skipping the ZK dump" to Forbidden; added per-step ZK numbering in Examples. Priming text in `packages/manta-cli/src/spawner/priming.ts` also tightened to enumerate the 5-step required shutdown ordering. e2e assertion in `recon-swarm.e2e.test.ts` re-tightened from warning back to `expect(≥ 2)`. Verified by Phase-1 v3 dogfood (2m45s wallclock, ≥ 2 ZK notes written, e2e green).
+**Lessons:** Skills are read literally — what's "Allowed" gets interpreted as "optional unless you specifically need it." For required behaviours, use a "Required steps" framing or move the bullet into Forbidden ("skipping X is forbidden"). For audit-trail-style requirements (where the *act* matters more than the *content*), provide a fallback (e.g. "if you genuinely have nothing novel, write a no-novel-findings note"). The Phase-1 v0.0.1 → v0.0.2 skill diff is the canonical pattern for tightening clone discipline without changing infrastructure.
 
 ### #2 — Spawner-registers-clone-before-launch claim is misleading
 
