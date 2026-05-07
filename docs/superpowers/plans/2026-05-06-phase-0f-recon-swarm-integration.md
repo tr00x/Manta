@@ -468,7 +468,7 @@ describe('recon-swarm end-to-end against real claude', () => {
     const snapDirs = (await fs.readdir(path.join(fx.root, '.manta/snapshots')))
       .filter((d) => d.startsWith('cast-'));
     expect(snapDirs.length).toBeGreaterThanOrEqual(1);
-    const snaps = await fs.readdir(path.join(fx.root, '.manta/snapshots', snapDirs[0]));
+    const snaps = await fs.readdir(path.join(fx.root, '.manta/snapshots', snapDirs[0]!));
     expect(snaps).toContain('A.snapshot.json');
     expect(snaps).toContain('B.snapshot.json');
 

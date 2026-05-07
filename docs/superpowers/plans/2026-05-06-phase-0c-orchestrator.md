@@ -45,6 +45,7 @@
 - Create: `packages/manta-orchestrator/package.json`
 - Create: `packages/manta-orchestrator/tsconfig.json`
 - Create: `packages/manta-orchestrator/tsup.config.ts`
+- Create: `packages/manta-orchestrator/tsconfig.build.json`
 - Create: `packages/manta-orchestrator/vitest.config.ts`
 - Create: `packages/manta-orchestrator/src/index.ts` — re-exports only
 - Create: `packages/manta-orchestrator/src/thresholds.ts`
@@ -99,9 +100,9 @@ Expected: `ls: ... No such file or directory`. If the directory exists: STOP and
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.cjs",
-      "types": "./dist/index.d.ts"
+      "require": "./dist/index.cjs"
     }
   },
   "files": ["dist"],
@@ -161,7 +162,31 @@ export default defineConfig({
   target: 'node20',
   splitting: false,
   shims: true,
+  // Use a build-only tsconfig that disables `composite`/`incremental` so
+  // tsup's DTS pipeline doesn't hit TS6307 ("file not in project file list");
+  // the rootDir/include of the main tsconfig.json includes `tests/` to
+  // satisfy `tsc --noEmit` from typecheck, which composite mode then rejects
+  // for files imported from outside `rootDir`.
+  tsconfig: 'tsconfig.build.json',
+  outExtension: ({ format }) => ({
+    js: format === 'cjs' ? '.cjs' : '.js',
+  }),
 });
+```
+
+- [ ] **1.5b: Create `packages/manta-orchestrator/tsconfig.build.json`**
+
+```json
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "incremental": false,
+    "declarationMap": false
+  },
+  "include": ["src/**/*"],
+  "exclude": ["dist", "node_modules", "tests"]
+}
 ```
 
 - [ ] **1.6: Create `vitest.config.ts`**
@@ -470,8 +495,8 @@ describe('death-detector', () => {
       probe: makeProbe({ alive: () => true }),
     });
     expect(result).toHaveLength(1);
-    expect(result[0].clone_id).toBe('A');
-    expect(result[0].reason).toMatch(/heartbeat/);
+    expect(result[0]!.clone_id).toBe('A');
+    expect(result[0]!.reason).toMatch(/heartbeat/);
   });
 
   it('marks orphaned clones (parent dead) as dead even if heartbeat is fresh', async () => {
@@ -482,7 +507,7 @@ describe('death-detector', () => {
       probe: makeProbe({ alive: () => false }),
     });
     expect(result).toHaveLength(1);
-    expect(result[0].reason).toMatch(/parent/);
+    expect(result[0]!.reason).toMatch(/parent/);
   });
 
   it('does not double-count: stale-and-orphaned reports a single record', async () => {
@@ -494,8 +519,8 @@ describe('death-detector', () => {
     });
     expect(result).toHaveLength(1);
     // Reason is composite when both triggers fire
-    expect(result[0].reason).toMatch(/heartbeat/);
-    expect(result[0].reason).toMatch(/parent/);
+    expect(result[0]!.reason).toMatch(/heartbeat/);
+    expect(result[0]!.reason).toMatch(/parent/);
   });
 
   it('skips already-DEAD clones', async () => {
@@ -608,8 +633,8 @@ describe('lock-reaper', () => {
     const result = await reapLocks(ctx);
     expect(result.reaped.map((l) => l.path)).toEqual(['src/foo.ts']);
     expect(result.events).toHaveLength(1);
-    expect(result.events[0].type).toBe('lock_reap');
-    expect(result.events[0].payload).toMatchObject({ path: 'src/foo.ts', former_owner: 'A' });
+    expect(result.events[0]!.type).toBe('lock_reap');
+    expect(result.events[0]!.payload).toMatchObject({ path: 'src/foo.ts', former_owner: 'A' });
   });
 
   it('emits no event when nothing was reaped', async () => {
@@ -695,8 +720,8 @@ describe('claim-reaper', () => {
     const result = await reapClaims(ctx);
     expect(result.reaped.map((c) => c.item)).toEqual(['task-1']);
     expect(result.events).toHaveLength(1);
-    expect(result.events[0].type).toBe('claim_reap');
-    expect(result.events[0].payload).toMatchObject({ item: 'task-1', former_owner: 'A' });
+    expect(result.events[0]!.type).toBe('claim_reap');
+    expect(result.events[0]!.payload).toMatchObject({ item: 'task-1', former_owner: 'A' });
   });
 
   it('does not reap non-expired claims', async () => {
@@ -809,8 +834,8 @@ describe('post-mortem-writer', () => {
     const w = inMemoryPostMortemWriter();
     await w.write({ filename: '2026-05-06-cast-1-A.md', body: '# title\n\nbody\n' });
     expect(w.captured).toHaveLength(1);
-    expect(w.captured[0].filename).toBe('2026-05-06-cast-1-A.md');
-    expect(w.captured[0].body).toContain('# title');
+    expect(w.captured[0]!.filename).toBe('2026-05-06-cast-1-A.md');
+    expect(w.captured[0]!.body).toContain('# title');
   });
 
   it('fsPostMortemWriter writes atomically under repoRoot/postMortemDir', async () => {
@@ -1012,12 +1037,12 @@ describe('post-mortem', () => {
     });
     expect(result.event.type).toBe('post_mortem');
     expect(writer.captured).toHaveLength(1);
-    const md = writer.captured[0].body;
+    const md = writer.captured[0]!.body;
     expect(md).toContain('# Post-mortem — clone A');
     expect(md).toContain('Reason: heartbeat 31000ms ago > 30000ms');
     expect(md).toContain('cast-42');
     expect(md).toContain('breakthrough');
-    expect(writer.captured[0].filename).toMatch(/^\d{4}-\d{2}-\d{2}-cast-42-A\.md$/);
+    expect(writer.captured[0]!.filename).toMatch(/^\d{4}-\d{2}-\d{2}-cast-42-A\.md$/);
   });
 
   it('uses "no-cast" prefix when metadata lacks cast_id', async () => {
@@ -1030,7 +1055,7 @@ describe('post-mortem', () => {
       writer,
       thresholds: defaultThresholds,
     });
-    expect(writer.captured[0].filename).toMatch(/-no-cast-A\.md$/);
+    expect(writer.captured[0]!.filename).toMatch(/-no-cast-A\.md$/);
   });
 
   it('marks the clone DEAD if it was not already', async () => {
@@ -1505,7 +1530,7 @@ describe('Orchestrator', () => {
     });
     const result = await o.runCycle();
     expect(result.deadClones.map((d) => d.clone_id)).toEqual(['A']);
-    expect(result.deadClones[0].reason).toMatch(/parent/);
+    expect(result.deadClones[0]!.reason).toMatch(/parent/);
   });
 
   it('runCycle is idempotent when called twice on the same state', async () => {

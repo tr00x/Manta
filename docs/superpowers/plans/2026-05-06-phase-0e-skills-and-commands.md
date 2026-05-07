@@ -97,9 +97,9 @@ Expected: `ls: ... No such file or directory`. If it exists: STOP and inspect.
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.cjs",
-      "types": "./dist/index.d.ts"
+      "require": "./dist/index.cjs"
     }
   },
   "bin": {

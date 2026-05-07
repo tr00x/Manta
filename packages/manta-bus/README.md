@@ -32,10 +32,9 @@ Manta Bus — the MCP server that exposes coordination primitives to Manta clone
 ```
 # From a workspace checkout
 node packages/manta-bus/dist/bin/server.cjs
-
-# After a global install (`npm i -g @manta/bus`)
-manta-bus
 ```
+
+> The package is `private: true` and is not yet published to npm; distribution is via the Phase-7 plugin install pipeline (`npx manta@latest install`), not a global npm install. The `manta-bus` bin entry is exposed once the plugin is installed.
 
 Set `MANTA_REPO_ROOT` to override the working directory; defaults to `process.cwd()`. Misconfigured `MANTA_REPO_ROOT` (missing or not a directory) exits with code `2`; runtime crashes exit `1`; clean shutdown on `SIGTERM`/`SIGINT` exits `0`.
 

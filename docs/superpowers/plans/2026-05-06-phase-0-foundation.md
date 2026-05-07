@@ -347,6 +347,7 @@ Run: `git log --oneline -3` — verify commit landed.
 - Create: `packages/manta-snapshot/package.json`
 - Create: `packages/manta-snapshot/tsconfig.json`
 - Create: `packages/manta-snapshot/tsup.config.ts`
+- Create: `packages/manta-snapshot/tsconfig.build.json`
 - Create: `packages/manta-snapshot/vitest.config.ts`
 - Create: `packages/manta-snapshot/.eslintrc.cjs`
 - Create: `packages/manta-snapshot/src/index.ts` (public API)
@@ -445,7 +446,28 @@ export default defineConfig({
   clean: true,
   sourcemap: true,
   target: 'node20',
+  tsconfig: 'tsconfig.build.json',
+  outExtension: ({ format }) => ({
+    js: format === 'cjs' ? '.cjs' : '.js',
+  }),
 });
+```
+
+- [ ] **2.3b: Create `packages/manta-snapshot/tsconfig.build.json`**
+
+A build-only tsconfig that disables `composite`/`incremental` so tsup's DTS pipeline doesn't hit TS6307 ("file not in project file list"); the rootDir/include of `tsconfig.json` includes `tests/` to satisfy `tsc --noEmit` from typecheck, which composite mode then rejects for files imported from outside `rootDir`.
+
+```json
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "incremental": false,
+    "declarationMap": false
+  },
+  "include": ["src/**/*"],
+  "exclude": ["dist", "node_modules", "tests"]
+}
 ```
 
 - [ ] **2.4: Create `packages/manta-snapshot/vitest.config.ts`**
@@ -1322,8 +1344,12 @@ describe('distillContext', () => {
     }));
     const out = distillContext({ messages, openFiles: [], maxRecentMessages: 10 });
     expect(out.recentMessages).toHaveLength(10);
-    expect(out.recentMessages[0].content).toBe('msg-40');
-    expect(out.recentMessages[9].content).toBe('msg-49');
+    expect(out.recentMessages.length).toBe(10);
+    const first = out.recentMessages[0];
+    const last = out.recentMessages[9];
+    if (!first || !last) throw new Error('expected 10 messages');
+    expect(first.content).toBe('msg-40');
+    expect(last.content).toBe('msg-49');
   });
 
   it('keeps all messages when under the limit', () => {
