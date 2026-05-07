@@ -55,6 +55,21 @@ async function main(): Promise<void> {
       'cumulative dollar cap for the whole cast',
       '15',
     )
+    .option(
+      '--max-files-changed <n>',
+      'per-clone hard cap on file writes (0 = read-only). Bug #6: must be >0 for casts that produce on-disk deliverables (e.g. research markdown).',
+      '0',
+    )
+    .option(
+      '--allowed-paths <csv>',
+      'comma-separated list of paths each clone may read/write within (relative to repo root). Default: "." (whole repo).',
+      '.',
+    )
+    .option(
+      '--forbidden-paths <csv>',
+      'comma-separated list of paths each clone MUST NOT touch. Default: ".manta/state,secrets/".',
+      '.manta/state,secrets/',
+    )
     .action(
       async (
         mode: string,
@@ -65,8 +80,16 @@ async function main(): Promise<void> {
           tickBudgetMs: string;
           budgetPerCloneUsd: string;
           budgetPerCastUsd: string;
+          maxFilesChanged: string;
+          allowedPaths: string;
+          forbiddenPaths: string;
         },
       ) => {
+        const splitCsv = (s: string): string[] =>
+          s
+            .split(',')
+            .map((p) => p.trim())
+            .filter((p) => p.length > 0);
         await runWithRuntime((rt) =>
           runCastCommand(rt, {
             // Cast through unknown so commander's stringly-typed mode flows
@@ -78,6 +101,11 @@ async function main(): Promise<void> {
             tickBudgetMs: parseInt(options.tickBudgetMs, 10),
             budgetUsdPerClone: parseFloat(options.budgetPerCloneUsd),
             budgetUsdPerCast: parseFloat(options.budgetPerCastUsd),
+            scope: {
+              allowedPaths: splitCsv(options.allowedPaths),
+              forbiddenPaths: splitCsv(options.forbiddenPaths),
+              maxFilesChanged: parseInt(options.maxFilesChanged, 10),
+            },
             castId: `cast-${Date.now()}`,
             runner: runClaudeCli(),
             reporter,

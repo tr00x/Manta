@@ -1,9 +1,9 @@
 # Phase 2 Research-Prep — recon-swarm cast specification
 
-**Status:** TODO — to be cast next session (or end-of-this if context allows)
+**Status:** TODO — first cast attempt (`cast-1778185934043`, 2026-05-07 16:32 EDT) surfaced bugs #6 (hardcoded `max_files_changed=0`) and #7 (30 s heartbeat threshold too tight for cold-start `claude --print`); both fixed in the same dogfood-driven commit. Re-cast pending with the new `--max-files-changed` / `--allowed-paths` flags.
 **Phase:** 2 — `forking-realities` production-ready
 **Bootstrap mode:** partial dogfood (per spec Sec 15.1)
-**Dependencies:** Phase 0 GA shipped (commit `6ae314d`), Phase 1 lockdown verified (`05612ac`), e2e forensics tightened (`64bf188`)
+**Dependencies:** Phase 0 GA shipped (commit `6ae314d`), Phase 1 lockdown verified (`05612ac`), e2e forensics tightened (`64bf188`), bugs #6/#7 fix (this commit).
 
 ## Why we're casting (manta-cast-decide gate)
 
@@ -32,13 +32,19 @@ pnpm -r build
 
 # Cast — three clones, each with a scoped task contract (see below).
 # 25-min tick budget; per-clone hard cap $5 (cumulative ≤ $15 cast cap).
+# Bug #6 fix: explicit --max-files-changed 5 + --allowed-paths to permit
+# the deliverable markdown writes that the joint task mandates. Without
+# these, contract scope rejects the deliverable and clones graceful-die.
 node packages/manta-cli/dist/bin/manta.cjs cast recon-swarm \
   --clones 3 \
   --task '<see "Per-clone tasks" section — pass a single overall mission; per-clone scoping comes from the task contract files written by spawner>' \
   --cycle-interval-ms 5000 \
   --tick-budget-ms 1500000 \
   --budget-per-clone-usd 5 \
-  --budget-per-cast-usd 15
+  --budget-per-cast-usd 15 \
+  --max-files-changed 5 \
+  --allowed-paths '.,docs/research/' \
+  --forbidden-paths '.manta/state,secrets/,src/,packages/'
 ```
 
 > **Note:** the v1 CLI does not yet take a per-clone task array — only a single `--task` string, and the spawner writes the same task contract for each clone (modulo `clone_id`). For Phase 2 research prep we accept this limitation: pass the joint mission as `--task`, and let each clone *self-select* one of three subtasks based on its `clone_id` (A/B/C). This is acceptable for research output (we're collecting different artifacts in different files), and is itself one of the things Phase 2 will fix (per-clone task scoping is on the Phase 2 scope list).

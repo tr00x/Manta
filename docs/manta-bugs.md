@@ -24,6 +24,41 @@
 
 ## Open bugs
 
+### #6 — `cast` command hardcoded `scope.max_files_changed = 0`, blocking any deliverable cast
+
+**Discovered:** 2026-05-07, Phase-2 research-prep dogfood (`cast-1778185934043`)
+**Severity:** Catastrophic — every `manta cast` whose mission produces an on-disk artifact (research markdown, plan, code patch) was impossible. Phase-1 lockdown dogfood passed by coincidence: the e2e assertion required only `clone DEAD + post-mortem on disk`, not a deliverable.
+**Status:** Fixed in this commit.
+**Reproducer (historical):**
+1. `manta cast recon-swarm --clones 3 --task "produce docs/research/x.md"`
+2. Spawner writes task contract with hardcoded `scope: { allowed_paths: ['.'], forbidden_paths: ['.manta/state', 'secrets/'], max_files_changed: 0 }`.
+3. Clone B reads contract, calls `manta.ack_contract`:
+   > "scope.max_files_changed=0 contradicts the task's mandate to produce a deliverable file — both blockers prevent doing the assigned best-of-N research; entering graceful death with a forensic note instead of producing the deliverable."
+4. All three clones reach DEAD with empty deliverables; `docs/research/` is empty.
+**Root cause:** `packages/manta-cli/src/commands/cast.ts:107-111` hardcoded the scope literal. No CLI surface, no per-mode default, no override path. Phase-1 e2e assertion did not require deliverable verification, so the bug shipped to GA.
+**Fix:** `cast` now exposes `--max-files-changed <n>` (default `0` — preserves existing behaviour), `--allowed-paths <csv>` (default `.`), `--forbidden-paths <csv>` (default `.manta/state,secrets/`). `RunCastOptions.scope` is the typed pass-through; defaults apply when omitted (test back-compat). Validation: negative `maxFilesChanged` and empty `allowedPaths` throw `CliError(invalid_input)`. Two new tests in `cast.test.ts` pin custom-scope propagation and the negative validation.
+**Lessons:**
+- **Pre-flight + skill validator + lifecycle-only e2e is not enough.** Phase-1 lockdown e2e asserted DEAD + post-mortem; bug #6 was production-grade by that bar but immediately fatal for any deliverable cast. Phase-2+ e2e must assert the **deliverable artifact** as well, not just the lifecycle.
+- **Hardcoded defaults that contradict the dominant use-case are landmines.** Recon-swarm research is overwhelmingly going to write a markdown deliverable; the default should reflect that, or the CLI must surface the override prominently.
+
+### #7 — heartbeat threshold (30s) too tight for cold-start `claude --print`; STARTING clones DEAD before first MCP call
+
+**Discovered:** 2026-05-07, Phase-2 research-prep dogfood (`cast-1778185934043`)
+**Severity:** High — any cast where clones take >30 s to reach first heartbeat is silently aborted. Phase-1 lockdown dogfood passed by coincidence (2 clones with lighter context started in ≤ 30 s).
+**Status:** Fixed in this commit.
+**Reproducer:**
+1. `manta cast recon-swarm --clones 3 --task "<heavy priming>"`
+2. Spawner pre-registers each clone with `state: 'STARTING'` (Phase-1 lockdown invariant; `last_heartbeat_at` stamped equal to `registered_at`).
+3. `claude --print --append-system-prompt <preamble> <prompt>` cold-starts: skill load + snapshot read + first MCP call ≈ 30–60 s.
+4. Within that window, orchestrator's death-detector runs, sees `now - last_heartbeat_at > 30_000`, marks clone DEAD with reason `"heartbeat 30364ms ago > 30000ms"`.
+5. Clones eventually call `manta.heartbeat`; bus replies the clone is DEAD; clones go straight to `manta.ack_contract` with a forensic explanation and exit.
+**Root cause:** `packages/manta-orchestrator/src/death-detector.ts` applied `heartbeatTimeoutMs` uniformly regardless of `state`. STARTING clones haven't sent a real heartbeat yet — `last_heartbeat_at` is just the registration timestamp from the spawner. Treating it as a stale heartbeat punishes cold-start latency.
+**Fix:** New threshold `startupGraceMs` (default 90 s) applies when `state === 'STARTING'` and is checked against `now - registered_at`. Once a clone calls `manta.heartbeat` (state → WORKING), the existing `heartbeatTimeoutMs` (30 s) takes over against `last_heartbeat_at`. Updated tests in `death-detector.test.ts` (added STARTING-grace coverage) and `thresholds.test.ts` (default value), plus migrated existing tests that registered + advanced without heartbeating to call `heartbeat({state: 'WORKING'})` first.
+**Lessons:**
+- **`last_heartbeat_at` is not a positive liveness signal during STARTING** — Phase-1 dogfood post-mortem already noted this for the e2e watcher, but the detector itself still treated it as one. Generalised the lesson: any code consuming `last_heartbeat_at` must also gate on `state` to know whether it's a real heartbeat or a registration fingerprint.
+- **30 s is realistic for an established session, not for cold start with priming.** Future orchestrator thresholds should be empirically derived from real cast wall-time histograms, not from spec prose.
+- **Bug #6 and bug #7 are independent but reinforced each other in the failure mode** — bug #6 made the deliverable impossible; bug #7 killed the clones before they could even discover bug #6. Without forensic post-mortems and `contract_ack` payloads, the dual root-cause would have been much harder to disentangle.
+
 ### #1 — manta-cli integration test flakes under concurrent workspace test run
 
 **Discovered:** 2026-05-07, during Phase 0e Chunk-2 spec-review remediation

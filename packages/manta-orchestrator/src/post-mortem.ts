@@ -89,6 +89,7 @@ function renderMarkdown(input: RenderInput): string {
   }
   lines.push('## Thresholds in effect');
   lines.push(`- heartbeatTimeoutMs: ${input.thresholds.heartbeatTimeoutMs}`);
+  lines.push(`- startupGraceMs: ${input.thresholds.startupGraceMs}`);
   lines.push(`- staleLockMs: ${input.thresholds.staleLockMs}`);
   lines.push(`- parentPidCheckEnabled: ${input.thresholds.parentPidCheckEnabled}`);
   lines.push('');

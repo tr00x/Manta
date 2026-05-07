@@ -34,7 +34,7 @@ describe('cast command (recon-swarm)', () => {
     // which is the test runner — disabling avoids cross-test interference.
     const rt = await createRuntime({
       repoRoot: fx.root,
-      thresholdOverrides: { heartbeatTimeoutMs: 100, parentPidCheckEnabled: false },
+      thresholdOverrides: { heartbeatTimeoutMs: 100, startupGraceMs: 100, parentPidCheckEnabled: false },
     });
     const sink = new MemorySink();
     const result = await runCastCommand(rt, {
@@ -148,7 +148,7 @@ describe('cast command (recon-swarm)', () => {
     fx = await makeRepoFixture();
     const rt = await createRuntime({
       repoRoot: fx.root,
-      thresholdOverrides: { heartbeatTimeoutMs: 100, parentPidCheckEnabled: false },
+      thresholdOverrides: { heartbeatTimeoutMs: 100, startupGraceMs: 100, parentPidCheckEnabled: false },
     });
     // 2nd invocation throws synchronously from runner.run() — that surfaces
     // out of spawnClone → cast's try-block → the catch must terminate the
@@ -210,6 +210,7 @@ describe('cast command (recon-swarm)', () => {
       // stop this cast. Without I-IMP-3's cleanup branch the call would hang.
       thresholdOverrides: {
         heartbeatTimeoutMs: 99_999,
+        startupGraceMs: 99_999,
         parentPidCheckEnabled: false,
       },
     });
@@ -250,7 +251,7 @@ describe('cast command (recon-swarm)', () => {
     fx = await makeRepoFixture();
     const rt = await createRuntime({
       repoRoot: fx.root,
-      thresholdOverrides: { heartbeatTimeoutMs: 100, parentPidCheckEnabled: false },
+      thresholdOverrides: { heartbeatTimeoutMs: 100, startupGraceMs: 100, parentPidCheckEnabled: false },
     });
     await runCastCommand(rt, {
       mode: 'recon-swarm',
@@ -274,5 +275,73 @@ describe('cast command (recon-swarm)', () => {
     expect(stored.contract.task).toBe('audit auth');
     expect(stored.contract.deadline_ms).toBeGreaterThan(0);
     expect(stored.contract.scope.allowed_paths).toContain('.');
+  });
+
+  it('propagates custom scope (bug #6 fix) into the stored task contract', async () => {
+    // Bug #6 (Phase-2 dogfood): cast hardcoded `max_files_changed: 0` so any
+    // cast that produces a deliverable file was impossible. Fix exposes scope
+    // via CLI flags; this test pins the new RunCastOptions.scope wiring against
+    // the bus's snake_case contract.
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: { heartbeatTimeoutMs: 100, startupGraceMs: 100, parentPidCheckEnabled: false },
+    });
+    await runCastCommand(rt, {
+      mode: 'recon-swarm',
+      task: 'produce docs/research/x.md',
+      cloneCount: 1,
+      cycleIntervalMs: 50,
+      runner: runFakeCloneScript({ scriptPath: fixturePath }),
+      reporter: createReporter({ sink: new MemorySink() }),
+      tickBudgetMs: 15_000,
+      castId: 'cast-scope',
+      budgetUsdPerClone: 5,
+      budgetUsdPerCast: 15,
+      scope: {
+        allowedPaths: ['.', 'docs/research/'],
+        forbiddenPaths: ['.manta/state', 'secrets/', 'src/'],
+        maxFilesChanged: 5,
+      },
+      verifyMcp: false,
+    });
+    const stored = await rt.ctx.contracts.read('A');
+    expect(stored.contract.scope.allowed_paths).toEqual(['.', 'docs/research/']);
+    expect(stored.contract.scope.forbidden_paths).toEqual([
+      '.manta/state',
+      'secrets/',
+      'src/',
+    ]);
+    expect(stored.contract.scope.max_files_changed).toBe(5);
+  });
+
+  it('rejects negative max_files_changed and empty allowed_paths', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({ repoRoot: fx.root });
+    const baseArgs = {
+      mode: 'recon-swarm' as const,
+      task: 't',
+      cloneCount: 1,
+      cycleIntervalMs: 50,
+      runner: runFakeCloneScript({ scriptPath: fixturePath }),
+      reporter: createReporter({ sink: new MemorySink() }),
+      tickBudgetMs: 15_000,
+      castId: 'cast-neg',
+      budgetUsdPerClone: 5,
+      budgetUsdPerCast: 15,
+      verifyMcp: false,
+    };
+    await expect(
+      runCastCommand(rt, {
+        ...baseArgs,
+        scope: { allowedPaths: ['.'], forbiddenPaths: [], maxFilesChanged: -1 },
+      }),
+    ).rejects.toMatchObject({ name: 'CliError', kind: 'invalid_input' });
+    await expect(
+      runCastCommand(rt, {
+        ...baseArgs,
+        scope: { allowedPaths: [], forbiddenPaths: [], maxFilesChanged: 0 },
+      }),
+    ).rejects.toMatchObject({ name: 'CliError', kind: 'invalid_input' });
   });
 });

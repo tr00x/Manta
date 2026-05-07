@@ -17,7 +17,7 @@ describe('recover command', () => {
     // immediately stale by the time we run the cycle.
     const rt = await createRuntime({
       repoRoot: fx.root,
-      thresholdOverrides: { heartbeatTimeoutMs: 1, parentPidCheckEnabled: false },
+      thresholdOverrides: { heartbeatTimeoutMs: 1, startupGraceMs: 1, parentPidCheckEnabled: false },
     });
     await rt.ctx.registry.register({
       clone_id: 'A',

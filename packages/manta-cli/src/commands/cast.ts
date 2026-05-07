@@ -15,6 +15,15 @@ const SUPPORTED_MODES: ReadonlySet<Mode> = new Set<Mode>(['recon-swarm']);
 const CLONE_NAMES: readonly string[] = ['A', 'B', 'C', 'D', 'E']; // Phase 0 ceiling = 5
 const DEFAULT_DEADLINE_MS = 1_200_000; // 20 min per spec Sec 6.2
 
+export interface CastScopeOptions {
+  /** Paths the clone may read/write within (relative to repo root). */
+  allowedPaths: string[];
+  /** Paths the clone MUST NOT touch. */
+  forbiddenPaths: string[];
+  /** Hard cap on file writes per clone. 0 = read-only. Bug #6: must be >0 for deliverable casts. */
+  maxFilesChanged: number;
+}
+
 export interface RunCastOptions {
   mode: Mode;
   task: string;
@@ -24,11 +33,23 @@ export interface RunCastOptions {
   castId: string;
   budgetUsdPerClone: number;
   budgetUsdPerCast: number;
+  /**
+   * Per-clone scope (allowed/forbidden paths, max files changed). Optional —
+   * when omitted defaults to read-only whole-repo with `.manta/state` and
+   * `secrets/` forbidden (existing pre-bug-#6 behaviour preserved for tests).
+   */
+  scope?: CastScopeOptions;
   runner: CloneRunner;
   reporter: Reporter;
   /** Skip the `claude mcp list` pre-flight. Tests with fake runners pass false. */
   verifyMcp?: boolean;
 }
+
+const DEFAULT_SCOPE: CastScopeOptions = {
+  allowedPaths: ['.'],
+  forbiddenPaths: ['.manta/state', 'secrets/'],
+  maxFilesChanged: 0,
+};
 
 /**
  * `manta cast <mode>` — orchestrate a full cast lifecycle:
@@ -85,6 +106,23 @@ export async function runCastCommand(
     await verifyMantaBusRegistered();
   }
 
+  const scope = opts.scope ?? DEFAULT_SCOPE;
+  if (
+    !Number.isInteger(scope.maxFilesChanged) ||
+    scope.maxFilesChanged < 0
+  ) {
+    throw new CliError(
+      `--max-files-changed must be a non-negative integer; got ${scope.maxFilesChanged}`,
+      { kind: 'invalid_input' },
+    );
+  }
+  if (scope.allowedPaths.length === 0) {
+    throw new CliError(
+      `--allowed-paths must list at least one path (default ".")`,
+      { kind: 'invalid_input' },
+    );
+  }
+
   const cloneIds = CLONE_NAMES.slice(0, opts.cloneCount);
   const handles: CloneHandle[] = [];
   const worktrees: WorktreeRecord[] = [];
@@ -105,9 +143,9 @@ export async function runCastCommand(
         // the bus's TaskContractSchema uses snake_case. We translate at the
         // ctx.contracts.write boundary below.
         scope: {
-          allowedPaths: ['.'],
-          forbiddenPaths: ['.manta/state', 'secrets/'],
-          maxFilesChanged: 0,
+          allowedPaths: scope.allowedPaths,
+          forbiddenPaths: scope.forbiddenPaths,
+          maxFilesChanged: scope.maxFilesChanged,
         },
         siblingClones: cloneIds.filter((id) => id !== cloneId),
         deadlineMs: DEFAULT_DEADLINE_MS,

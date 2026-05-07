@@ -33,6 +33,7 @@ describe('cli end-to-end (recon-swarm with fake clones)', () => {
       repoRoot: fx.root,
       thresholdOverrides: {
         heartbeatTimeoutMs: 100,
+        startupGraceMs: 100,
         parentPidCheckEnabled: false,
       },
     });
