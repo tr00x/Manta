@@ -58,6 +58,12 @@ describe('validateSkill', () => {
     expect(r.ok).toBe(false);
     expect(r.issues.some((i) => i.code === 'missing_section' && i.message.includes('Forbidden'))).toBe(true);
   });
+
+  it('reports parse_error when frontmatter YAML is malformed', () => {
+    const r = validateSkill('skills/x/SKILL.md', '---\nname: [bad: yaml\n---\nbody\n');
+    expect(r.ok).toBe(false);
+    expect(r.issues.some((i) => i.code === 'parse_error')).toBe(true);
+  });
 });
 
 describe('validateCommand', () => {

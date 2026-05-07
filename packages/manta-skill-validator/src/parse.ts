@@ -30,6 +30,7 @@ export function parseDocument(source: string): ParsedDocument {
 function extractHeadings(body: string): string[] {
   const out: string[] = [];
   let m: RegExpExecArray | null;
+  // Module-level /g regex carries state across exec() calls; reset before each scan.
   H2.lastIndex = 0;
   while ((m = H2.exec(body)) !== null) {
     const heading = m[1];
