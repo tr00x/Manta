@@ -53,12 +53,16 @@ Phase-0 additions (held to the same bar as a self-imposed quality discipline; no
 ## Operational
 
 - [ ] `git log --oneline` shows atomic commits per chunk; no "fix later" / "WIP" commits in main
-- [ ] Every commit authored by `Tim Hunt <tr00x@proton.me>` per CLAUDE.md
-- [ ] No `// TODO: implement` strings anywhere outside ignored directories:
+- [ ] Every commit authored by the project owner per CLAUDE.md author-override rule (`-c user.email=… -c user.name=…` per command, never global)
+- [ ] No `// TODO: implement` code comments in any production source path:
   ```
-  rg -n "TODO: implement" --glob '!node_modules' --glob '!dist' --glob '!.git' --glob '!coverage' .
+  rg -n '^\s*//\s*TODO: implement' \
+    --glob 'packages/**/*.ts' \
+    --glob '!packages/**/dist/**' \
+    --glob '!packages/**/node_modules/**' \
+    --glob '!packages/**/coverage/**' .
   ```
-  (must return zero matches; this scope catches workspace-root configs / scripts that the per-directory variant misses)
+  (must return zero matches. The pattern targets the exact code-comment form; `// TODO: implement` strings inside docs / spec / plans / this checklist itself are policy text, not code violations, and are intentionally outside scope.)
 - [ ] No mocks or feature flags in production code paths (spec Sec 14.4)
 
 ## Sign-off

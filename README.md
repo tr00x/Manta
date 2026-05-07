@@ -7,10 +7,11 @@ Self-cloning Claude Code pattern. Same system prompt, full transcript inheritanc
 ```
 git clone <manta-repo> && cd manta
 pnpm install && pnpm -r build
+claude mcp add manta-bus --command "node $(pwd)/packages/manta-bus/dist/bin/server.cjs"
 node packages/manta-cli/dist/bin/manta.cjs cast recon-swarm --clones 2 --task "Map this codebase"
 ```
 
-Full walkthrough: `docs/user/getting-started.md`. Acceptance checklist: `docs/acceptance/phase-0.md`.
+Without the `claude mcp add` step every clone fails at the bus transport. Full walkthrough: `docs/user/getting-started.md`. Acceptance checklist: `docs/acceptance/phase-0.md`.
 
 ## Status
 

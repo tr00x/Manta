@@ -90,6 +90,6 @@ If a worktree won't go away or a lock is stuck, see `docs/manta-bugs.md` first; 
 - Modes other than `recon-swarm` (forking-realities, refactor-wave, bug-hunt, …) — Phase 2+.
 - The other 30+ slash commands (`/manta inspect`, `/manta tail`, `/manta promote`, …) — Phase 1+.
 - Charges / cooldowns / fragility — Phase 3.
-- Plugin distribution (`npx manta install`) — Phase 7.
+- Plugin distribution (`npx manta@latest install`) — Phase 7.
 
 See `docs/superpowers/specs/2026-05-06-manta-pattern-design.md` for the full roadmap.
