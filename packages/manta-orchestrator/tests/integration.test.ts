@@ -23,7 +23,7 @@ describe('orchestrator integration (real @manta/bus, real fs)', () => {
     await ctx.claims.claim({ clone_id: 'A', item: 'analyze', timeout_ms: 60_000 });
 
     // 2. Time passes — heartbeat goes stale, lock goes stale, claim goes stale.
-    ctx.clock.advance(60_001);
+    ctx.clock.advance(91_000); // over heartbeatTimeoutMs (90s) and staleLockMs/claim-timeout
 
     // 3. Run a cycle with a real fs writer.
     const writer = fsPostMortemWriter({ repoRoot: ctx.root, postMortemDir: 'docs/post-mortems' });

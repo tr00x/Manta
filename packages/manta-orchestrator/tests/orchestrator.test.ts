@@ -25,7 +25,7 @@ describe('Orchestrator', () => {
     await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: { cast_id: 'cast-1' } });
     // Move out of STARTING via a real heartbeat so heartbeatTimeoutMs (not startupGraceMs) applies.
     await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
-    ctx.clock.advance(31_000);
+    ctx.clock.advance(91_000);
     const writer = inMemoryPostMortemWriter();
     const o = new Orchestrator({ ctx, thresholds: defaultThresholds, probe: makeProbe({ alive: () => true }), writer });
     const result = await o.runCycle();
@@ -70,7 +70,7 @@ describe('Orchestrator', () => {
   it('runCycle is idempotent when called twice on the same state', async () => {
     await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
     await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
-    ctx.clock.advance(31_000);
+    ctx.clock.advance(91_000);
     const writer = inMemoryPostMortemWriter();
     const o = new Orchestrator({ ctx, thresholds: defaultThresholds, probe: makeProbe({ alive: () => true }), writer });
     const first = await o.runCycle();

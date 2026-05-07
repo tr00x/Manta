@@ -24,6 +24,23 @@
 
 ## Open bugs
 
+### #8 — `heartbeatTimeoutMs` default (30 s) too tight for actively-working clones
+
+**Discovered:** 2026-05-07, Phase-2 research-prep dogfood re-run (`cast-1778187134719`, after bugs #6 + #7 fix in commit `ae192ec`).
+**Severity:** High — any cast where clones do real work between heartbeats (reading multi-KB specs, drafting markdown, running greps) is silently aborted ~30 s after the first heartbeat. Phase-1 lockdown dogfood passed by coincidence: its task ("map src/ public exports") is small enough that clones called heartbeat several times during execution.
+**Status:** Fixed in this commit.
+**Reproducer (historical):**
+1. After bugs #6/#7 fix (`ae192ec`), re-cast Phase-2 research-prep with the new `--max-files-changed 5 --allowed-paths` flags.
+2. All 3 clones reach STARTING → WORKING fine (startup grace works), each sends exactly one heartbeat, each calls `manta.ack_contract` with a sane interpretation.
+3. Each clone then begins reading CLAUDE.md + spec sections + INDEX.md + research-prep.md before drafting its deliverable — that read+think+draft loop runs for ~30 s with no MCP roundtrip.
+4. At t ≈ first-heartbeat + 30 s, orchestrator marks each clone DEAD with reason `"heartbeat 32323ms ago > 30000ms"`. No deliverable on disk; no second heartbeat ever sent.
+**Root cause:** The skill `manta-as-clone` instructs "heartbeat every ≤ 10 s", but Claude does not track wallclock between tool calls and there is no in-loop forcing function. A clone reading a 5 KB spec section + drafting markdown can legitimately go 30–60 s between MCP calls. The original 30 s threshold (justified in `thresholds.ts` as "Sec 9 blocker #5: suicide через 30 сек после смерти parent") conflated two different deadlines: a clone's *own* suicide-on-orphan deadline (which it self-checks frequently) and the *orchestrator's* third-party staleness threshold (which must accommodate realistic working windows).
+**Fix:** Default `heartbeatTimeoutMs` raised from `30_000` → `90_000`, matching `startupGraceMs` for symmetry. Justification embedded in `thresholds.ts` comment with a pointer to the dogfood cast id. Tests that asserted DEAD after `advance(31_000)` updated to `advance(91_000)`; post-mortem fixture text updated; whole-workspace sweep 338+ tests green. Operators can still tighten via `--heartbeat-timeout-ms` for fixture/integration scenarios that need fast death detection.
+**Lessons:**
+- **Spec thresholds are theoretical until production-validated.** 30 s came from spec prose without empirical wall-time data on real research workloads. Future threshold changes must come with a captured-timing rationale, not a comment citing the spec.
+- **A skill saying "every ≤ 10 s" is not a forcing function** — Claude doesn't have a wallclock-based heartbeat scheduler between tool calls. For real liveness, either (a) bump the threshold to cover the realistic working window, or (b) add a side-channel heartbeat (e.g. spawner-side periodic ping). 90 s is the (a) path; (b) is a Phase-2+ improvement candidate.
+- **Bugs #7 and #8 are the same bug at different timepoints** — #7 was startup-window staleness, #8 is working-window staleness, both caused by treating threshold-tightness as more important than realistic timing. Future detector changes should think in terms of state-machine transitions (registered → first-heartbeat → DEAD) and pick a threshold per transition.
+
 ### #6 — `cast` command hardcoded `scope.max_files_changed = 0`, blocking any deliverable cast
 
 **Discovered:** 2026-05-07, Phase-2 research-prep dogfood (`cast-1778185934043`)

@@ -26,7 +26,7 @@ describe('death-detector', () => {
     await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
     // Move out of STARTING via a real heartbeat; only after that does the heartbeat threshold apply.
     await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
-    ctx.clock.advance(31_000);
+    ctx.clock.advance(91_000);
     const result = await findDeadClones(ctx, {
       thresholds: defaultThresholds,
       probe: makeProbe({ alive: () => true }),
@@ -41,7 +41,7 @@ describe('death-detector', () => {
     // can exceed 30s before first MCP heartbeat. STARTING state must use startupGraceMs
     // against registered_at, not heartbeatTimeoutMs against last_heartbeat_at.
     await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
-    ctx.clock.advance(31_000); // over heartbeatTimeoutMs but under startupGraceMs
+    ctx.clock.advance(31_000); // over old 30s heartbeat default but under startupGraceMs (90s); STARTING grace must skip this
     const within = await findDeadClones(ctx, {
       thresholds: defaultThresholds,
       probe: makeProbe({ alive: () => true }),
@@ -76,7 +76,7 @@ describe('death-detector', () => {
   it('does not double-count: stale-and-orphaned reports a single record', async () => {
     await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 999, worktree: '/w', metadata: {} });
     await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
-    ctx.clock.advance(31_000);
+    ctx.clock.advance(91_000);
     const result = await findDeadClones(ctx, {
       thresholds: defaultThresholds,
       probe: makeProbe({ alive: () => false }),

@@ -3,7 +3,7 @@ import { defaultThresholds, mergeThresholds, ThresholdsSchema } from '../src/thr
 
 describe('thresholds', () => {
   it('defaults match Sec 6.2 / Sec 6.3 / Sec 9 blocker #5 + bug #7 startup grace', () => {
-    expect(defaultThresholds.heartbeatTimeoutMs).toBe(30_000);
+    expect(defaultThresholds.heartbeatTimeoutMs).toBe(90_000);
     expect(defaultThresholds.startupGraceMs).toBe(90_000);
     expect(defaultThresholds.staleLockMs).toBe(15_000);
     expect(defaultThresholds.parentPidCheckEnabled).toBe(true);

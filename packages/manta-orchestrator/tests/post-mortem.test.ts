@@ -17,11 +17,11 @@ describe('post-mortem', () => {
     await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: { cast_id: 'cast-42' } });
     await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING', progress: 'half' });
     await ctx.events.append({ type: 'broadcast', clone_id: 'A', payload: { event_type: 'breakthrough', body: { summary: 'found root cause' } } });
-    ctx.clock.advance(31_000);
+    ctx.clock.advance(91_000);
     const writer = inMemoryPostMortemWriter();
     const result = await runPostMortem(ctx, {
       cloneId: 'A',
-      reason: 'heartbeat 31000ms ago > 30000ms',
+      reason: 'heartbeat 91000ms ago > 90000ms',
       writer,
       thresholds: defaultThresholds,
     });
@@ -29,7 +29,7 @@ describe('post-mortem', () => {
     expect(writer.captured).toHaveLength(1);
     const md = writer.captured[0]!.body;
     expect(md).toContain('# Post-mortem — clone A');
-    expect(md).toContain('Reason: heartbeat 31000ms ago > 30000ms');
+    expect(md).toContain('Reason: heartbeat 91000ms ago > 90000ms');
     expect(md).toContain('cast-42');
     expect(md).toContain('breakthrough');
     expect(writer.captured[0]!.filename).toMatch(/^\d{4}-\d{2}-\d{2}-cast-42-A\.md$/);
@@ -37,7 +37,7 @@ describe('post-mortem', () => {
 
   it('uses "no-cast" prefix when metadata lacks cast_id', async () => {
     await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
-    ctx.clock.advance(31_000);
+    ctx.clock.advance(91_000);
     const writer = inMemoryPostMortemWriter();
     await runPostMortem(ctx, {
       cloneId: 'A',
