@@ -23,10 +23,18 @@
 |---|---|---|
 | `2026-05-07-phase-1-recon-swarm-lockdown.md` | **Executed** — Chunk 1 (`57551ef`) + dogfood-driven follow-ups (current commit). Two real-claude casts green: 4m36s wallclock (first), 4m21s (re-run); both clones DEAD with post-mortems, watcher fired green. New bug #5 (clones don't write ZK notes consistently — 0 first run, 1 second) tracked Open / Medium for Phase-2. | Chunk 1: spawner pre-registration via `runtime.ctx.registry.register({ clone_id, mode, parent_pid, worktree, metadata })`, replace `--snapshot` with `--append-system-prompt <text> --permission-mode bypassPermissions <prompt>`, behavioural-fixture test (state STARTING → non-STARTING signal, NOT `last_heartbeat_at`), e2e positive timeline assertion (`tickBudgetMs / 4`), skill+slash-command+doc text alignment, dogfood + bug-log + acceptance updates, post-mortem |
 
-## Phase 2+ — TBD
+## Phase 2 — `forking-realities` Production-Ready
+
+Цель: production-grade `forking-realities` mode — worktree-based isolation, best-of-N flow, `manta-merge-review`, Tier 3-4 observability (`tail`, `replay`, `audit`). Build by **partial dogfood**: Phase 0/1 рабочий `recon-swarm` используется для исследования best-of-N patterns + map текущей кодовой базы под форк-точки.
+
+| План | Статус | Содержит |
+|---|---|---|
+| `2026-05-07-phase-2-forking-realities-research-prep.md` | **TODO — research prep** | Cast spec для recon-swarm: 3 клона (codebase map / best-of-N research / Bus isolation strategy). Output feeds Phase 2 plan. |
+| `2026-05-07-phase-2-forking-realities.md` | **TBD — pending research cast** | Будет написан после post-mortem'а recon-swarm каста. Ожидаемый scope: spawner-N-worktrees, manta-merge-review skill+command, plagiarism-prevention bus filter (Sec 5.8), Tier 3-4 observability commands. |
+
+## Phase 3+ — TBD
 
 Per spec Sec 15.1. Each phase = separate plan file:
-- Phase 2: `forking-realities` (worktree-based isolation, best-of-N, manta-merge-review)
 - Phase 3: Charge system + multi-layer budgets + cooldowns (built using forking-realities for impl alternatives)
 - Phase 4: Wave-1 closeout (`refactor-wave`, `bug-hunt`)
 - Phase 5: daemon-mode runtime (Wave-2 prerequisite)
