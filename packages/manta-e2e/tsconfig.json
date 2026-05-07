@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "composite": false,
+    "incremental": false
+  },
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["tests/fixtures/**"],
+  "references": [
+    { "path": "../manta-bus" },
+    { "path": "../manta-cli" },
+    { "path": "../manta-orchestrator" },
+    { "path": "../manta-skill-validator" },
+    { "path": "../manta-snapshot" }
+  ]
+}

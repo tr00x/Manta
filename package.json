@@ -19,7 +19,8 @@
     "lint:fix": "eslint 'packages/**/src/**/*.ts' --fix --no-error-on-unmatched-pattern",
     "format": "prettier --write 'packages/**/*.{ts,json,md}'",
     "typecheck": "tsc -b",
-    "clean": "tsc -b --clean && rimraf 'packages/*/dist'"
+    "clean": "tsc -b --clean && rimraf 'packages/*/dist'",
+    "e2e:recon-swarm": "MANTA_E2E=1 pnpm --filter @manta/e2e test"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
