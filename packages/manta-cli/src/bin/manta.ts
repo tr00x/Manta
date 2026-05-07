@@ -136,9 +136,14 @@ main().catch((err) => {
 });
 
 // Crash hygiene: surface uncaught rejections as exit 99 rather than silent.
+// I-IMP-4 (Chunk-2 review): only override exitCode when it's currently
+// 0/falsy. A stray rejection that fires *after* main() already set
+// process.exitCode for a successful or typed-failure cast must not clobber
+// that — otherwise a green run reports 99. We don't unit-test process-level
+// signal handlers (fragile, low value for a one-line guard).
 process.on('unhandledRejection', (err) => {
   process.stderr.write(
     `[manta] unhandledRejection: ${(err as Error)?.message ?? err}\n`,
   );
-  process.exitCode = 99;
+  if (!process.exitCode) process.exitCode = 99;
 });

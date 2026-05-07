@@ -2,7 +2,6 @@ import type { Runtime } from '../runtime.js';
 import type { Reporter } from '../output/reporter.js';
 import type { CommandResult } from './status.js';
 import { CliError } from '../errors.js';
-import { isOrchestratorError } from '@manta/orchestrator';
 
 export interface RunRecoverOptions {
   reporter: Reporter;
@@ -24,9 +23,14 @@ export async function runRecoverCommand(
   try {
     result = await rt.orchestrator.runCycle();
   } catch (err) {
+    // CliErrorOptions.cause is `unknown` (errors.ts:11) so we pass `err`
+    // through verbatim — whether it's an OrchestratorError or anything else,
+    // the consumer reads it via `Error.cause`. (I-IMP-2: dropped a dead
+    // `isOrchestratorError(err) ? err : err` ternary that branched to the
+    // same value.)
     throw new CliError('orchestrator cycle failed during recover', {
       kind: 'recovery_failed',
-      cause: isOrchestratorError(err) ? err : err,
+      cause: err,
     });
   }
   opts.reporter.info('recover', {

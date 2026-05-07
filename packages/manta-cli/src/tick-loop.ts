@@ -1,5 +1,4 @@
 import type { Orchestrator } from '@manta/orchestrator';
-import { isOrchestratorError } from '@manta/orchestrator';
 import { CliError } from './errors.js';
 
 export interface RunTickLoopOptions {
@@ -25,9 +24,13 @@ export async function runTickLoop(opts: RunTickLoopOptions): Promise<TickLoopRes
     try {
       await opts.orchestrator.runCycle();
     } catch (err) {
+      // CliErrorOptions.cause is `unknown` (errors.ts:11) so we forward `err`
+      // verbatim — OrchestratorError or otherwise, it lands on `Error.cause`.
+      // (I-IMP-2: removed a dead `isOrchestratorError(err) ? err : err`
+      // ternary that returned the same value in both branches.)
       throw new CliError('orchestrator cycle failed', {
         kind: 'orchestrator_failed',
-        cause: isOrchestratorError(err) ? err : err,
+        cause: err,
       });
     }
     cycles += 1;

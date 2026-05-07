@@ -5,7 +5,7 @@ import type { Mode, Snapshot } from '@manta/snapshot';
 import type { TaskContract as BusTaskContract } from '@manta/bus';
 import type { CloneRunner, CloneHandle } from '../spawner/clone-spawner.js';
 import { spawnClone } from '../spawner/clone-spawner.js';
-import { addWorktree, type WorktreeRecord } from '../spawner/worktree.js';
+import { addWorktree, removeWorktree, type WorktreeRecord } from '../spawner/worktree.js';
 import { buildCloneSnapshot } from '../spawner/snapshot-builder.js';
 import { runTickLoop } from '../tick-loop.js';
 import { CliError } from '../errors.js';
@@ -143,8 +143,9 @@ export async function runCastCommand(
 
     const ctrl = new AbortController();
     const budgetTimer = setTimeout(() => ctrl.abort(), opts.tickBudgetMs);
+    let loopResult;
     try {
-      await runTickLoop({
+      loopResult = await runTickLoop({
         orchestrator: rt.orchestrator,
         intervalMs: opts.cycleIntervalMs,
         signal: ctrl.signal,
@@ -160,6 +161,27 @@ export async function runCastCommand(
       });
     } finally {
       clearTimeout(budgetTimer);
+    }
+
+    // I-IMP-3 (Chunk-2 review): if the loop exited via budget-abort, surviving
+    // children may still be running (e.g. wedged `claude --print`, or the
+    // `hang` test fake). Awaiting `h.exit` directly would hang forever. Force-
+    // terminate them with the same SIGTERM→SIGKILL ladder the failure path
+    // uses, so the budget-abort guarantees an upper bound on cast wall-time.
+    if (loopResult.aborted) {
+      opts.reporter.info('cast.budget_abort', {
+        cast: opts.castId,
+        cycles: loopResult.cycles,
+      });
+      await Promise.all(
+        handles.map(async (h) => {
+          try {
+            await h.terminate({ gracefulMs: 1_000 });
+          } catch {
+            /* already exited */
+          }
+        }),
+      );
     }
 
     // Final reap regardless of how the loop exited. The exit promise might
@@ -191,6 +213,27 @@ export async function runCastCommand(
           await h.terminate({ gracefulMs: 1_000 });
         } catch {
           /* already exited */
+        }
+      }),
+    );
+    // I-IMP-1 (Chunk-2 review): on the failure path, peel back any worktrees
+    // created so a re-cast doesn't collide on `clone-${id}` paths or
+    // `manta/${castId}/${id}` branch names. Successful casts intentionally
+    // retain worktrees (operator post-mortem inspection — see ARCHITECTURE.md
+    // "Worktrees stay after a cast"); failure paths must clean up. Order:
+    // children terminated first (above), then their worktrees torn down.
+    // Per-worktree errors are swallowed — best-effort cleanup; if git can't
+    // remove one, surfacing it would mask the original cast_failed cause.
+    await Promise.all(
+      worktrees.map(async (wt) => {
+        try {
+          await removeWorktree({
+            repoRoot: rt.repoRoot,
+            worktreePath: wt.path,
+            branch: wt.branch,
+          });
+        } catch {
+          /* best-effort: leave worktree behind rather than swallow original err */
         }
       }),
     );
