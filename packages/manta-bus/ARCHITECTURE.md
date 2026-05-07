@@ -69,6 +69,7 @@ Memory writers (`memory-writers.ts:zkWrite/paraAppend`) are not JSON mutate-and-
 - **`manta.message` recipient TOCTOU.** `tools/communication.message` validates that both `from_clone_id` and `to_clone_id` exist in the registry at call time, but a recipient marked `DEAD` between validation and the audit-event append will receive a delivered event in `events.jsonl`. The orchestrator (Phase 0c) is responsible for filtering messages-to-DEAD at delivery time. The bus stays a pure data plane and does not retry or refuse based on liveness.
 - **Audit-ahead-of-state.** See "Audit-trail invariant". A crash between event-append and state-rename leaves the audit log with an entry whose state mutation never landed. Replay-side reconciliation is the orchestrator's job.
 - **Path containment.** `memory-writers.ts` asserts that every resolved write path stays under the configured `zkDir` / `paraDir`. The assertion is defense-in-depth on top of `slug()` stripping non-alphanumerics and the Zod-enforced category enum.
+- **Work-claim event payload shape.** `claim_work` and `release_work` audit events record `{ item, timeout_ms }`, not the absolute `expires_at`. The audit closure runs inside the mutex before the `WorkClaim` is bound, so the absolute expiry is computed from `event.ts + timeout_ms` (same `Clock` instance). Phase 0c+ consumers reading the events log must compute expiry that way rather than expecting an `expires_at` field.
 
 ## Test strategy
 
