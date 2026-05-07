@@ -69,4 +69,14 @@ describe('ClaimsStore', () => {
     const list = await claims.list();
     expect(list.map((c) => c.item).sort()).toEqual(['task-1', 'task-2']);
   });
+
+  it('reapExpired removes expired claims and returns them', async () => {
+    await claims.claim({ clone_id: 'A', item: 'task-1', timeout_ms: 1_000 });
+    await claims.claim({ clone_id: 'B', item: 'task-2', timeout_ms: 60_000 });
+    clock.advance(1_001);
+    const reaped = await claims.reapExpired();
+    expect(reaped.map((c) => c.item)).toEqual(['task-1']);
+    const remaining = await claims.list();
+    expect(remaining.map((c) => c.item)).toEqual(['task-2']);
+  });
 });

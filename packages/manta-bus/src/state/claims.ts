@@ -75,4 +75,19 @@ export class ClaimsStore {
     const file = await atomicReadJson<ClaimsFile>(this.paths.claims, empty);
     return Object.values(file.claims);
   }
+
+  async reapExpired(): Promise<WorkClaim[]> {
+    const now = this.clock.now();
+    const reaped: WorkClaim[] = [];
+    await atomicMutateJson<ClaimsFile>(this.paths.claims, empty, (current) => {
+      for (const [item, claim] of Object.entries(current.claims)) {
+        if (now >= claim.expires_at) {
+          reaped.push(claim);
+          delete current.claims[item];
+        }
+      }
+      return current;
+    });
+    return reaped;
+  }
 }

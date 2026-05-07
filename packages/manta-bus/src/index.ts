@@ -19,4 +19,4 @@ export { createBusServer } from './server';
 export type { CreateBusServerOptions, BusServerHandle } from './server';
 export { fsMemoryWriters } from './memory-writers';
 export type { MemoryWriters, ZkWriteRequest, ParaAppendRequest } from './memory-writers';
-export type { BusContext } from './tools/index';
+export type { BusContext, SubsetContext } from './tools/index';
