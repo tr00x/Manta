@@ -14,6 +14,9 @@ graphify-out/
 # Local Claude Code settings (not source)
 .claude/
 
+# Serena MCP local state (not source)
+.serena/
+
 # Node / build
 node_modules/
 dist/

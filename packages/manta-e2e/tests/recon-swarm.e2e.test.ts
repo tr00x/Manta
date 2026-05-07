@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,13 +18,32 @@ const cliBin = path.join(repoRoot, 'packages/manta-cli/dist/bin/manta.cjs');
 describe('recon-swarm end-to-end against real claude', () => {
   let fx: SampleRepoFixture | undefined;
   let claude: Awaited<ReturnType<typeof probeClaudeBin>>;
+  // Preserve-evidence: when a test in this suite fails, keep the tmp repo so
+  // the dogfood post-mortems / ZK notes / registry / worktrees are inspectable.
+  // Set MANTA_E2E_KEEP=1 to force-retain even on success.
+  let suiteFailed = false;
 
   beforeAll(async () => {
     claude = await probeClaudeBin();
   });
 
+  afterEach((ctx) => {
+    if (ctx.task.result?.state === 'fail') suiteFailed = true;
+  });
+
   afterAll(async () => {
-    if (fx) await fx.cleanup();
+    if (!fx) return;
+    const force = process.env.MANTA_E2E_KEEP === '1';
+    if (suiteFailed || force) {
+      // eslint-disable-next-line no-console -- forensics signal for the human running the dogfood
+      console.warn(
+        `[recon-swarm.e2e] preserving evidence at ${fx.root} (${
+          force ? 'MANTA_E2E_KEEP=1' : 'test failed'
+        }) — inspect docs/post-mortems, docs/zk, .manta/state, .manta/worktrees`,
+      );
+      return;
+    }
+    await fx.cleanup();
   });
 
   it('runs a 2-clone recon-swarm cast and produces post-mortems and ZK notes', async () => {
@@ -58,9 +77,29 @@ describe('recon-swarm end-to-end against real claude', () => {
     const { busPaths, Registry, systemClock } = await import('@manta/bus');
     const watcherRegistry = new Registry(busPaths(fx.root), systemClock);
 
-    const timelineWatcher = (async () => {
-      const startedAt = Date.now();
-      while (Date.now() - startedAt < heartbeatBudgetMs) {
+    // Forensic timeline: poll Registry every 5s for the full cast lifecycle
+    // (not just until STARTING transitions). Persist polls + milestones to
+    // docs/post-mortems/e2e-timeline-<cast-id>.json so wall-time and per-state
+    // transitions are auditable after the fact (see post-mortem 2026-05-07).
+    const timelinePolls: Array<{
+      ts: number;
+      elapsed_ms: number;
+      clones: Array<{
+        id: string;
+        state: string;
+        last_heartbeat_at: number;
+        metadata: Record<string, string>;
+        progress: string | undefined;
+        death_reason: string | undefined;
+        died_at: number | undefined;
+      }>;
+    }> = [];
+    let observedCastId: string | undefined;
+    let metStartingMilestone = false;
+    const startedAt = Date.now();
+
+    const timelineRecorder = (async () => {
+      while (castProc.exitCode == null && Date.now() - startedAt < tickBudgetMs) {
         await new Promise((resolve) => setTimeout(resolve, 5_000));
         let clones;
         try {
@@ -68,28 +107,91 @@ describe('recon-swarm end-to-end against real claude', () => {
         } catch {
           continue; // registry file may not yet exist on first ticks
         }
+        timelinePolls.push({
+          ts: Date.now(),
+          elapsed_ms: Date.now() - startedAt,
+          clones: clones.map((c) => ({
+            id: c.clone_id,
+            state: c.state,
+            last_heartbeat_at: c.last_heartbeat_at,
+            metadata: c.metadata,
+            progress: c.progress,
+            death_reason: c.death_reason,
+            died_at: c.died_at,
+          })),
+        });
+        if (!observedCastId) {
+          const withCast = clones.find((c) => typeof c.metadata?.cast_id === 'string');
+          if (withCast) observedCastId = withCast.metadata.cast_id;
+        }
         if (
+          !metStartingMilestone &&
           clones.length === expectedCloneCount &&
           clones.every((c) => c.state !== 'STARTING')
         ) {
-          return; // happy: every clone has heartbeated
+          metStartingMilestone = true;
         }
-        if (castProc.exitCode != null) return; // cast already finished — let main path assert
+        if (!metStartingMilestone && Date.now() - startedAt >= heartbeatBudgetMs) {
+          // Positive-timeline budget exceeded before any clone left STARTING.
+          // Dump registry, kill cast, fail loudly. (Bug #3 regression guard.)
+          let final;
+          try {
+            final = await watcherRegistry.list();
+          } catch (e) {
+            final = `<registry unreadable: ${(e as Error).message}>`;
+          }
+          castProc.kill('SIGTERM');
+          throw new Error(
+            `e2e timeline assertion: not all clones transitioned off STARTING within ${heartbeatBudgetMs}ms; registry=${JSON.stringify(final)}`,
+          );
+        }
       }
-      // Time-out: dump registry, kill cast, fail loudly.
-      let final;
-      try {
-        final = await watcherRegistry.list();
-      } catch (e) {
-        final = `<registry unreadable: ${(e as Error).message}>`;
-      }
-      castProc.kill('SIGTERM');
-      throw new Error(
-        `e2e timeline assertion: not all clones transitioned off STARTING within ${heartbeatBudgetMs}ms; registry=${JSON.stringify(final)}`,
-      );
     })();
 
-    const [r] = await Promise.all([castProc, timelineWatcher]);
+    let r: Awaited<typeof castProc> | undefined;
+    let recorderError: unknown;
+    try {
+      const settled = await Promise.all([castProc, timelineRecorder]);
+      r = settled[0];
+    } catch (e) {
+      recorderError = e;
+      try {
+        r = await castProc;
+      } catch {
+        // castProc already rejected; recorderError will be thrown below
+      }
+    }
+
+    // Always persist the timeline JSON — independent of pass/fail. Goes under
+    // the sample repo's docs/post-mortems/ so afterAll's preserve-on-failure
+    // hook keeps it alongside the clone post-mortems.
+    const timelineFinishedAt = Date.now();
+    const timelineDir = path.join(fx.root, 'docs', 'post-mortems');
+    await fs.mkdir(timelineDir, { recursive: true });
+    const timelineFile = path.join(
+      timelineDir,
+      `e2e-timeline-${observedCastId ?? `unknown-${startedAt}`}.json`,
+    );
+    await fs.writeFile(
+      timelineFile,
+      JSON.stringify(
+        {
+          cast_id: observedCastId ?? null,
+          expected_clone_count: expectedCloneCount,
+          started_at: startedAt,
+          finished_at: timelineFinishedAt,
+          duration_ms: timelineFinishedAt - startedAt,
+          positive_timeline_met: metStartingMilestone,
+          cast_exit_code: r?.exitCode ?? null,
+          polls: timelinePolls,
+        },
+        null,
+        2,
+      ),
+    );
+
+    if (recorderError) throw recorderError;
+    if (!r) throw new Error('cast process did not produce a result');
 
     // Surface stdout/stderr on failure for diagnosis
     if (r.exitCode !== 0) {
