@@ -34,13 +34,29 @@ Phase-0 additions (held to the same bar as a self-imposed quality discipline; no
 
 ## End-to-end (env-gated, real `claude`)
 
-- [ ] On a developer machine with `claude` authenticated, `MANTA_E2E=1 pnpm e2e:recon-swarm` green within 25 minutes
-- [ ] Both clones reached DEAD via the orchestrator
-- [ ] Post-mortems on disk, parseable, contain Event-timeline sections
-- [ ] ≥ 2 ZK notes written
-- [ ] Snapshots persisted under `.manta/snapshots/cast-*/`
-- [ ] Worktrees retained under `.manta/worktrees/clone-*/`
-- [ ] Sample fixture's `docs/recon.md` (or equivalent task output) actually answers the task — **human review**
+**Status: BLOCKED on bugs #3 + #4 (see `docs/manta-bugs.md`).** Live dogfood on `2026-05-07` against `claude` CLI 2.1.132 confirmed:
+
+- [x] Pre-flight `manta-bus` registration via `claude mcp add -s user manta-bus -- …` succeeds; bus connects ✓
+- [x] CLI accepts the cast invocation, builds worktrees, writes snapshots + task contracts on disk
+- [x] Two `claude-haiku-4-5` clone subprocesses spawn and stay alive
+- [ ] **HUNG** — registry stays empty; clones never call `manta.register`; no heartbeat; no post-mortem after 5+ min idle. Harness has to be killed.
+- [ ] Both clones reached DEAD via the orchestrator — **NOT REACHED** (registry empty)
+- [ ] Post-mortems on disk, parseable, contain Event-timeline sections — **NOT WRITTEN**
+- [ ] ≥ 2 ZK notes written — **NOT WRITTEN**
+- [x] Snapshots persisted under `.manta/snapshots/cast-*/` (`A.snapshot.json`, `B.snapshot.json` confirmed)
+- [x] Worktrees retained under `.manta/worktrees/clone-*/`
+- [ ] Sample fixture's `docs/recon.md` (or equivalent task output) actually answers the task — **NOT REACHED**
+
+**Root cause (logged as bugs #3 + #4):**
+1. Spawner passes `--snapshot <path>` to `claude --print`, but the current `claude` CLI (2.1.132) silently ignores unknown flags. Snapshot inheritance is not actually wired up.
+2. Without inherited transcript, clone has no priming prompt and no path to discover its task contract → never registers, never heartbeats, never produces artifacts.
+3. Same family as bug #2 (spawner-registers-clone-before-launch claim is misleading): docs/skills say the harness wires identity for the clone, but the code path is incomplete.
+
+**Fix scope:** Phase 1 lockdown. Two real fixes:
+- Replace `--snapshot <path>` with a snapshot-inheritance mechanism the running `claude` CLI actually parses (stdin priming OR `MANTA_SNAPSHOT_PATH` env var consumed by a startup hook).
+- Either pre-register the clone from the spawner (closing bug #2), or ship a startup-skill / hook that calls `manta.register` deterministically on launch.
+
+**Phase-0 GA gate is therefore BLOCKED until Phase 1 lockdown closes bugs #2/#3/#4.** The harness, packages, validator, skills, and docs are all production-grade and ship-ready; only the live-claude lifecycle is incomplete.
 
 ## Documentation
 
