@@ -28,7 +28,7 @@
 
 **Discovered:** 2026-05-07, Phase-2 research-prep cast `cast-1778187665150` (after bug #8 fix in `9ed5609`). Independently surfaced by clone A and clone C in their last-gasp reports, with concrete fix proposals.
 **Severity:** High — recurring across every research clone with non-trivial reading load. The 90 s threshold from bug #8 helps but does not eliminate the failure mode; it only widens the window.
-**Status:** Fixed in this commit (option 1, conversation-loop primitive). Option 2 (bus-side `heartbeat_keepalive`) deferred — treat as Phase-2 candidate if dogfood shows option 1 still drifts.
+**Status:** **Re-opened 2026-05-07** after validation cast `cast-1778189501846` (see `docs/post-mortems/2026-05-07-cast-1778189501846-validation.md`). The conversation-loop-primitive fix in commit `5cd7234` (option 1) is a stopgap — it widens the cadence (clone A: 1 hb in v0.0.1 → 3 hb in v0.0.2 over 3 min; clone B still 1 hb) but does not reliably keep clones above the 90 s threshold during read+draft loops. Skill-level + priming-level enforcement of per-turn heartbeat is not a forcing function. **Fix superseded by structural option (d), pending implementation:** make every successful `manta.*` MCP handler from a registered clone update `last_heartbeat_at` as a side effect (any bus call IS a liveness signal). Explicit `manta.heartbeat` keeps its role for state transitions. Sketch in the validation post-mortem §"Recommended next-step fix".
 **Symptom:** A research clone reading multi-KB specs + drafting markdown can legitimately go 50–80 s between MCP calls (especially during batched parallel `Read` turns). The skill `manta-as-clone` v0.0.1 said "heartbeat every ≤ 10 s" but Claude has no wallclock between assistant turns; it only sees "next turn." A clone doing 60 s of `Read` + `Grep` without any `manta.*` tool use lapses into heartbeat staleness despite working productively.
 **Reproducer (historical):**
 1. Cast a clone with a research mission that requires reading >10 files (e.g. spec + plan + 5–8 source files).
@@ -102,6 +102,22 @@
 - **`last_heartbeat_at` is not a positive liveness signal during STARTING** — Phase-1 dogfood post-mortem already noted this for the e2e watcher, but the detector itself still treated it as one. Generalised the lesson: any code consuming `last_heartbeat_at` must also gate on `state` to know whether it's a real heartbeat or a registration fingerprint.
 - **30 s is realistic for an established session, not for cold start with priming.** Future orchestrator thresholds should be empirically derived from real cast wall-time histograms, not from spec prose.
 - **Bug #6 and bug #7 are independent but reinforced each other in the failure mode** — bug #6 made the deliverable impossible; bug #7 killed the clones before they could even discover bug #6. Without forensic post-mortems and `contract_ack` payloads, the dual root-cause would have been much harder to disentangle.
+
+### #13 — Priming preamble + `manta-as-clone` v0.0.2 instruct clones to send `message` field on `manta.heartbeat`, but bus schema rejects it
+
+**Discovered:** 2026-05-07, validation cast `cast-1778189501846` (the cast intended to validate bug #9/#10 fixes from commit `5cd7234`).
+**Severity:** Medium — silent observability loss. Best case: clone drops the `message` field after a schema rejection (degrading observability — `events.jsonl` records `progress: null` instead of an operator-grade status string). Worst case: clone interprets the validation_error as a hard failure and skips heartbeating entirely, compounding bug #9.
+**Status:** Open. Fix is small (widen schema) and should ship with the bug #9 structural fix.
+**Symptom:** Clone A's last-gasp report explicitly logged: *"`manta.heartbeat` rejected the `message` field per its current schema (the priming preamble in this snapshot instructed me to send `{ clone_id, state, message }`). Heartbeated successfully without `message`."*
+**Reproducer:**
+1. Cast any clone with the priming preamble shipped in commit `5cd7234`.
+2. Observe the bus accepts `{clone_id, state}` but rejects `{clone_id, state, message}` with `validation_error`.
+3. Cross-check `packages/manta-bus/src/schemas/heartbeat.ts` (or wherever the schema lives) — there is no `message` field declared.
+**Root cause:** I introduced the `message` field in the skill text (`manta-as-clone` v0.0.2) and priming preamble in commit `5cd7234` without auditing the bus's `manta.heartbeat` Zod schema, which still ends at `{clone_id, state}`. Cross-plan field-name drift, exactly the failure mode `CLAUDE.md` "Plan-writing discipline" warns against.
+**Fix:** Widen the bus schema to accept an optional `message?: string` (≤ 200 char, trimmed). Persist into `events.jsonl` heartbeat entries so the `progress`/`message` field becomes operator-grade observability. Tests: schema accepts both `{clone_id,state}` and `{clone_id,state,message}`; events.jsonl emits the message when provided. Ship together with bug #9 structural fix in the same commit.
+**Lessons:**
+- **Skill-validator must grow a cross-tool field-name check.** Any `manta.*` field name mentioned in a skill or priming text should exist in that tool's Zod schema. This is the same shape as the cross-plan field-name drift class of bug from Phase-0 plan reviews; we knew about it as a *plan* hazard but didn't generalise to skills+priming until now.
+- **Field additions must be schema-first, then skill-text.** Adding `message` to `manta.heartbeat` should have been a 2-step: (1) widen schema with test, (2) reference field in skill+priming. Going skill-first creates an invisible regression.
 
 ### #11 — `manta.zk_write` array-param transport bug (clone B reproducer)
 

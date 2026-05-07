@@ -6,6 +6,8 @@
 .manta/audit/
 .manta/sandbox/
 .manta/graveyard/
+.manta/snapshots/
+.manta/worktrees/
 .manta/active.json
 
 # Graphify runtime artifacts (regenerable, not source)
