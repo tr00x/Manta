@@ -199,10 +199,30 @@ Cast если хотя бы одно:
 ## Перед каждой сессией
 
 1. Read `docs/superpowers/specs/2026-05-06-manta-pattern-design.md` (или его последнюю версию) — освежить mental model
-2. `mem-search` по текущей задаче
-3. Прочитать `docs/manta-bugs.md` — есть ли блокеры
-4. `git status` + `git log --oneline -10` — где остановились
-5. После — `TaskCreate` декомпозиция текущей сессии
+2. **Read `docs/internals/claude-code-pitfalls.md`** — шпаргалка по реальному поведению Claude / Claude Code, написана из боли (см. секцию ниже про skill/priming enforcement). **Обязательно перед любой архитектурной правкой касающейся skills, priming text, MCP tools или enforcement.**
+3. `mem-search` по текущей задаче
+4. Прочитать `docs/manta-bugs.md` — есть ли блокеры
+5. `git status` + `git log --oneline -10` — где остановились
+6. После — `TaskCreate` декомпозиция текущей сессии
+
+## Skill/priming/enforcement HARD RULES (нарушал 2026-05-07, bug #9 fix wasted cast)
+
+**Никогда не закладывать enforcement в skill-text или priming preamble. Эти инструкции — soft prior, не hard rule.** Полная шпаргалка с evidence — `docs/internals/claude-code-pitfalls.md`. Распространённые формулировки которые НЕ работают:
+
+- ❌ "First tool call of every turn must be X" — Claude не контролирует tool ordering детерминированно
+- ❌ "Heartbeat every ≤ N seconds" — нет wallclock между turns
+- ❌ "Always do A before B" — soft, ignored под task pressure
+- ❌ "В skill markdown написал — клон послушает" — компактируется при overflow
+
+**Что вместо:**
+
+- ✅ Hard invariant → **PreToolUse hook** (settings.json, выполняется harness'ом, не моделью) ИЛИ **MCP server side-effect** (на handler level)
+- ✅ Identity / permanent context → **priming preamble** (`--append-system-prompt`), не skill (skill компактируется)
+- ✅ Soft guidance / examples / explainability → skill text, но не ожидать compliance
+- ✅ Schema-first, then text — поле `message` в priming/skill только после widening Zod schema (нарушал 2026-05-07, bug #13)
+- ✅ Validation cast перед "Status: Fixed" в bug log — local tests прошли ≠ реальный Claude следует правилам (нарушал 2026-05-07, bug #9 fix `5cd7234`)
+
+**Если ловлю себя на мысли "напишу в skill, клон послушает" — стоп, это уже ошибка.** Идти в `claude-code-pitfalls.md` §3-§4 (MCP side-effect / PreToolUse hook).
 
 ## Git правила
 
