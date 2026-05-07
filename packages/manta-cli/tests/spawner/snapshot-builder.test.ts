@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { buildCloneSnapshot } from '../../src/spawner/snapshot-builder.js';
+import { buildCloneSnapshot, type CloneSpawnRequest } from '../../src/spawner/snapshot-builder.js';
 
 describe('snapshot-builder', () => {
-  const baseReq = () => ({
+  const baseReq = (): CloneSpawnRequest => ({
     cloneId: 'A',
     mode: 'recon-swarm' as const,
     task: 'map src/',
@@ -54,7 +54,7 @@ describe('snapshot-builder', () => {
 
   it('produces a snapshot that survives JSON round-trip without losing fields', () => {
     const snap = buildCloneSnapshot(baseReq());
-    const round = JSON.parse(JSON.stringify(snap));
+    const round = JSON.parse(JSON.stringify(snap)) as typeof snap;
     expect(round.taskContract.cloneId).toBe('A');
     expect(round.castId).toBe('cast-1');
     expect(round.budget.dollarsTotal).toBe(5);

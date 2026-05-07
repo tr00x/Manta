@@ -97,7 +97,9 @@ export async function spawnClone(opts: SpawnCloneOptions): Promise<CloneHandle> 
   // command and abort command call this so a hung clone (e.g. `MANTA_FAKE_
   // CLONE_STATE=hang` or a real wedged claude --print) cannot block the
   // operator's CTRL-C. SIGTERM goes first, then 5s later SIGKILL.
-  const terminate = async (terminateOpts?: { gracefulMs?: number }) => {
+  const terminate = async (
+    terminateOpts?: { gracefulMs?: number },
+  ): Promise<{ code: number | null; signal: NodeJS.Signals | null }> => {
     const gracefulMs = terminateOpts?.gracefulMs ?? DEFAULT_GRACEFUL_MS;
     try {
       proc.kill('SIGTERM');

@@ -11,7 +11,7 @@ export interface RepoFixture {
 
 export async function makeRepoFixture(prefix = 'manta-cli-test-'): Promise<RepoFixture> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
-  const run = async (args: string[], cwd: string = root) => {
+  const run = async (args: string[], cwd: string = root): Promise<{ stdout: string; stderr: string }> => {
     const r = await execa('git', args, { cwd });
     return { stdout: r.stdout, stderr: r.stderr };
   };

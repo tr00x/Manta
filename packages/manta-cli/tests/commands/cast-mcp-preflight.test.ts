@@ -15,8 +15,8 @@ describe('verifyMantaBusRegistered', () => {
   it('passes when stdout contains "manta-bus"', async () => {
     await expect(
       verifyMantaBusRegistered({
-        runner: async () =>
-          result({ stdout: 'memory: ok\nmanta-bus: registered\n' }),
+        runner: () =>
+          Promise.resolve(result({ stdout: 'memory: ok\nmanta-bus: registered\n' })),
       }),
     ).resolves.toBeUndefined();
   });
@@ -24,7 +24,7 @@ describe('verifyMantaBusRegistered', () => {
   it('throws spawn_failed when claude exits non-zero', async () => {
     await expect(
       verifyMantaBusRegistered({
-        runner: async () => result({ exitCode: 2, stderr: 'claude error' }),
+        runner: () => Promise.resolve(result({ exitCode: 2, stderr: 'claude error' })),
       }),
     ).rejects.toMatchObject({ name: 'CliError', kind: 'spawn_failed' });
   });
@@ -32,28 +32,28 @@ describe('verifyMantaBusRegistered', () => {
   it('throws spawn_failed when manta-bus is missing from stdout', async () => {
     await expect(
       verifyMantaBusRegistered({
-        runner: async () => result({ stdout: 'memory: ok\n' }),
+        runner: () => Promise.resolve(result({ stdout: 'memory: ok\n' })),
       }),
     ).rejects.toMatchObject({
       name: 'CliError',
       kind: 'spawn_failed',
-      message: expect.stringContaining('manta-bus'),
+      message: expect.stringContaining('manta-bus') as unknown as string,
     });
   });
 
   it('throws spawn_failed when the runner itself rejects (claude not on PATH)', async () => {
     await expect(
       verifyMantaBusRegistered({
-        runner: async () => {
+        runner: () => {
           const e = new Error('spawn ENOENT');
           (e as NodeJS.ErrnoException).code = 'ENOENT';
-          throw e;
+          return Promise.reject(e);
         },
       }),
     ).rejects.toMatchObject({
       name: 'CliError',
       kind: 'spawn_failed',
-      message: expect.stringContaining('claude CLI'),
+      message: expect.stringContaining('claude CLI') as unknown as string,
     });
   });
 });

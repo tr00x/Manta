@@ -62,9 +62,9 @@ describe('runTickLoop', () => {
     const result = await runTickLoop({
       orchestrator: orch,
       intervalMs: 5,
-      allDone: async () => {
+      allDone: () => {
         ticks += 1;
-        return ticks >= 3;
+        return Promise.resolve(ticks >= 3);
       },
     });
     expect(result.cycles).toBeGreaterThanOrEqual(3);
@@ -82,7 +82,7 @@ describe('runTickLoop', () => {
     const result = await runTickLoop({
       orchestrator: orch,
       intervalMs: 5,
-      allDone: async () => false,
+      allDone: () => Promise.resolve(false),
       signal: ctrl.signal,
     });
     expect(result.aborted).toBe(true);
@@ -97,7 +97,7 @@ describe('runTickLoop', () => {
     });
     const ctrl = new AbortController();
     let warning: Error | undefined;
-    const onWarn = (w: Error) => {
+    const onWarn = (w: Error): void => {
       if (w.name === 'MaxListenersExceededWarning') warning = w;
     };
     process.on('warning', onWarn);
@@ -106,9 +106,9 @@ describe('runTickLoop', () => {
       await runTickLoop({
         orchestrator: orch,
         intervalMs: 0,
-        allDone: async () => {
+        allDone: () => {
           ticks += 1;
-          return ticks >= 50;
+          return Promise.resolve(ticks >= 50);
         },
         signal: ctrl.signal,
       });
@@ -144,7 +144,7 @@ describe('runTickLoop', () => {
       runTickLoop({
         orchestrator: orch,
         intervalMs: 5,
-        allDone: async () => false,
+        allDone: () => Promise.resolve(false),
       }),
     ).rejects.toMatchObject({ name: 'CliError', kind: 'orchestrator_failed' });
   });

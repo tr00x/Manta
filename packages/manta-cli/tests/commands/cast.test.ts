@@ -136,7 +136,7 @@ describe('cast command (recon-swarm)', () => {
       }),
     ).rejects.toMatchObject({
       kind: 'invalid_input',
-      message: expect.stringContaining('cumulative budget'),
+      message: expect.stringContaining('cumulative budget') as unknown as string,
     });
   });
 

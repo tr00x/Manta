@@ -53,7 +53,7 @@ describe('runtime', () => {
       await expect(createRuntime({ repoRoot: dir })).rejects.toMatchObject({
         name: 'CliError',
         kind: 'invalid_input',
-        message: expect.stringContaining('not a git repo root'),
+        message: expect.stringContaining('not a git repo root') as unknown as string,
       });
       // .manta/state must NOT have been created.
       await expect(fs.access(path.join(dir, '.manta'))).rejects.toBeDefined();

@@ -43,7 +43,7 @@ export async function runTickLoop(opts: RunTickLoopOptions): Promise<TickLoopRes
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     if (signal?.aborted) return resolve();
-    const onAbort = () => {
+    const onAbort = (): void => {
       clearTimeout(t);
       resolve();
     };
