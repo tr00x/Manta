@@ -88,6 +88,40 @@ describe('runTickLoop', () => {
     expect(result.aborted).toBe(true);
   });
 
+  it('does not leak abort listeners across many cycles sharing one AbortSignal', async () => {
+    const orch = new Orchestrator({
+      ctx,
+      thresholds: defaultThresholds,
+      probe: makeProbe({ alive: () => true }),
+      writer: inMemoryPostMortemWriter(),
+    });
+    const ctrl = new AbortController();
+    let warning: Error | undefined;
+    const onWarn = (w: Error) => {
+      if (w.name === 'MaxListenersExceededWarning') warning = w;
+    };
+    process.on('warning', onWarn);
+    try {
+      let ticks = 0;
+      await runTickLoop({
+        orchestrator: orch,
+        intervalMs: 0,
+        allDone: async () => {
+          ticks += 1;
+          return ticks >= 50;
+        },
+        signal: ctrl.signal,
+      });
+    } finally {
+      process.off('warning', onWarn);
+    }
+    expect(warning).toBeUndefined();
+    // Listener count on the signal should stay flat, not grow with cycles.
+    const listenerCount = (ctrl.signal as unknown as { listenerCount?: (e: string) => number })
+      .listenerCount?.('abort') ?? 0;
+    expect(listenerCount).toBeLessThanOrEqual(1);
+  });
+
   it('wraps orchestrator failures via CliError without breaking the loop contract', async () => {
     const orch = new Orchestrator({
       ctx,
