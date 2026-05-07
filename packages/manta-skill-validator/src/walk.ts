@@ -6,6 +6,8 @@ import type { ValidationIssue } from './errors.js';
 const SAFE_DIR = /^[a-z][a-z0-9-]*$/;
 const SAFE_FILE = /^[a-z][a-z0-9-]*\.md$/;
 
+const isDotfile = (name: string): boolean => name.startsWith('.');
+
 export interface DiscoveredFile {
   name: string;
   filePath: string;
@@ -32,7 +34,7 @@ async function walkSkills(repoRoot: string, warnings: ValidationIssue[]): Promis
   for (const e of entries) {
     // Silently skip dotfile/dotdir entries — filesystem artifacts (e.g. macOS .DS_Store)
     // that no Manta concept owns. Hostile non-dotfile names still surface below.
-    if (e.startsWith('.')) continue;
+    if (isDotfile(e)) continue;
     if (!SAFE_DIR.test(e)) {
       warnings.push({ severity: 'warning', code: 'unsafe_path', message: `skipping unsafe skill directory name: ${e}` });
       continue;
@@ -52,7 +54,7 @@ async function walkCommands(repoRoot: string, warnings: ValidationIssue[]): Prom
   for (const e of entries) {
     // Silently skip dotfile entries — filesystem artifacts (e.g. macOS .DS_Store)
     // that no Manta concept owns. Hostile non-dotfile names still surface below.
-    if (e.startsWith('.')) continue;
+    if (isDotfile(e)) continue;
     if (!SAFE_FILE.test(e)) {
       warnings.push({ severity: 'warning', code: 'unsafe_path', message: `skipping unsafe command file name: ${e}` });
       continue;

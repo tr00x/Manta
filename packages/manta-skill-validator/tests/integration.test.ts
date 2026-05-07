@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateAll } from '../src/walk.js';
 
+// tests/integration.test.ts → tests/ → manta-skill-validator/ → packages/ → repo
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
 describe('Phase 0e content integration', () => {

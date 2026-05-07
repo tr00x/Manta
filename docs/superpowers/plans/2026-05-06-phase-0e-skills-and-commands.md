@@ -8,6 +8,8 @@
 
 **Tech Stack:** TypeScript 5.x strict, Node 20+, `gray-matter` (frontmatter parser, ~30 KB, well-maintained), `zod`, `commander`, vitest, tsup. No new runtime deps beyond `gray-matter`.
 
+_All relative imports use `.js` suffix per `tsconfig.base.json`'s `module: NodeNext`. All packages use `tsconfig.build.json` per the project's tsup convention (see `@manta/bus` for canonical shape)._
+
 **Non-goals for Phase 0e:**
 - The other six skills from spec Sec 8 (`manta-mode-selector`, `manta-merge-review`, `manta-knowledge-harvest`, `manta-conflict-resolve`, `manta-recursion-guard`, `manta-pre-cast-check`) — deferred to Phase 2+ with the modes that require them
 - Slash commands beyond the five Phase-0 cast lifecycle ones — see `phase-0d-cli.md` non-goals for the deferral schedule of Sec 12 commands
@@ -44,6 +46,7 @@
 **Files (new):**
 - Create: `packages/manta-skill-validator/package.json`
 - Create: `packages/manta-skill-validator/tsconfig.json`
+- Create: `packages/manta-skill-validator/tsconfig.build.json`
 - Create: `packages/manta-skill-validator/tsup.config.ts`
 - Create: `packages/manta-skill-validator/vitest.config.ts`
 - Create: `packages/manta-skill-validator/src/index.ts`
@@ -155,7 +158,26 @@ export default defineConfig({
   target: 'node20',
   splitting: false,
   shims: true,
+  tsconfig: 'tsconfig.build.json',
+  outExtension({ format }) {
+    return { js: format === 'cjs' ? '.cjs' : '.js' };
+  },
 });
+```
+
+- [ ] **1.5b: Create `tsconfig.build.json`**
+
+```json
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "incremental": false,
+    "declarationMap": false
+  },
+  "include": ["src/**/*"],
+  "exclude": ["dist", "node_modules", "tests"]
+}
 ```
 
 - [ ] **1.6: Create `vitest.config.ts`**
@@ -194,7 +216,7 @@ Create `packages/manta-skill-validator/tests/errors.test.ts`:
 
 ```typescript
 import { describe, it, expect } from 'vitest';
-import { ValidationError } from '../src/errors';
+import { ValidationError } from '../src/errors.js';
 
 describe('errors', () => {
   it('ValidationError carries file path + issues', () => {
@@ -202,7 +224,7 @@ describe('errors', () => {
     expect(err.name).toBe('ValidationError');
     expect(err.path).toBe('skills/x/SKILL.md');
     expect(err.issues).toHaveLength(1);
-    expect(err.issues[0].severity).toBe('error');
+    expect(err.issues[0]!.severity).toBe('error');
   });
 });
 ```
@@ -258,7 +280,7 @@ Create `packages/manta-skill-validator/tests/schemas.test.ts`:
 
 ```typescript
 import { describe, it, expect } from 'vitest';
-import { SkillFrontmatterSchema, SlashCommandFrontmatterSchema, REQUIRED_SKILL_SECTIONS, REQUIRED_COMMAND_SECTIONS } from '../src/schemas';
+import { SkillFrontmatterSchema, SlashCommandFrontmatterSchema, REQUIRED_SKILL_SECTIONS, REQUIRED_COMMAND_SECTIONS } from '../src/schemas.js';
 
 describe('schemas', () => {
   it('SkillFrontmatterSchema accepts a valid record', () => {
@@ -366,7 +388,7 @@ Create `packages/manta-skill-validator/tests/parse.test.ts`:
 
 ```typescript
 import { describe, it, expect } from 'vitest';
-import { parseDocument } from '../src/parse';
+import { parseDocument } from '../src/parse.js';
 
 describe('parseDocument', () => {
   it('parses frontmatter and body', () => {
@@ -454,9 +476,11 @@ export function parseDocument(source: string): ParsedDocument {
 function extractHeadings(body: string): string[] {
   const out: string[] = [];
   let m: RegExpExecArray | null;
+  // Module-level /g regex carries state across exec() calls; reset before each scan.
   H2.lastIndex = 0;
   while ((m = H2.exec(body)) !== null) {
-    out.push(m[1].trim());
+    const heading = m[1];
+    if (heading !== undefined) out.push(heading.trim());
   }
   return out;
 }
@@ -473,7 +497,7 @@ Create `packages/manta-skill-validator/tests/validate.test.ts`:
 
 ```typescript
 import { describe, it, expect } from 'vitest';
-import { validateSkill, validateCommand } from '../src/validate';
+import { validateSkill, validateCommand } from '../src/validate.js';
 
 const validSkill = [
   '---',
@@ -564,9 +588,9 @@ import {
   REQUIRED_SKILL_SECTIONS,
   SkillFrontmatterSchema,
   SlashCommandFrontmatterSchema,
-} from './schemas';
-import { parseDocument } from './parse';
-import type { ValidationIssue } from './errors';
+} from './schemas.js';
+import { parseDocument } from './parse.js';
+import type { ValidationIssue } from './errors.js';
 
 export interface ValidationReport {
   path: string;
@@ -594,12 +618,13 @@ function validateAgainst(
   if (!r.success) {
     for (const issue of r.error!.issues) {
       const field = issue.path.join('.');
-      issues.push({
+      const v: ValidationIssue = {
         severity: 'error',
         code: field ? 'invalid_field' : 'invalid_frontmatter',
         message: issue.message,
-        field: field || undefined,
-      });
+      };
+      if (field) v.field = field;
+      issues.push(v);
     }
     return { path, ok: false, issues };
   }
@@ -634,7 +659,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { walkSkillsAndCommands, validateAll } from '../src/walk';
+import { walkSkillsAndCommands, validateAll } from '../src/walk.js';
 
 describe('walkSkillsAndCommands', () => {
   let root: string;
@@ -704,8 +729,8 @@ Create `packages/manta-skill-validator/src/walk.ts`:
 ```typescript
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { validateSkill, validateCommand, type ValidationReport } from './validate';
-import type { ValidationIssue } from './errors';
+import { validateSkill, validateCommand, type ValidationReport } from './validate.js';
+import type { ValidationIssue } from './errors.js';
 
 const SAFE_DIR = /^[a-z][a-z0-9-]*$/;
 const SAFE_FILE = /^[a-z][a-z0-9-]*\.md$/;
@@ -796,7 +821,7 @@ Create `packages/manta-skill-validator/src/bin/manta-validate-skills.ts`:
 #!/usr/bin/env node
 import { Command } from 'commander';
 import * as path from 'node:path';
-import { validateAll } from '../walk';
+import { validateAll } from '../walk.js';
 
 async function main(): Promise<void> {
   const program = new Command();
@@ -840,11 +865,11 @@ main().catch((err) => {
 Create `packages/manta-skill-validator/src/index.ts`:
 
 ```typescript
-export * from './errors';
-export * from './schemas';
-export * from './parse';
-export * from './validate';
-export * from './walk';
+export * from './errors.js';
+export * from './schemas.js';
+export * from './parse.js';
+export * from './validate.js';
+export * from './walk.js';
 ```
 
 - [ ] **1.31: Run full Chunk-1 sweep**
@@ -1353,8 +1378,9 @@ Create `packages/manta-skill-validator/tests/integration.test.ts`:
 import { describe, it, expect } from 'vitest';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { validateAll } from '../src/walk';
+import { validateAll } from '../src/walk.js';
 
+// tests/integration.test.ts → tests/ → manta-skill-validator/ → packages/ → repo
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
 describe('Phase 0e content integration', () => {

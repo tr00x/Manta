@@ -30,4 +30,6 @@ A     | recon-swarm  | WORKING      | 4s            | src/foo.ts           | tas
 B     | recon-swarm  | WINDING_DOWN | 12s           | -                    | -
 ```
 
+The renderer in `@manta/cli` (`src/output/status-table.ts`) defines the canonical layout; the table above is illustrative.
+
 Exits 0 always. If no clones are registered, prints `No active clones.`
