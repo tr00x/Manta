@@ -1,3 +1,4 @@
+import { posix } from 'node:path';
 import type { z } from 'zod';
 import type { MessageSchema, OpenFileSchema } from './schema';
 
@@ -16,6 +17,31 @@ export interface DistillOutput {
   openFiles: OpenFile[];
 }
 
+function isPathAllowed(rawPath: string, allowedPaths: string[]): boolean {
+  // Normalize to posix form for stable cross-platform matching.
+  const normalized = posix.normalize(rawPath);
+
+  // Defense-in-depth: even after normalization, reject any leftover `..` segment.
+  // posix.normalize collapses safe `..` sequences but preserves leading `..`
+  // (e.g. `../foo`) and never escapes a segment we explicitly disallow.
+  const segments = normalized.split('/');
+  if (segments.includes('..')) {
+    return false;
+  }
+
+  return allowedPaths.some((p) => {
+    const normalizedAllowed = posix.normalize(p);
+    if (normalized === normalizedAllowed) {
+      return true;
+    }
+    // Treat allowed entry as a directory: require segment-boundary match.
+    const withSlash = normalizedAllowed.endsWith('/')
+      ? normalizedAllowed
+      : `${normalizedAllowed}/`;
+    return normalized.startsWith(withSlash);
+  });
+}
+
 export function distillContext(input: DistillInput): DistillOutput {
   if (!Number.isInteger(input.maxRecentMessages) || input.maxRecentMessages <= 0) {
     throw new Error(
@@ -28,8 +54,9 @@ export function distillContext(input: DistillInput): DistillOutput {
       ? input.messages.slice(input.messages.length - input.maxRecentMessages)
       : [...input.messages];
 
-  const openFiles = input.allowedPaths
-    ? input.openFiles.filter((f) => input.allowedPaths!.some((p) => f.path.startsWith(p)))
+  const allowed = input.allowedPaths;
+  const openFiles = allowed
+    ? input.openFiles.filter((f) => isPathAllowed(f.path, allowed))
     : [...input.openFiles];
 
   return { recentMessages, openFiles };

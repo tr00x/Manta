@@ -60,8 +60,10 @@ describe('serializeSnapshot', () => {
 
   it('rejects an invalid snapshot before writing', async () => {
     const path = join(dir, 'snap.json');
-    // @ts-expect-error — intentionally malformed runtime input to trigger validation
-    const bad: Snapshot = { ...valid, parentPid: -1 };
+    // Intentionally malformed runtime input to trigger zod validation.
+    // The type `parentPid: number` accepts -1 statically, but the schema
+    // requires a positive integer — this exercises the runtime gate.
+    const bad = { ...valid, parentPid: -1 } as unknown as Snapshot;
     await expect(serializeSnapshot(bad, path)).rejects.toBeInstanceOf(SnapshotValidationError);
     expect(existsSync(path)).toBe(false);
   });

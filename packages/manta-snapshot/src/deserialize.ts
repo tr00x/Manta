@@ -22,11 +22,21 @@ export async function deserializeSnapshot(path: string): Promise<Snapshot> {
     throw new SnapshotIOError(`Snapshot is not valid JSON: ${path}`, cause);
   }
 
-  // Version gate: must be present and a positive integer
+  // Version gate: must be present and a positive integer.
+  // - Missing / non-numeric / non-integer  → SnapshotValidationError (malformed input).
+  // - <= 0                                  → SnapshotValidationError (malformed input,
+  //                                            no version 0 ever existed).
+  // - > CURRENT_SCHEMA_VERSION              → SnapshotVersionError (real version drift).
   const versionField = (parsed as { version?: unknown })?.version;
   if (typeof versionField !== 'number' || !Number.isInteger(versionField)) {
     throw new SnapshotValidationError(
       'Snapshot is missing a numeric "version" field',
+      [],
+    );
+  }
+  if (versionField <= 0) {
+    throw new SnapshotValidationError(
+      `Snapshot "version" must be a positive integer (got ${versionField})`,
       [],
     );
   }

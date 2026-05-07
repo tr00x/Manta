@@ -10,8 +10,12 @@ describe('distillContext', () => {
     }));
     const out = distillContext({ messages, openFiles: [], maxRecentMessages: 10 });
     expect(out.recentMessages).toHaveLength(10);
-    expect(out.recentMessages[0].content).toBe('msg-40');
-    expect(out.recentMessages[9].content).toBe('msg-49');
+    expect(out.recentMessages.length).toBe(10);
+    const first = out.recentMessages[0];
+    const last = out.recentMessages[9];
+    if (!first || !last) throw new Error('expected 10 messages');
+    expect(first.content).toBe('msg-40');
+    expect(last.content).toBe('msg-49');
   });
 
   it('keeps all messages when under the limit', () => {
@@ -51,5 +55,72 @@ describe('distillContext', () => {
     expect(() =>
       distillContext({ messages: [], openFiles: [], maxRecentMessages: 0 }),
     ).toThrow(/maxRecentMessages/);
+  });
+
+  it('rejects sibling-prefix path that is not a real segment match (allowedPaths: ["src"])', () => {
+    const openFiles = [
+      { path: 'srcret/leak.env', reason: 'r' },
+      { path: 'src/a.ts', reason: 'r' },
+    ];
+    const out = distillContext({
+      messages: [],
+      openFiles,
+      maxRecentMessages: 10,
+      allowedPaths: ['src'],
+    });
+    expect(out.openFiles.map((f) => f.path)).toEqual(['src/a.ts']);
+  });
+
+  it('rejects sibling-prefix path that is not a real segment match (allowedPaths: ["src/"])', () => {
+    const openFiles = [
+      { path: 'srcret/leak.env', reason: 'r' },
+      { path: 'src/a.ts', reason: 'r' },
+    ];
+    const out = distillContext({
+      messages: [],
+      openFiles,
+      maxRecentMessages: 10,
+      allowedPaths: ['src/'],
+    });
+    expect(out.openFiles.map((f) => f.path)).toEqual(['src/a.ts']);
+  });
+
+  it('rejects path traversal via .. segments', () => {
+    const openFiles = [
+      { path: 'src/../secrets/x.env', reason: 'r' },
+      { path: 'src/inner/x.ts', reason: 'r' },
+    ];
+    const out = distillContext({
+      messages: [],
+      openFiles,
+      maxRecentMessages: 10,
+      allowedPaths: ['src/'],
+    });
+    expect(out.openFiles.map((f) => f.path)).toEqual(['src/inner/x.ts']);
+  });
+
+  it('includes a path that exactly equals an allowed path (file path)', () => {
+    const openFiles = [
+      { path: 'LICENSE', reason: 'r' },
+      { path: 'README.md', reason: 'r' },
+    ];
+    const out = distillContext({
+      messages: [],
+      openFiles,
+      maxRecentMessages: 10,
+      allowedPaths: ['LICENSE'],
+    });
+    expect(out.openFiles.map((f) => f.path)).toEqual(['LICENSE']);
+  });
+
+  it('includes nested files under an allowed dir (sanity for happy path)', () => {
+    const openFiles = [{ path: 'src/inner/x.ts', reason: 'r' }];
+    const out = distillContext({
+      messages: [],
+      openFiles,
+      maxRecentMessages: 10,
+      allowedPaths: ['src/'],
+    });
+    expect(out.openFiles.map((f) => f.path)).toEqual(['src/inner/x.ts']);
   });
 });

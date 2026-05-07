@@ -69,6 +69,20 @@ describe('deserializeSnapshot', () => {
     await expect(deserializeSnapshot(path)).rejects.toBeInstanceOf(SnapshotVersionError);
   });
 
+  it('throws SnapshotValidationError (not VersionError) on version: 0', async () => {
+    const path = join(dir, 'zero.json');
+    writeFileSync(path, JSON.stringify({ version: 0, castId: 'c1' }));
+    await expect(deserializeSnapshot(path)).rejects.toBeInstanceOf(SnapshotValidationError);
+    await expect(deserializeSnapshot(path)).rejects.not.toBeInstanceOf(SnapshotVersionError);
+  });
+
+  it('throws SnapshotValidationError (not VersionError) on negative version', async () => {
+    const path = join(dir, 'neg.json');
+    writeFileSync(path, JSON.stringify({ version: -1, castId: 'c1' }));
+    await expect(deserializeSnapshot(path)).rejects.toBeInstanceOf(SnapshotValidationError);
+    await expect(deserializeSnapshot(path)).rejects.not.toBeInstanceOf(SnapshotVersionError);
+  });
+
   it('throws SnapshotValidationError on schema-invalid snapshot', async () => {
     const path = join(dir, 'invalid.json');
     writeFileSync(path, JSON.stringify({ version: CURRENT_SCHEMA_VERSION, castId: '' }));
