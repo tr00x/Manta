@@ -6,3 +6,6 @@ export * from './lock-reaper';
 export * from './claim-reaper';
 export * from './post-mortem-writer';
 export * from './post-mortem';
+export * from './errors';
+export * from './status';
+export * from './orchestrator';
