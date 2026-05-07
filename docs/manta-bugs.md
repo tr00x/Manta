@@ -28,18 +28,28 @@
 
 **Discovered:** 2026-05-07, Phase-2 research-prep cast `cast-1778187665150` (after bug #8 fix in `9ed5609`). Independently surfaced by clone A and clone C in their last-gasp reports, with concrete fix proposals.
 **Severity:** High — recurring across every research clone with non-trivial reading load. The 90 s threshold from bug #8 helps but does not eliminate the failure mode; it only widens the window.
-**Status:** Open.
-**Symptom:** A research clone reading multi-KB specs + drafting markdown can legitimately go 50–80 s between MCP calls (especially during batched parallel `Read` turns). The skill `manta-as-clone` says "heartbeat every ≤ 10 s" but Claude has no wallclock between assistant turns; it only sees "next turn." A clone doing 60 s of `Read` + `Grep` without any `manta.*` tool use lapses into heartbeat staleness despite working productively.
-**Reproducer:**
+**Status:** Fixed in this commit (option 1, conversation-loop primitive). Option 2 (bus-side `heartbeat_keepalive`) deferred — treat as Phase-2 candidate if dogfood shows option 1 still drifts.
+**Symptom:** A research clone reading multi-KB specs + drafting markdown can legitimately go 50–80 s between MCP calls (especially during batched parallel `Read` turns). The skill `manta-as-clone` v0.0.1 said "heartbeat every ≤ 10 s" but Claude has no wallclock between assistant turns; it only sees "next turn." A clone doing 60 s of `Read` + `Grep` without any `manta.*` tool use lapses into heartbeat staleness despite working productively.
+**Reproducer (historical):**
 1. Cast a clone with a research mission that requires reading >10 files (e.g. spec + plan + 5–8 source files).
 2. Observe the events.jsonl: typically one heartbeat at startup, then no further heartbeats until shutdown — the orchestrator marks DEAD between them.
-**Root cause:** Heartbeat cadence is treated as a wall-clock SLA in skill text, but enforcement requires either (a) priming-text instruction tied to the conversation loop ("heartbeat at the start of every assistant turn that contains tool calls"), (b) a bus-side keepalive variant that does not require `state` argument so it can be interleaved without semantic churn, or (c) a spawner-side periodic heartbeat ping decoupled from the clone's tool loop.
-**Fix:** Pending. Two design options under consideration (per clone C's last-gasp recommendation):
-1. **Priming text patch** + **`manta-as-clone` skill v0.0.3** — lift heartbeat from "Allowed" to "Required" with explicit "send `manta.heartbeat` at the start of every assistant turn that contains tool calls; the orchestrator's `heartbeatTimeoutMs=90 000ms` is hard, not advisory."
-2. **Bus-side `manta.heartbeat_keepalive`** — a no-state-change variant clones can interleave between Reads without semantic cost.
+**Root cause:** Heartbeat cadence was treated as a wall-clock SLA in skill text, but enforcement required a conversation-loop primitive instead.
+**Fix:** `manta-as-clone` v0.0.2 + priming preamble both lift heartbeat to Required with explicit "the **first** tool call of every assistant turn that contains tool calls must be `manta.heartbeat({state: 'WORKING', message})`". Cadence becomes a property of the conversation loop (a conversation-loop primitive Claude can actually observe), not a property of wall-clock seconds (which Claude cannot observe between turns). The `heartbeatTimeoutMs=90 000ms` is now framed as hard, not advisory. New `priming.test.ts` cases pin the cadence rule in the spawner preamble. Validate via Phase-2 dogfood re-cast — the success criterion is a heartbeat per assistant turn in `events.jsonl`, not per N seconds.
 **Lessons:**
-- A skill saying "every ≤ 10 s" is not a forcing function when the runtime has no concept of wall-clock between turns. Future skill thresholds must be expressed in terms of conversation-loop primitives ("every Nth turn", "before/after every Read"), not seconds.
-- Bugs #7 + #8 + #9 form a cluster — the orchestrator's death-detector treats one wallclock threshold as the universal liveness signal, but real clones operate on a conversation-loop clock. The structural fix is to **decouple** heartbeat semantics from wallclock: the bus-side keepalive proposal achieves this and should be evaluated for Phase-2.
+- A skill saying "every ≤ 10 s" is not a forcing function when the runtime has no concept of wall-clock between turns. Future skill thresholds must be expressed in terms of conversation-loop primitives ("every Nth turn", "first call of every turn", "before/after every Read"), not seconds.
+- Bugs #7 + #8 + #9 form a cluster — the orchestrator's death-detector treats one wallclock threshold as the universal liveness signal, but real clones operate on a conversation-loop clock. The conversation-loop primitive (#9 fix) is the discipline-side complement to the threshold widening (#8 fix); together they should make heartbeat reliable. If next dogfood still drifts, ship option 2 (bus-side `heartbeat_keepalive`) as the structural decouple.
+
+### #10 — Clones leave deliverables uncommitted on graceful death
+
+**Discovered:** 2026-05-07, Phase-2 research-prep cast `cast-1778187665150`. Clone A wrote both deliverable + last-gasp uncommitted; clone C committed the deliverable but not the last-gasp; only clone B committed both. Main had to manually `cp` files out of dead worktrees.
+**Severity:** Medium — survivable but creates archaeology overhead and breaks the "main pulls from worktree branch" contract that `manta-merge-review` (Phase 2) will rely on.
+**Status:** Fixed in this commit.
+**Reproducer (historical):** Cast any clone with a deliverable scope; observe in some clones that `git status` inside the worktree shows untracked files at exit time even though `report_death` was called.
+**Root cause:** `manta-graceful-death` v0.0.2 had "Final commit" in **Allowed**, not **Required**. Clones interpreted that as optional. Skill text didn't enforce the order of (commit → ZK → release → suicide → report_death) either.
+**Fix:** `manta-graceful-death` v0.0.3 introduces a numbered `## Required (ordered)` section with seven steps, of which step 1 is the final commit. The Forbidden list now flags "Skipping the final commit" alongside "Skipping the ZK dump". Priming preamble was rewritten to mirror the same ordering. The clone-spawner test will catch regressions in the priming text via the new `final commit` assertion in `priming.test.ts`. Phase-2 acceptance must re-validate: `git -C <worktree> status --porcelain` should be empty at clone exit time across all dogfood casts.
+**Lessons:**
+- Skill files used to advertise "Allowed" actions ambiguously — Required vs. Allowed must be a structural distinction in the skill, not a colour-of-bullet distinction. Future skills should always have a numbered `Required (ordered)` section when there's a multi-step protocol.
+- Bug seed #4 from the Phase-2 research post-mortem is now closed as #10. Promoted from seed → numbered the moment the fix shipped.
 
 ### #8 — `heartbeatTimeoutMs` default (30 s) too tight for actively-working clones
 
@@ -92,6 +102,26 @@
 - **`last_heartbeat_at` is not a positive liveness signal during STARTING** — Phase-1 dogfood post-mortem already noted this for the e2e watcher, but the detector itself still treated it as one. Generalised the lesson: any code consuming `last_heartbeat_at` must also gate on `state` to know whether it's a real heartbeat or a registration fingerprint.
 - **30 s is realistic for an established session, not for cold start with priming.** Future orchestrator thresholds should be empirically derived from real cast wall-time histograms, not from spec prose.
 - **Bug #6 and bug #7 are independent but reinforced each other in the failure mode** — bug #6 made the deliverable impossible; bug #7 killed the clones before they could even discover bug #6. Without forensic post-mortems and `contract_ack` payloads, the dual root-cause would have been much harder to disentangle.
+
+### #11 — `manta.zk_write` array-param transport bug (clone B reproducer)
+
+**Discovered:** 2026-05-07, Phase-2 research-prep cast `cast-1778187665150`. Surfaced in clone B's last-gasp; clones A and C succeeded with their ZK writes from the same skill version, so the failure is not deterministic across clones.
+**Severity:** Medium — affects bug #5 mitigation (some failures may be transport-layer, not skill-discipline).
+**Status:** Open. Needs independent reproduction before promotion to a confirmed orchestrator-side bug.
+**Symptom:** Clone B attempted `manta.zk_write` 5× with various `tags: string[]` shapes; every call returned `validation_error: invalid_type, expected: array, received: string, path: ['tags']`. Clones A and C succeeded with structurally-similar payloads in the same cast.
+**Hypothesis:** Either (a) claude-CLI's MCP tool-use serialiser flattened the array into a CSV string for that one clone (transient renderer-state bug), or (b) the bus's `tags` schema is too tight for an LLM payload that occasionally arrives as `"a,b"` instead of `["a","b"]` (we should be liberal in what we accept here — tags is metadata, not load-bearing).
+**Reproducer (needed):** Spawn 3+ clones in a research cast and grep `events.jsonl` for `validation_error` against `manta.zk_write`. If repeats appear cross-cast on a non-zero fraction of clones, escalate.
+**Recommended next step:** Phase-2 add an e2e assertion that exercises `manta.zk_write` with both array-literal and CSV-string inputs and accepts both at the bus boundary; OR fix at the LLM-prompt layer by example-driven cooking ("tags: [\"a\",\"b\"]") in the priming preamble.
+**Lessons:** Be liberal in what you accept at the bus boundary for soft-schema metadata fields. ZK tags are an audit trail, not a primary key; coercing a CSV string to `string[]` is benign and prevents this class of failure.
+
+### #12 — Forensic timeline JSON not produced by production cast path
+
+**Discovered:** 2026-05-07, Phase-2 research-prep cast `cast-1778187665150`. Clone A's last-gasp explicitly asked for the timeline JSON; the research-prep acceptance checklist also required it.
+**Severity:** Low-Medium — observability gap, not a correctness bug.
+**Status:** Open. Deferred to Phase 2 (folded into the `forking-realities` plan).
+**Symptom:** The forensic timeline writer from commit `64bf188` runs only inside `packages/manta-e2e` test harness — it produces `docs/post-mortems/e2e-timeline-<cast-id>.json`. A real `manta cast` invocation does not produce this artifact, even though the timeline data (cast lifecycle, clone states, event jsonl interleavings) is exactly what the post-mortem needs to be useful at scale.
+**Recommended fix:** Lift the timeline writer into the production cast path (`packages/manta-cli/src/commands/cast.ts` or the orchestrator's post-mortem composer), so every cast — not just e2e — emits a timeline JSON alongside the markdown post-mortem. Sketch: extract `recordCloneEvent` + `writeTimeline` from `packages/manta-e2e/src/forensics.ts` into `@manta/orchestrator` and have the orchestrator call them on cast finalisation. Phase-2 plan should fold this into the `manta-merge-review` design (the same metadata is needed for forking-realities best-of-N selection).
+**Lessons:** Test-harness-only observability is technical debt — every signal we wired into e2e is a signal a production operator will eventually want. When wiring observability into e2e, bias toward writing it once at the orchestrator layer and making the e2e harness *consume* it, rather than reimplementing it inside the harness.
 
 ### #1 — manta-cli integration test flakes under concurrent workspace test run
 

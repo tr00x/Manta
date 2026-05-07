@@ -44,6 +44,21 @@ describe('buildPrimingText', () => {
     expect(text).toContain('cast-X');
     expect(text).toContain('recon-swarm');
   });
+
+  it('declares the in-loop heartbeat cadence as a conversation-loop primitive (closes bug #9)', () => {
+    const text = buildPrimingText(snap);
+    expect(text).toMatch(/Heartbeat cadence \(Required, in-loop\)/);
+    expect(text).toMatch(/first.*tool call.*every.*assistant turn/i);
+    expect(text).toMatch(/heartbeatTimeoutMs/);
+    expect(text).toMatch(/conversation loop, not wall-clock/);
+  });
+
+  it('requires final commit of deliverables in the shutdown ordering (closes bug seed #4)', () => {
+    const text = buildPrimingText(snap);
+    expect(text).toMatch(/git add.*deliverables/);
+    expect(text).toMatch(/manta-clone-clone-A: <one-line summary>/);
+    expect(text).toMatch(/never push, the main pulls/);
+  });
 });
 
 describe('buildInitialPrompt', () => {
