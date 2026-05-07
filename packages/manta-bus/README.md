@@ -30,10 +30,14 @@ Manta Bus — the MCP server that exposes coordination primitives to Manta clone
 ## Run
 
 ```
+# From a workspace checkout
 node packages/manta-bus/dist/bin/server.cjs
+
+# After a global install (`npm i -g @manta/bus`)
+manta-bus
 ```
 
-Set `MANTA_REPO_ROOT` to override the working directory; defaults to `process.cwd()`.
+Set `MANTA_REPO_ROOT` to override the working directory; defaults to `process.cwd()`. Misconfigured `MANTA_REPO_ROOT` (missing or not a directory) exits with code `2`; runtime crashes exit `1`; clean shutdown on `SIGTERM`/`SIGINT` exits `0`.
 
 ## State layout
 

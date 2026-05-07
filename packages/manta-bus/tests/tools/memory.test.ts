@@ -85,4 +85,40 @@ describe('memory handlers', () => {
       handlers.paraAppend({ clone_id: 'A', category: 'bananas', fact: 'x' }),
     ).rejects.toBeInstanceOf(BusValidationError);
   });
+
+  it('zk_write keeps the resolved path under docs/zk even for traversal-like titles', async () => {
+    // The slug() regex strips non-alphanumerics, so `../` collapses to ''
+    // and the title falls back to 'note-'. The defense-in-depth assertion
+    // in fsMemoryWriters guarantees this for any future regex change too.
+    const r = await handlers.zkWrite({
+      clone_id: 'A',
+      title: '../../../etc/passwd',
+      content: 'x',
+      tags: [],
+    });
+    const expectedRoot = path.resolve(path.join(root, 'docs', 'zk'));
+    const resolved = path.resolve(r.path);
+    expect(resolved.startsWith(expectedRoot + path.sep)).toBe(true);
+  });
+
+  it('zk_write keeps the resolved path under docs/zk for unicode dot-segments', async () => {
+    const r = await handlers.zkWrite({
+      clone_id: 'A',
+      title: '../../escape',
+      content: 'x',
+      tags: [],
+    });
+    const expectedRoot = path.resolve(path.join(root, 'docs', 'zk'));
+    expect(path.resolve(r.path).startsWith(expectedRoot + path.sep)).toBe(true);
+  });
+
+  it('para_append keeps the resolved path under docs/para', async () => {
+    const r = await handlers.paraAppend({
+      clone_id: 'A',
+      category: 'projects',
+      fact: 'a fact',
+    });
+    const expectedRoot = path.resolve(path.join(root, 'docs', 'para'));
+    expect(path.resolve(r.path).startsWith(expectedRoot + path.sep)).toBe(true);
+  });
 });

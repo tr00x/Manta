@@ -69,11 +69,20 @@ export async function atomicReadJson<T>(filePath: string, defaultFactory: () => 
  * acquirer reads ENOENT, applies the mutator on top of `defaultFactory()`,
  * and writes via tmp + rename; the second acquirer then reads the post-write
  * state. There is no `wx`-open before the lock.
+ *
+ * `auditAppend` (optional) is invoked **inside the file mutex**, after the
+ * mutator computes `next` but **before** the tmp+rename commit. This is how
+ * stores couple a state mutation to its audit-log entry: if `auditAppend`
+ * throws, the state file is left untouched. The remaining race window is
+ * narrow — between a successful audit append and the rename — and is
+ * detectable by the orchestrator (events.jsonl ahead of state). See
+ * ARCHITECTURE.md "Audit-trail invariant".
  */
 export async function atomicMutateJson<T>(
   filePath: string,
   defaultFactory: () => T,
   mutator: (current: T) => T | Promise<T>,
+  auditAppend?: () => Promise<void>,
 ): Promise<T> {
   await ensureDir(filePath);
   // proper-lockfile creates the lockfile sibling itself; we must ensure the
@@ -89,6 +98,13 @@ export async function atomicMutateJson<T>(
     const existing = await readJsonOrNull<T>(filePath);
     const current = existing === null ? defaultFactory() : existing;
     const next = await mutator(current);
+    if (auditAppend) {
+      // Append the audit entry BEFORE committing the state file. Any failure
+      // here aborts the mutex callback and leaves the on-disk state
+      // unchanged. A failure between this point and the rename below leaves
+      // the audit log ahead — orchestrator (Phase 0c) reconciles.
+      await auditAppend();
+    }
     const tmp = `${filePath}.tmp.${process.pid}.${Date.now()}`;
     await fs.writeFile(tmp, JSON.stringify(next, null, 2), 'utf8');
     await fs.rename(tmp, filePath);

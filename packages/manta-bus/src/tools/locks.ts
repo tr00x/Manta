@@ -14,33 +14,39 @@ export function createLockHandlers(ctx: Pick<BusContext, 'locks' | 'events'>): L
   return {
     async lock(input) {
       const parsed = parse(LockInputSchema, input, 'lock');
-      const lease = await ctx.locks.acquire(parsed);
-      const event = await ctx.events.append({
-        type: 'lock',
-        clone_id: parsed.clone_id,
-        payload: { path: parsed.path },
+      let event!: BusEvent;
+      const lease = await ctx.locks.acquire(parsed, async () => {
+        event = await ctx.events.append({
+          type: 'lock',
+          clone_id: parsed.clone_id,
+          payload: { path: parsed.path },
+        });
       });
       return { lease, event };
     },
 
     async unlock(input) {
       const parsed = parse(LockInputSchema, input, 'unlock');
-      await ctx.locks.release(parsed);
-      const event = await ctx.events.append({
-        type: 'unlock',
-        clone_id: parsed.clone_id,
-        payload: { path: parsed.path },
+      let event!: BusEvent;
+      await ctx.locks.release(parsed, async () => {
+        event = await ctx.events.append({
+          type: 'unlock',
+          clone_id: parsed.clone_id,
+          payload: { path: parsed.path },
+        });
       });
       return { event };
     },
 
     async renew(input) {
       const parsed = parse(LockInputSchema, input, 'renew_lock');
-      const lease = await ctx.locks.renew(parsed);
-      const event = await ctx.events.append({
-        type: 'renew_lock',
-        clone_id: parsed.clone_id,
-        payload: { path: parsed.path },
+      let event!: BusEvent;
+      const lease = await ctx.locks.renew(parsed, async () => {
+        event = await ctx.events.append({
+          type: 'renew_lock',
+          clone_id: parsed.clone_id,
+          payload: { path: parsed.path },
+        });
       });
       return { lease, event };
     },

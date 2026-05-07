@@ -36,6 +36,13 @@ export interface CreateBusServerOptions {
 
 export interface BusServerHandle {
   server: Server;
+  /**
+   * @internal
+   * Exposed only for in-process tests and short-circuit unit wiring (e.g.
+   * `tests/integration.test.ts`). External consumers should use the MCP
+   * tool surface, not the underlying stores. Kept off the README so its
+   * shape can change without a SemVer bump.
+   */
   context: BusContext;
 }
 

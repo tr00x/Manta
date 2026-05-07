@@ -53,28 +53,36 @@ const empty = (): StoredContract => ({
 export class ContractsStore {
   constructor(private readonly paths: BusPaths, private readonly clock: Clock) {}
 
-  async write(contract: TaskContract): Promise<StoredContract> {
+  async write(
+    contract: TaskContract,
+    auditAppend?: () => Promise<void>,
+  ): Promise<StoredContract> {
     const file = this.paths.contractFile(contract.clone_id);
     await fs.mkdir(path.dirname(file), { recursive: true });
-    return atomicMutateJson<StoredContract>(file, empty, (current) => {
-      // If the contract body is byte-equal to the prior one, preserve the ack
-      // (idempotent rewrite). Otherwise clear it: per spec Sec 5.1 the ack is
-      // the clone's interpretation of its CURRENT scope; a new contract body
-      // requires a fresh ack so scope conflicts are caught against the new
-      // contract, not the old one.
-      const sameBody =
-        current.written_at !== 0 &&
-        JSON.stringify(canonicalize(current.contract)) ===
-          JSON.stringify(canonicalize(contract));
-      const next: StoredContract = {
-        contract,
-        written_at: this.clock.now(),
-      };
-      if (sameBody && current.ack) {
-        next.ack = current.ack;
-      }
-      return next;
-    });
+    return atomicMutateJson<StoredContract>(
+      file,
+      empty,
+      (current) => {
+        // If the contract body is byte-equal to the prior one, preserve the ack
+        // (idempotent rewrite). Otherwise clear it: per spec Sec 5.1 the ack is
+        // the clone's interpretation of its CURRENT scope; a new contract body
+        // requires a fresh ack so scope conflicts are caught against the new
+        // contract, not the old one.
+        const sameBody =
+          current.written_at !== 0 &&
+          JSON.stringify(canonicalize(current.contract)) ===
+            JSON.stringify(canonicalize(contract));
+        const next: StoredContract = {
+          contract,
+          written_at: this.clock.now(),
+        };
+        if (sameBody && current.ack) {
+          next.ack = current.ack;
+        }
+        return next;
+      },
+      auditAppend,
+    );
   }
 
   async read(cloneId: string): Promise<StoredContract> {
@@ -86,15 +94,24 @@ export class ContractsStore {
     return stored;
   }
 
-  async ack(cloneId: string, interpretation: string): Promise<ContractAck> {
+  async ack(
+    cloneId: string,
+    interpretation: string,
+    auditAppend?: () => Promise<void>,
+  ): Promise<ContractAck> {
     const file = this.paths.contractFile(cloneId);
-    const next = await atomicMutateJson<StoredContract | null>(file, () => null, (current) => {
-      if (!current || current.written_at === 0) {
-        throw new BusNotFoundError('contract', cloneId);
-      }
-      current.ack = { interpretation, acked_at: this.clock.now() };
-      return current;
-    });
+    const next = await atomicMutateJson<StoredContract | null>(
+      file,
+      () => null,
+      (current) => {
+        if (!current || current.written_at === 0) {
+          throw new BusNotFoundError('contract', cloneId);
+        }
+        current.ack = { interpretation, acked_at: this.clock.now() };
+        return current;
+      },
+      auditAppend,
+    );
     return next!.ack!;
   }
 

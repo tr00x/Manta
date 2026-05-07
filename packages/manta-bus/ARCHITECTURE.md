@@ -46,6 +46,30 @@ Clones and the main agent need a single place to coordinate without parsing each
 - **One handler module per tool family.** Allows targeted unit tests, keeps each file under ~200 lines, and matches the spec's grouping (lifecycle / contract / work / locks / communication / memory).
 - **Errors are typed, not stringly.** `BusValidationError` / `BusNotFoundError` / `BusConflictError` / `BusLockedError` / `BusStateError`. They map to MCP error-envelope categories deterministically in `serializeError`.
 
+## Audit-trail invariant
+
+Every state mutation that has an audit event MUST emit the event **inside the same file mutex** that protects the state file, **before** the tmp+rename commit. The contract is:
+
+1. Acquire the file mutex for the state JSON (`registry.json`, `locks.json`, `claims.json`, or `contracts/<clone>.json`).
+2. Run the mutator over the parsed state to compute `next`.
+3. Append the audit event to `events.jsonl`.
+4. Write `next` to a tmp file and rename it over the state file.
+5. Release the mutex.
+
+If step 3 throws, step 4 never runs — state is unchanged and the failure surfaces to the caller. The remaining race window is between a successful step 3 and a failed step 4 (e.g. disk full at rename); in that case the audit log is **ahead** of state. The orchestrator (Phase 0c) detects and reconciles such drift on replay.
+
+Implementation: `atomic-fs.ts:atomicMutateJson` accepts an optional `auditAppend` callback that runs at step 3. Each mutating store method (`Registry.register/heartbeat/markDead`, `LocksStore.acquire/renew/release`, `ClaimsStore.claim/release`, `ContractsStore.write/ack`) accepts a corresponding `auditAppend?: () => Promise<void>` parameter and threads it to `atomicMutateJson`. Tool handlers wire the closure that calls `events.append(...)` with the appropriate event payload.
+
+Memory writers (`memory-writers.ts:zkWrite/paraAppend`) are not JSON mutate-and-rename — they create new files (zk) or append to text files (para). They use the same write-ahead-log pattern: `auditAppend(computedPath)` runs before the filesystem write, receives the target path so the event records intent, and an audit-after / write-failed window is reconciled by the orchestrator via filesystem scan.
+
+`tools/communication.ts` (`broadcast` / `message` / `drift_report`) and `tools/contract.ts:refresh` mutate **no state** — the events log is itself the audit log, and a single `events.append` is the atomic operation. No coupling needed.
+
+## Known invariants & limitations
+
+- **`manta.message` recipient TOCTOU.** `tools/communication.message` validates that both `from_clone_id` and `to_clone_id` exist in the registry at call time, but a recipient marked `DEAD` between validation and the audit-event append will receive a delivered event in `events.jsonl`. The orchestrator (Phase 0c) is responsible for filtering messages-to-DEAD at delivery time. The bus stays a pure data plane and does not retry or refuse based on liveness.
+- **Audit-ahead-of-state.** See "Audit-trail invariant". A crash between event-append and state-rename leaves the audit log with an entry whose state mutation never landed. Replay-side reconciliation is the orchestrator's job.
+- **Path containment.** `memory-writers.ts` asserts that every resolved write path stays under the configured `zkDir` / `paraDir`. The assertion is defense-in-depth on top of `slug()` stripping non-alphanumerics and the Zod-enforced category enum.
+
 ## Test strategy
 
 - **Unit per store** — registry / locks / claims / contracts / events each get a focused suite using `FakeClock` and a tmp directory.

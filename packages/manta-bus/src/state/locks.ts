@@ -37,60 +37,84 @@ export class LocksStore {
     private readonly options: LocksStoreOptions,
   ) {}
 
-  async acquire(input: LockInput): Promise<LockLease> {
+  async acquire(
+    input: LockInput,
+    auditAppend?: () => Promise<void>,
+  ): Promise<LockLease> {
     const now = this.clock.now();
-    return atomicMutateJson<LocksFile>(this.paths.locks, empty, (current) => {
-      const existing = current.leases[input.path];
-      const stale =
-        existing !== undefined && now - existing.last_heartbeat_at > this.options.staleAfterMs;
-      // Same-owner re-acquire is idempotent and never resets acquired_at —
-      // even after `staleAfterMs` of inactivity, a clone reclaiming its own
-      // lease is a continuation, not a fresh take. Only last_heartbeat_at is
-      // bumped. This gives downstream consumers a stable continuous-hold
-      // signal via acquired_at and lets a separate liveness check (heartbeat
-      // gap) detect a self-take across a gap.
-      if (existing && existing.owner_clone_id === input.clone_id) {
-        existing.last_heartbeat_at = now;
+    return atomicMutateJson<LocksFile>(
+      this.paths.locks,
+      empty,
+      (current) => {
+        const existing = current.leases[input.path];
+        const stale =
+          existing !== undefined && now - existing.last_heartbeat_at > this.options.staleAfterMs;
+        // Same-owner re-acquire is idempotent and never resets acquired_at —
+        // even after `staleAfterMs` of inactivity, a clone reclaiming its own
+        // lease is a continuation, not a fresh take. Only last_heartbeat_at is
+        // bumped. This gives downstream consumers a stable continuous-hold
+        // signal via acquired_at and lets a separate liveness check (heartbeat
+        // gap) detect a self-take across a gap.
+        if (existing && existing.owner_clone_id === input.clone_id) {
+          existing.last_heartbeat_at = now;
+          return current;
+        }
+        // Different owner: must wait until the existing lease is stale.
+        if (existing && !stale) {
+          throw new BusLockedError(input.path, existing.owner_clone_id);
+        }
+        // Either no lease, or lease is stale and a different owner is taking
+        // over — fresh take, acquired_at = now.
+        current.leases[input.path] = {
+          path: input.path,
+          owner_clone_id: input.clone_id,
+          acquired_at: now,
+          last_heartbeat_at: now,
+        };
         return current;
-      }
-      // Different owner: must wait until the existing lease is stale.
-      if (existing && !stale) {
-        throw new BusLockedError(input.path, existing.owner_clone_id);
-      }
-      // Either no lease, or lease is stale and a different owner is taking
-      // over — fresh take, acquired_at = now.
-      current.leases[input.path] = {
-        path: input.path,
-        owner_clone_id: input.clone_id,
-        acquired_at: now,
-        last_heartbeat_at: now,
-      };
-      return current;
-    }).then((next) => next.leases[input.path]!);
+      },
+      auditAppend,
+    ).then((next) => next.leases[input.path]!);
   }
 
-  async renew(input: LockInput): Promise<LockLease> {
-    return atomicMutateJson<LocksFile>(this.paths.locks, empty, (current) => {
-      const existing = current.leases[input.path];
-      if (!existing) throw new BusNotFoundError('lock', input.path);
-      if (existing.owner_clone_id !== input.clone_id) {
-        throw new BusLockedError(input.path, existing.owner_clone_id);
-      }
-      existing.last_heartbeat_at = this.clock.now();
-      return current;
-    }).then((next) => next.leases[input.path]!);
+  async renew(
+    input: LockInput,
+    auditAppend?: () => Promise<void>,
+  ): Promise<LockLease> {
+    return atomicMutateJson<LocksFile>(
+      this.paths.locks,
+      empty,
+      (current) => {
+        const existing = current.leases[input.path];
+        if (!existing) throw new BusNotFoundError('lock', input.path);
+        if (existing.owner_clone_id !== input.clone_id) {
+          throw new BusLockedError(input.path, existing.owner_clone_id);
+        }
+        existing.last_heartbeat_at = this.clock.now();
+        return current;
+      },
+      auditAppend,
+    ).then((next) => next.leases[input.path]!);
   }
 
-  async release(input: LockInput): Promise<void> {
-    await atomicMutateJson<LocksFile>(this.paths.locks, empty, (current) => {
-      const existing = current.leases[input.path];
-      if (!existing) return current;
-      if (existing.owner_clone_id !== input.clone_id) {
-        throw new BusLockedError(input.path, existing.owner_clone_id);
-      }
-      delete current.leases[input.path];
-      return current;
-    });
+  async release(
+    input: LockInput,
+    auditAppend?: () => Promise<void>,
+  ): Promise<void> {
+    await atomicMutateJson<LocksFile>(
+      this.paths.locks,
+      empty,
+      (current) => {
+        const existing = current.leases[input.path];
+        if (!existing) return current;
+        if (existing.owner_clone_id !== input.clone_id) {
+          throw new BusLockedError(input.path, existing.owner_clone_id);
+        }
+        delete current.leases[input.path];
+        return current;
+      },
+      auditAppend,
+    );
   }
 
   async listOwned(cloneId: string): Promise<LockLease[]> {
