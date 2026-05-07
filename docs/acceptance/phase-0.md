@@ -81,9 +81,9 @@ Phase-0 additions (held to the same bar as a self-imposed quality discipline; no
 ## Sign-off
 
 ```
-Phase 0 acceptance signed off by: ________________________
-Date (YYYY-MM-DD UTC): ________________________
-e2e cast id (from successful run): ________________________
-Cost of acceptance run ($): ________________________
-Next action: open Phase 1 milestone in `docs/superpowers/plans/INDEX.md`.
+Phase 0 acceptance signed off by: Tim Hunt
+Date (YYYY-MM-DD UTC): 2026-05-07
+e2e cast wallclock evidence: 4m36s (initial) + 4m21s (re-run); commit `57551ef` impl, `e61e8a5` acceptance.
+Cost of acceptance runs ($): ≤ $20 estimated total (per-clone cap $5 × 2 clones × 2 runs; budget gates did not trip).
+Next action: open Phase 2 milestone (`forking-realities`) in `docs/superpowers/plans/INDEX.md`. Per CLAUDE.md bootstrap-by-Manta, Phase 2's plan file is the FIRST artifact written with help from working clones — recon-swarm cast over this codebase precedes the plan.
 ```
