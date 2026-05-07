@@ -3,6 +3,7 @@
   "references": [
     { "path": "./packages/manta-snapshot" },
     { "path": "./packages/manta-bus" },
-    { "path": "./packages/manta-orchestrator" }
+    { "path": "./packages/manta-orchestrator" },
+    { "path": "./packages/manta-cli" }
   ]
 }
