@@ -51,6 +51,23 @@ describe('atomic-fs', () => {
     expect(after.counter).toBe(N);
   });
 
+  it('atomicMutateJson initializes missing files under the lock (no init race)', async () => {
+    // Regression test for Fix #1: pre-fix, two concurrent calls against a
+    // missing file could race on `wx`-open vs. read — the EEXIST loser would
+    // sometimes read a 0-byte file and JSON.parse would throw. The fix moves
+    // initialization fully inside the proper-lockfile mutex.
+    const file = path.join(root, 'init-race.json');
+    const init = (): { counter: number } => ({ counter: 0 });
+    const N = 20;
+    await Promise.all(
+      Array.from({ length: N }, () =>
+        atomicMutateJson<{ counter: number }>(file, init, (cur) => ({ counter: cur.counter + 1 })),
+      ),
+    );
+    const after = JSON.parse(await fs.readFile(file, 'utf8')) as { counter: number };
+    expect(after.counter).toBe(N);
+  });
+
   it('atomicMutateJson rolls back if mutator throws', async () => {
     const file = path.join(root, 'state.json');
     await atomicMutateJson<{ x: number }>(file, () => ({ x: 1 }), (cur) => ({ x: cur.x + 1 }));

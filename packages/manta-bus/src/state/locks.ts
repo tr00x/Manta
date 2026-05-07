@@ -1,3 +1,11 @@
+// Two-layer staleness model — intentionally split:
+//   - `proper-lockfile`'s `stale: 30_000` (in atomic-fs.ts) is the *file-mutex*
+//     stealing threshold — recovers from a process that died mid-mutation. It
+//     is short by design: lost mutexes are blocking and we want fast recovery.
+//   - `LocksStore.staleAfterMs` (constructor option, default 15_000 in tests)
+//     is the *business-level lease* GC threshold — at-rest expiry of a lease
+//     whose owner stopped renewing. Other clones may take it after this gap.
+//     Both thresholds operate on different objects: file mutex vs. JSON lease.
 import { atomicMutateJson, atomicReadJson } from '../atomic-fs';
 import type { Clock } from '../clock';
 import { BusLockedError, BusNotFoundError } from '../errors';
@@ -33,15 +41,24 @@ export class LocksStore {
     const now = this.clock.now();
     return atomicMutateJson<LocksFile>(this.paths.locks, empty, (current) => {
       const existing = current.leases[input.path];
-      const stale = existing !== undefined && now - existing.last_heartbeat_at > this.options.staleAfterMs;
-      if (existing && !stale && existing.owner_clone_id !== input.clone_id) {
-        throw new BusLockedError(input.path, existing.owner_clone_id);
-      }
-      if (existing && existing.owner_clone_id === input.clone_id && !stale) {
+      const stale =
+        existing !== undefined && now - existing.last_heartbeat_at > this.options.staleAfterMs;
+      // Same-owner re-acquire is idempotent and never resets acquired_at —
+      // even after `staleAfterMs` of inactivity, a clone reclaiming its own
+      // lease is a continuation, not a fresh take. Only last_heartbeat_at is
+      // bumped. This gives downstream consumers a stable continuous-hold
+      // signal via acquired_at and lets a separate liveness check (heartbeat
+      // gap) detect a self-take across a gap.
+      if (existing && existing.owner_clone_id === input.clone_id) {
         existing.last_heartbeat_at = now;
         return current;
       }
-      // either no lease, or lease is stale: take it
+      // Different owner: must wait until the existing lease is stale.
+      if (existing && !stale) {
+        throw new BusLockedError(input.path, existing.owner_clone_id);
+      }
+      // Either no lease, or lease is stale and a different owner is taking
+      // over — fresh take, acquired_at = now.
       current.leases[input.path] = {
         path: input.path,
         owner_clone_id: input.clone_id,

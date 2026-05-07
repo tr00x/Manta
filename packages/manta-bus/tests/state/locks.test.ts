@@ -78,6 +78,21 @@ describe('LocksStore', () => {
     expect(lease.acquired_at).toBe(1_000_000 + 15_001);
   });
 
+  it('same owner re-acquire after staleAfterMs is idempotent (no fresh take of own lease)', async () => {
+    // Regression test for Fix #2: pre-fix, if the existing lease was stale,
+    // the same owner re-calling acquire() would silently reset acquired_at to
+    // `now` — losing the continuous-hold signal. Post-fix: same-owner
+    // re-acquire is always idempotent (acquired_at preserved, last_heartbeat_at
+    // bumped) regardless of staleness.
+    const first = await locks.acquire({ clone_id: 'A', path: 'src/foo.ts' });
+    expect(first.acquired_at).toBe(1_000_000);
+    clock.advance(15_001);
+    const second = await locks.acquire({ clone_id: 'A', path: 'src/foo.ts' });
+    expect(second.owner_clone_id).toBe('A');
+    expect(second.acquired_at).toBe(1_000_000); // unchanged
+    expect(second.last_heartbeat_at).toBe(1_000_000 + 15_001); // bumped
+  });
+
   it('listOwned returns only leases owned by a clone', async () => {
     await locks.acquire({ clone_id: 'A', path: 'src/foo.ts' });
     await locks.acquire({ clone_id: 'B', path: 'src/bar.ts' });

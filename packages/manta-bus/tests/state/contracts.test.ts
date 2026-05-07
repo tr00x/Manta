@@ -78,6 +78,34 @@ describe('ContractsStore', () => {
     expect(got.ack?.interpretation).toBe('plan one');
   });
 
+  it('rewriting the same contract with reordered object keys preserves the ack (canonical compare)', async () => {
+    // Regression test for Fix #5: pre-fix, JSON.stringify order-sensitivity
+    // could falsely treat an object-key-reordered rewrite as a body change.
+    const original = sample({ task: 'first' });
+    await contracts.write(original);
+    await contracts.ack('A', 'plan one');
+    // Build a key-reordered copy without changing semantics. Using
+    // Object.fromEntries on reversed keys to guarantee a different in-memory
+    // key insertion order.
+    const reordered = Object.fromEntries(
+      Object.entries(original).reverse(),
+    ) as unknown as TaskContract;
+    await contracts.write(reordered);
+    const got = await contracts.read('A');
+    expect(got.ack?.interpretation).toBe('plan one');
+  });
+
+  it('rewriting the contract with a reordered sibling_clones array clears the ack (array order is significant)', async () => {
+    // Regression test for Fix #5: arrays carry meaning (sibling_clones order
+    // can encode priority, allowed_paths order can affect glob precedence).
+    // The canonicalizer must NOT sort arrays.
+    await contracts.write(sample({ sibling_clones: ['B', 'C'] }));
+    await contracts.ack('A', 'plan one');
+    await contracts.write(sample({ sibling_clones: ['C', 'B'] }));
+    const got = await contracts.read('A');
+    expect(got.ack).toBeUndefined();
+  });
+
   it('ack without prior write is not-found', async () => {
     await expect(contracts.ack('GHOST', 'x')).rejects.toBeInstanceOf(BusNotFoundError);
   });

@@ -1,3 +1,9 @@
+// Format split (per spec Sec 5.1):
+//   - Wire format for contracts is YAML (parsed by tools/contract.ts in
+//     Chunk 2). The `yaml` dep stays in package.json for that.
+//   - At-rest storage in this module is JSON. JSON gives us proper-lockfile +
+//     atomic mutate semantics for free; the YAML↔JSON conversion happens at
+//     the tool boundary, not here.
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { atomicMutateJson, atomicReadJson } from '../atomic-fs';
@@ -5,6 +11,28 @@ import type { Clock } from '../clock';
 import { BusNotFoundError } from '../errors';
 import type { TaskContract } from '../schema';
 import type { BusPaths } from './paths';
+
+/**
+ * Recursively canonicalize a value for stable equality comparison:
+ *   - Object keys are sorted alphabetically (insertion-order-independent).
+ *   - Arrays are left in their original order — array order may carry
+ *     meaning in our schema (e.g. `sibling_clones` priority,
+ *     `allowed_paths` precedence). Sorting them would silently equate
+ *     contracts with semantically different scopes.
+ *   - Primitives are returned as-is.
+ */
+function canonicalize(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(canonicalize);
+  if (v !== null && typeof v === 'object') {
+    const obj = v as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.keys(obj)
+        .sort()
+        .map((k) => [k, canonicalize(obj[k])]),
+    );
+  }
+  return v;
+}
 
 export interface ContractAck {
   interpretation: string;
@@ -36,7 +64,8 @@ export class ContractsStore {
       // contract, not the old one.
       const sameBody =
         current.written_at !== 0 &&
-        JSON.stringify(current.contract) === JSON.stringify(contract);
+        JSON.stringify(canonicalize(current.contract)) ===
+          JSON.stringify(canonicalize(contract));
       const next: StoredContract = {
         contract,
         written_at: this.clock.now(),

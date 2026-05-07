@@ -22,13 +22,38 @@ describe('EventsLog', () => {
 
   it('append writes a JSONL record with timestamp and id', async () => {
     const ev = await events.append({ type: 'broadcast', clone_id: 'A', payload: { x: 1 } });
-    expect(ev.id).toMatch(/^[A-Za-z0-9_-]+$/);
+    // Post-Fix #3: event IDs are length-prefixed monotonic — `<13-digit-ts>-<6-digit-seq>-<rand>`.
+    expect(ev.id).toMatch(/^\d{13}-\d{6}-[A-Za-z0-9_-]+$/);
     expect(ev.ts).toBe(1_000_000);
     const lines = (await fs.readFile(busPaths(root).eventsLog, 'utf8')).trim().split('\n');
     expect(lines).toHaveLength(1);
     const parsed = JSON.parse(lines[0]!) as { id: string; type: string };
     expect(parsed.id).toBe(ev.id);
     expect(parsed.type).toBe('broadcast');
+  });
+
+  it('event ids are strictly increasing under tight-loop append (per-process monotonic)', async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 100; i++) {
+      // intentionally do NOT advance the clock — collisions on `now` exercise
+      // the per-process counter that breaks ties lex-monotonically.
+      const ev = await events.append({ type: 'broadcast', clone_id: 'A', payload: { i } });
+      ids.push(ev.id);
+    }
+    for (let i = 1; i < ids.length; i++) {
+      expect(ids[i]! > ids[i - 1]!).toBe(true);
+    }
+  });
+
+  it('readAll skips a truncated last JSONL line and returns the well-formed events', async () => {
+    // Regression test for Fix #9: a writer crashing mid-appendFile can leave
+    // a partial last line. readAll must not reject the whole file.
+    await events.append({ type: 'register', clone_id: 'A', payload: {} });
+    await events.append({ type: 'broadcast', clone_id: 'A', payload: { e: 1 } });
+    // Manually append a truncated JSON line (no closing brace, no trailing \n).
+    await fs.appendFile(busPaths(root).eventsLog, '{"id":"x","ts":99,"type":"broadc');
+    const all = await events.readAll();
+    expect(all.map((e) => e.type)).toEqual(['register', 'broadcast']);
   });
 
   it('readAll parses every line into a record', async () => {

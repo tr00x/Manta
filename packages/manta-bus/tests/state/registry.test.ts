@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { FakeClock } from '../../src/clock';
+import { fork } from 'node:child_process';
+import * as path from 'node:path';
+import { FakeClock, systemClock } from '../../src/clock';
 import { busPaths } from '../../src/state/paths';
 import { Registry } from '../../src/state/registry';
 import { makeTmpRoot } from '../helpers/tmpRoot';
@@ -85,6 +87,20 @@ describe('Registry', () => {
     ).rejects.toBeInstanceOf(BusConflictError);
   });
 
+  it('heartbeat from a DEAD clone is rejected (no zombie resurrection)', async () => {
+    // Regression test for Fix #11: a clone marked DEAD must not be able to
+    // resurrect itself by sending a non-DEAD heartbeat.
+    await registry.register({
+      clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {},
+    });
+    await registry.markDead('A', 'rip');
+    await expect(
+      registry.heartbeat({ clone_id: 'A', state: 'WORKING' }),
+    ).rejects.toBeInstanceOf(BusConflictError);
+    const r = await registry.get('A');
+    expect(r.state).toBe('DEAD');
+  });
+
   it('list returns all registered clones', async () => {
     await registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
     await registry.register({ clone_id: 'B', mode: 'recon-swarm', parent_pid: 2, worktree: '/w', metadata: {} });
@@ -123,4 +139,53 @@ describe('Registry', () => {
     const stale = await registry.staleSince(1_000);
     expect(stale).toEqual([]);
   });
+});
+
+describe('Registry — cross-process safety', () => {
+  // Fix #13: in-process Promise.all does NOT exercise the same proper-lockfile
+  // code path as two separate Node processes (different pids, real watch/poll
+  // retry behaviour). This test forks two workers that each register clones
+  // via the public Registry API against the same state.json and asserts no
+  // losses, no corruption.
+  it('two forked processes registering N clones each lose nothing', async () => {
+    const { root, cleanup } = await makeTmpRoot();
+    try {
+      const workerScript = path.join(__dirname, '..', 'helpers', 'registryHammerWorker.ts');
+      const COUNT_PER_WORKER = 25;
+
+      const runWorker = (workerId: string): Promise<string[]> =>
+        new Promise((resolve, reject) => {
+          const child = fork(
+            workerScript,
+            [root, workerId, String(COUNT_PER_WORKER)],
+            { execArgv: ['--import', 'tsx'], stdio: ['ignore', 'pipe', 'pipe', 'ipc'] },
+          );
+          let result: { ok: boolean; registered?: string[]; error?: string } | null = null;
+          child.on('message', (m) => {
+            result = m as typeof result;
+          });
+          child.on('error', reject);
+          child.on('exit', (code) => {
+            if (code !== 0 || !result || !result.ok) {
+              reject(new Error(`worker ${workerId} failed: ${result?.error ?? `exit ${code}`}`));
+              return;
+            }
+            resolve(result.registered ?? []);
+          });
+        });
+
+      const [a, b] = await Promise.all([runWorker('w1'), runWorker('w2')]);
+      const expected = new Set([...a, ...b]);
+      expect(expected.size).toBe(2 * COUNT_PER_WORKER);
+
+      const registry = new Registry(busPaths(root), systemClock);
+      const all = await registry.list();
+      const seen = new Set(all.map((r) => r.clone_id));
+      // Strict equality: every expected id present, no extras.
+      expect(seen.size).toBe(expected.size);
+      for (const id of expected) expect(seen.has(id)).toBe(true);
+    } finally {
+      await cleanup();
+    }
+  }, 15_000);
 });

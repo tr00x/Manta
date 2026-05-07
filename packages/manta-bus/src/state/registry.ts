@@ -61,6 +61,15 @@ export class Registry {
           'heartbeat cannot transition to DEAD; use manta.report_death instead',
         );
       }
+      // Reject heartbeat from a DEAD clone — death is terminal. Allowing a
+      // post-death heartbeat to flip the state back to WORKING/etc. would
+      // resurrect a clone the orchestrator has already given up on, leaving
+      // sibling_clones references and contract acks pointing into the void.
+      if (r.state === 'DEAD') {
+        throw new BusConflictError(
+          `cannot heartbeat a DEAD clone ${input.clone_id}; death is terminal`,
+        );
+      }
       r.last_heartbeat_at = this.clock.now();
       r.state = input.state;
       if (input.progress !== undefined) r.progress = input.progress;
