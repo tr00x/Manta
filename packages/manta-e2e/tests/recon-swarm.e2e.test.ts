@@ -33,18 +33,63 @@ describe('recon-swarm end-to-end against real claude', () => {
       return;
     }
     fx = await makeSampleRepo();
-    const r = await execa(
+    // Phase-1 lockdown: positive-timeline guard. Bug #3 was a 30-min vitest hang
+    // because clones never moved past STARTING. With pre-registration + correct
+    // transport, every clone must transition off STARTING within tickBudgetMs/4
+    // (heartbeat indicates real liveness; last_heartbeat_at alone cannot prove it,
+    // it's stamped at register time).
+    const tickBudgetMs = 1_500_000; // 25 min ceiling — keep in lockstep with --tick-budget-ms below
+    const heartbeatBudgetMs = tickBudgetMs / 4; // 6m15s positive-liveness budget
+    const expectedCloneCount = 2;
+
+    const castProc = execa(
       'node',
       [
         cliBin, 'cast', 'recon-swarm',
-        '--clones', '2',
+        '--clones', String(expectedCloneCount),
         '--task', 'Map every public export in src/. Produce a markdown summary as docs/recon.md.',
         '--cycle-interval-ms', '5000',
-        '--tick-budget-ms', '1500000', // 25 min ceiling
+        '--tick-budget-ms', String(tickBudgetMs),
         '--budget-per-clone-usd', '5',
       ],
       { cwd: fx.root, reject: false, timeout: 28 * 60 * 1000 },
     );
+
+    const { busPaths, Registry, systemClock } = await import('@manta/bus');
+    const watcherRegistry = new Registry(busPaths(fx.root), systemClock);
+
+    const timelineWatcher = (async () => {
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < heartbeatBudgetMs) {
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+        let clones;
+        try {
+          clones = await watcherRegistry.list();
+        } catch {
+          continue; // registry file may not yet exist on first ticks
+        }
+        if (
+          clones.length === expectedCloneCount &&
+          clones.every((c) => c.state !== 'STARTING')
+        ) {
+          return; // happy: every clone has heartbeated
+        }
+        if (castProc.exitCode != null) return; // cast already finished — let main path assert
+      }
+      // Time-out: dump registry, kill cast, fail loudly.
+      let final;
+      try {
+        final = await watcherRegistry.list();
+      } catch (e) {
+        final = `<registry unreadable: ${(e as Error).message}>`;
+      }
+      castProc.kill('SIGTERM');
+      throw new Error(
+        `e2e timeline assertion: not all clones transitioned off STARTING within ${heartbeatBudgetMs}ms; registry=${JSON.stringify(final)}`,
+      );
+    })();
+
+    const [r] = await Promise.all([castProc, timelineWatcher]);
 
     // Surface stdout/stderr on failure for diagnosis
     if (r.exitCode !== 0) {
@@ -55,9 +100,8 @@ describe('recon-swarm end-to-end against real claude', () => {
 
     // Both clones reached DEAD via the orchestrator. Use the public Registry API
     // (not raw JSON) so this assertion stays correct if the on-disk shape evolves.
-    const { busPaths, Registry, systemClock } = await import('@manta/bus');
-    const registry = new Registry(busPaths(fx.root), systemClock);
-    const clones = await registry.list();
+    // (Reuse the watcherRegistry instance built above for the timeline assertion.)
+    const clones = await watcherRegistry.list();
     expect(clones).toHaveLength(2);
     for (const c of clones) {
       expect(c.state).toBe('DEAD');

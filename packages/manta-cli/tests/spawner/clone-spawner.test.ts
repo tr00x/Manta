@@ -1,9 +1,11 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execa } from 'execa';
 import { spawnClone, runFakeCloneScript, runClaudeCli } from '../../src/spawner/clone-spawner.js';
-import { buildCloneSnapshot } from '../../src/spawner/snapshot-builder.js';
 import { makeRepoFixture, type RepoFixture } from '../helpers/repoFixture.js';
+import { makeRegistryFake } from '../helpers/registryFake.js';
+import { makeSnapshotFor } from '../helpers/snapshotFixture.js';
 
 const fixturePath = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -11,8 +13,6 @@ const fixturePath = path.join(
   'fixtures',
   'fake-clone.mjs',
 );
-
-const baseScope = { allowedPaths: ['src/'], forbiddenPaths: [], maxFilesChanged: 0 };
 
 describe('clone-spawner', () => {
   let fx: RepoFixture | undefined;
@@ -23,25 +23,12 @@ describe('clone-spawner', () => {
 
   it('spawnClone runs the runner with snapshot path injected via env', async () => {
     fx = await makeRepoFixture();
-    const snap = buildCloneSnapshot({
-      cloneId: 'A',
-      mode: 'recon-swarm',
-      task: 't',
-      scope: baseScope,
-      siblingClones: [],
-      deadlineMs: 60_000,
-      parentWorktree: fx.root,
-      cloneWorktree: fx.root,
-      parentPid: process.pid,
-      parentSessionId: 'sess-test',
-      castId: 'cast-1',
-      budgetUsd: 5,
-    });
     const handle = await spawnClone({
       repoRoot: fx.root,
-      snapshot: snap,
+      snapshot: makeSnapshotFor({ cloneId: 'A', castId: 'cast-1' }),
       worktree: fx.root,
       runner: runFakeCloneScript({ scriptPath: fixturePath }),
+      registry: makeRegistryFake(),
     });
     expect(handle.cloneId).toBe('A');
     expect(handle.snapshotPath).toContain(fx.root);
@@ -52,28 +39,15 @@ describe('clone-spawner', () => {
 
   it('spawnClone propagates non-zero exit', async () => {
     fx = await makeRepoFixture();
-    const snap = buildCloneSnapshot({
-      cloneId: 'B',
-      mode: 'recon-swarm',
-      task: 't',
-      scope: baseScope,
-      siblingClones: [],
-      deadlineMs: 60_000,
-      parentWorktree: fx.root,
-      cloneWorktree: fx.root,
-      parentPid: process.pid,
-      parentSessionId: 'sess-test',
-      castId: 'cast-1',
-      budgetUsd: 5,
-    });
     const handle = await spawnClone({
       repoRoot: fx.root,
-      snapshot: snap,
+      snapshot: makeSnapshotFor({ cloneId: 'B', castId: 'cast-1' }),
       worktree: fx.root,
       runner: runFakeCloneScript({
         scriptPath: fixturePath,
         env: { MANTA_FAKE_CLONE_STATE: 'fail' },
       }),
+      registry: makeRegistryFake(),
     });
     const result = await handle.exit;
     expect(result.code).toBe(2);
@@ -81,28 +55,15 @@ describe('clone-spawner', () => {
 
   it('spawnClone supports kill via signal', async () => {
     fx = await makeRepoFixture();
-    const snap = buildCloneSnapshot({
-      cloneId: 'C',
-      mode: 'recon-swarm',
-      task: 't',
-      scope: baseScope,
-      siblingClones: [],
-      deadlineMs: 60_000,
-      parentWorktree: fx.root,
-      cloneWorktree: fx.root,
-      parentPid: process.pid,
-      parentSessionId: 'sess-test',
-      castId: 'cast-1',
-      budgetUsd: 5,
-    });
     const handle = await spawnClone({
       repoRoot: fx.root,
-      snapshot: snap,
+      snapshot: makeSnapshotFor({ cloneId: 'C', castId: 'cast-1' }),
       worktree: fx.root,
       runner: runFakeCloneScript({
         scriptPath: fixturePath,
         env: { MANTA_FAKE_CLONE_STATE: 'hang' },
       }),
+      registry: makeRegistryFake(),
     });
     handle.kill('SIGTERM');
     const result = await handle.exit;
@@ -115,28 +76,15 @@ describe('clone-spawner', () => {
   // signal: null }` and the cast loop hangs waiting for a heartbeat.
   it('spawnClone surfaces runner spawn failure (ENOENT) as CliError spawn_failed', async () => {
     fx = await makeRepoFixture();
-    const snap = buildCloneSnapshot({
-      cloneId: 'X',
-      mode: 'recon-swarm',
-      task: 't',
-      scope: baseScope,
-      siblingClones: [],
-      deadlineMs: 60_000,
-      parentWorktree: fx.root,
-      cloneWorktree: fx.root,
-      parentPid: process.pid,
-      parentSessionId: 'sess-test',
-      castId: 'cast-1',
-      budgetUsd: 5,
-    });
     // Point at a binary that does not exist; execa with reject:false will
     // resolve with `failed: true, exitCode: undefined, signal: undefined`
     // (the spawn ENOENT path). The runtime must surface that as spawn_failed.
     const handle = await spawnClone({
       repoRoot: fx.root,
-      snapshot: snap,
+      snapshot: makeSnapshotFor({ cloneId: 'X', castId: 'cast-1' }),
       worktree: fx.root,
       runner: runClaudeCli({ claudeBin: '/no/such/binary/manta-test-xyzabc' }),
+      registry: makeRegistryFake(),
     });
     await expect(handle.exit).rejects.toMatchObject({
       name: 'CliError',
@@ -150,28 +98,15 @@ describe('clone-spawner', () => {
   // doesn't sit on the default 5s.
   it('terminate escalates SIGTERM → SIGKILL when child ignores the term signal', async () => {
     fx = await makeRepoFixture();
-    const snap = buildCloneSnapshot({
-      cloneId: 'T',
-      mode: 'recon-swarm',
-      task: 't',
-      scope: baseScope,
-      siblingClones: [],
-      deadlineMs: 60_000,
-      parentWorktree: fx.root,
-      cloneWorktree: fx.root,
-      parentPid: process.pid,
-      parentSessionId: 'sess-test',
-      castId: 'cast-1',
-      budgetUsd: 5,
-    });
     const handle = await spawnClone({
       repoRoot: fx.root,
-      snapshot: snap,
+      snapshot: makeSnapshotFor({ cloneId: 'T', castId: 'cast-1' }),
       worktree: fx.root,
       runner: runFakeCloneScript({
         scriptPath: fixturePath,
         env: { MANTA_FAKE_CLONE_STATE: 'hang' },
       }),
+      registry: makeRegistryFake(),
     });
     const result = await handle.terminate({ gracefulMs: 50 });
     // Child must have died via a signal (SIGTERM if it ignored it briefly,
@@ -181,27 +116,51 @@ describe('clone-spawner', () => {
 
   it('spawnClone writes the snapshot to a deterministic path under .manta/snapshots/', async () => {
     fx = await makeRepoFixture();
-    const snap = buildCloneSnapshot({
-      cloneId: 'D',
-      mode: 'recon-swarm',
-      task: 't',
-      scope: baseScope,
-      siblingClones: [],
-      deadlineMs: 60_000,
-      parentWorktree: fx.root,
-      cloneWorktree: fx.root,
-      parentPid: process.pid,
-      parentSessionId: 'sess-test',
-      castId: 'cast-1',
-      budgetUsd: 5,
-    });
     const handle = await spawnClone({
       repoRoot: fx.root,
-      snapshot: snap,
+      snapshot: makeSnapshotFor({ cloneId: 'D', castId: 'cast-1' }),
       worktree: fx.root,
       runner: runFakeCloneScript({ scriptPath: fixturePath }),
+      registry: makeRegistryFake(),
     });
     expect(handle.snapshotPath).toMatch(/\.manta\/snapshots\/cast-1\/D\.snapshot\.json$/);
     await handle.exit;
+  });
+
+  // Phase-1 lockdown: argv must use real claude flags, never the dead `--snapshot`
+  // and never `--strict-mcp-config` (which would cut off user-scope manta-bus MCP).
+  it('production runClaudeCli argv does NOT contain dead --snapshot flag (bug #3/#4 regression guard)', async () => {
+    fx = await makeRepoFixture();
+    const captured: string[][] = [];
+    const probeRunner = {
+      run(input: { cwd: string; env: Record<string, string>; appendSystemPrompt: string; prompt: string }) {
+        // Build the same argv runClaudeCli would, then capture and short-circuit.
+        const argv = [
+          '--print',
+          '--append-system-prompt',
+          input.appendSystemPrompt,
+          '--permission-mode',
+          'bypassPermissions',
+          input.prompt,
+        ];
+        captured.push(argv);
+        // Return a successful no-op child.
+        return execa(process.execPath, ['-e', 'process.exit(0)'], { reject: false });
+      },
+    };
+    const handle = await spawnClone({
+      repoRoot: fx.root,
+      snapshot: makeSnapshotFor({ cloneId: 'F', castId: 'cast-1' }),
+      worktree: fx.root,
+      runner: probeRunner,
+      registry: makeRegistryFake(),
+    });
+    await handle.exit;
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).not.toContain('--snapshot');
+    expect(captured[0]).not.toContain('--strict-mcp-config');
+    expect(captured[0]).toContain('--append-system-prompt');
+    expect(captured[0]).toContain('--permission-mode');
+    expect(captured[0]).toContain('bypassPermissions');
   });
 });

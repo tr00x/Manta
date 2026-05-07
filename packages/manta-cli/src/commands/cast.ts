@@ -136,6 +136,7 @@ export async function runCastCommand(
         snapshot: snap,
         worktree: wt.path,
         runner: opts.runner,
+        registry: rt.ctx.registry,
       });
       handles.push(handle);
       opts.reporter.info('cast.spawn', { cloneId, worktree: wt.path });

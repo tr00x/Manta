@@ -1,8 +1,10 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { execa, type ExecaChildProcess, type ExecaReturnValue } from 'execa';
+import type { CloneRecord, RegisterInput } from '@manta/bus';
 import { serializeSnapshot, type Snapshot } from '@manta/snapshot';
 import { CliError } from '../errors.js';
+import { buildInitialPrompt, buildPrimingText } from './priming.js';
 
 export interface CloneRunner {
   run(input: CloneRunnerInput): ExecaChildProcess;
@@ -11,7 +13,19 @@ export interface CloneRunner {
 export interface CloneRunnerInput {
   cwd: string;
   env: Record<string, string>;
-  snapshotPath: string;
+  /** Priming text passed to `claude --append-system-prompt`. */
+  appendSystemPrompt: string;
+  /** Initial user prompt — the one-shot task description (Sec 9 point 1). */
+  prompt: string;
+}
+
+/**
+ * Narrow seam exposed by the production Bus Registry. Spawner uses only what
+ * it needs (just `register`); unit tests can fake this without spinning up a
+ * full `BusContext`. The full `Registry` from `@manta/bus` satisfies it.
+ */
+export interface RegistryWriter {
+  register(input: RegisterInput): Promise<CloneRecord>;
 }
 
 export interface SpawnCloneOptions {
@@ -19,6 +33,7 @@ export interface SpawnCloneOptions {
   snapshot: Snapshot;
   worktree: string;
   runner: CloneRunner;
+  registry: RegistryWriter;
 }
 
 export interface CloneHandle {
@@ -52,6 +67,31 @@ export async function spawnClone(opts: SpawnCloneOptions): Promise<CloneHandle> 
   const snapshotPath = path.join(dir, `${cloneId}.snapshot.json`);
   await serializeSnapshot(opts.snapshot, snapshotPath);
 
+  // Pre-register the clone on the Bus Registry BEFORE launching the runner.
+  // Reason: closes manta-bugs #2 — the manta-as-clone skill text and user
+  // docs claim the spawner registered the clone before launch. Without this
+  // call, the orchestrator's first heartbeat-deadline could fire before the
+  // clone process boots; the clone would then try to self-register and
+  // either succeed (skill says it must NOT) or get not_found and abort.
+  // Awaiting register before runner.run guarantees the record exists for
+  // the first MCP call. If pre-register fails, snapshot file is orphaned in
+  // .manta/snapshots/<castId>/; cast.ts teardown removes the worktree dir
+  // (snapshots dir is reset between casts via `manta recover`).
+  try {
+    await opts.registry.register({
+      clone_id: cloneId,
+      mode: opts.snapshot.taskContract.mode,
+      parent_pid: process.pid,
+      worktree: opts.worktree,
+      metadata: { cast_id: castId },
+    });
+  } catch (cause) {
+    throw new CliError(`failed to pre-register clone ${cloneId}`, {
+      kind: 'register_failed',
+      cause,
+    });
+  }
+
   const proc = opts.runner.run({
     cwd: opts.worktree,
     env: {
@@ -59,7 +99,8 @@ export async function spawnClone(opts: SpawnCloneOptions): Promise<CloneHandle> 
       MANTA_REPO_ROOT: opts.repoRoot,
       MANTA_CLONE_ID: cloneId,
     },
-    snapshotPath,
+    appendSystemPrompt: buildPrimingText(opts.snapshot),
+    prompt: buildInitialPrompt(opts.snapshot),
   });
 
   // I-1 (Chunk-1 review): with `reject: false`, `claude --print` (or any
@@ -148,6 +189,9 @@ export interface RunFakeCloneScriptOptions {
 export function runFakeCloneScript(opts: RunFakeCloneScriptOptions): CloneRunner {
   return {
     run(input) {
+      // Fake runner ignores `appendSystemPrompt` and `prompt` — those are for
+      // the real `claude` binary's flags. Test fixtures read MANTA_SNAPSHOT_PATH
+      // from env directly.
       return execa(process.execPath, [opts.scriptPath], {
         cwd: input.cwd,
         env: { ...process.env, ...input.env, ...opts.env },
@@ -166,9 +210,24 @@ export function runClaudeCli(opts: RunClaudeCliOptions = {}): CloneRunner {
   const bin = opts.claudeBin ?? 'claude';
   return {
     run(input) {
+      // Reason: --permission-mode bypassPermissions is the only non-interactive
+      // permission mode that lets a `claude --print` session use the full tool
+      // surface. `auto` would block on classifier-uncertain tools waiting for
+      // a human y/n. See Phase-1 lockdown plan for context.
+      // We do NOT pass `--strict-mcp-config`: that would cut off the user-scope
+      // `manta-bus` MCP, breaking heartbeat/lock/etc. (See clone-spawner.test
+      // negative assertion for the regression guard.)
       return execa(
         bin,
-        ['--print', ...(opts.extraArgs ?? []), '--snapshot', input.snapshotPath],
+        [
+          '--print',
+          ...(opts.extraArgs ?? []),
+          '--append-system-prompt',
+          input.appendSystemPrompt,
+          '--permission-mode',
+          'bypassPermissions',
+          input.prompt,
+        ],
         { cwd: input.cwd, env: { ...process.env, ...input.env }, reject: false },
       );
     },

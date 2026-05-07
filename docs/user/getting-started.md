@@ -87,6 +87,22 @@ The CLI:
 
 If a worktree won't go away or a lock is stuck, see `docs/manta-bugs.md` first; if it's not there, file it.
 
+### Troubleshooting: clone process started but never heartbeats
+
+Manta passes the snapshot path to each clone via the `MANTA_SNAPSHOT_PATH` env var
+(plus `MANTA_REPO_ROOT` and `MANTA_CLONE_ID`). The clone is also primed via
+`claude --print --append-system-prompt <text> --permission-mode bypassPermissions <prompt>`
+with a fixed Manta preamble that loads the `manta-as-clone` skill and instructs
+it to heartbeat first. The CLI spawner pre-registers the clone in the Bus
+*before* launching the `claude` process (Phase-1 lockdown).
+
+If `manta status` shows clones spawned but never moving past `STARTING`:
+
+1. Run `claude --version` — verify it is ≥ 2.1.132 (the `--append-system-prompt` flag is required).
+2. Run `claude mcp list` and verify `manta-bus` is listed as user-scope.
+3. Inspect `.manta/state/registry.json`; if a clone record is missing entirely, the spawner failed to pre-register (file an issue with the cast-id from `.manta/casts/`).
+4. If you re-run a cast after a previous failure, run `manta recover` first to clean orphaned registry records — `Registry.register` throws on duplicate `clone_id`.
+
 ## 8. What's not in Phase 0
 
 - Modes other than `recon-swarm` (forking-realities, refactor-wave, bug-hunt, …) — Phase 2+.

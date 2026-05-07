@@ -2,6 +2,7 @@ export type CliErrorKind =
   | 'invalid_input'
   | 'cast_failed'
   | 'spawn_failed'
+  | 'register_failed'
   | 'orchestrator_failed'
   | 'recovery_failed'
   | 'not_found';

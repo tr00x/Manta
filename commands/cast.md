@@ -33,7 +33,7 @@ Delegates to `runCastCommand` (in `@manta/cli`). For each clone:
 1. Creates a worktree at `.manta/worktrees/clone-<id>` on branch `manta/<castId>/<id>`.
 2. Builds a `Snapshot` via `@manta/snapshot.captureState` and writes it to `.manta/snapshots/<castId>/<id>.snapshot.json`.
 3. Writes the `taskContract` to the bus via `manta.task_contract.write`.
-4. Spawns the clone process (production: `claude --print --snapshot <path>`; tests: a fake-clone fixture).
+4. Pre-registers the clone via `Registry.register` then spawns the clone process (production: `claude --print --append-system-prompt <priming-text> --permission-mode bypassPermissions <initial-prompt>`; tests: a fake-clone fixture).
 5. Runs the orchestrator's tick loop until either every spawned clone is DEAD or `tickBudgetMs` elapses.
 6. On exit: returns 0 (success or budget-aborted) with a summary; non-zero on `cast_failed`.
 

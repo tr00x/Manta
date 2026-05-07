@@ -1,70 +1,78 @@
 #!/usr/bin/env node
-// Stand-in for `claude --print`. Reads the snapshot from MANTA_SNAPSHOT_PATH,
-// writes a register record directly to .manta/state/registry.json (skipping
-// MCP since the test doesn't run a bus subprocess), then takes one of four
-// behaviours based on MANTA_FAKE_CLONE_STATE:
-//   - 'crash'    (default): register, exit 0 WITHOUT marking DEAD — the
-//                orchestrator is expected to detect the stale heartbeat and
-//                run the death workflow. This is the realistic Phase-0 path:
-//                production clones go through MCP, never self-mark DEAD.
-//   - 'graceful': register, mark DEAD ('graceful-finish'), exit 0
-//   - 'fail':    register, mark DEAD ('fake-fail'), exit 2
-//   - 'hang':    register, never exit (tests SIGTERM path)
+// Stand-in for `claude --print`. Spawner pre-registers the clone in the Bus
+// Registry BEFORE this script runs (Phase-1 lockdown, closes manta-bugs #2/#3).
+// This script no longer self-registers — that would conflict with the spawner's
+// pre-registration via atomicMutateJson. Behaviours by MANTA_FAKE_CLONE_STATE:
+//   - 'crash'    (default): exit 0 immediately. Orchestrator's heartbeat
+//                death-detector should mark the clone DEAD when its
+//                last_heartbeat_at goes stale. This is the realistic Phase-0
+//                path — production clones go through MCP heartbeat, never
+//                self-mark DEAD.
+//   - 'graceful': mark DEAD ('graceful-finish') via direct registry file write
+//                (test-only side channel; production uses manta.report_death
+//                over MCP), exit 0
+//   - 'fail':    mark DEAD ('fake-fail'), exit 2
+//   - 'hang':    never exit (tests SIGTERM path)
 //
-// This is the test seam for clone-spawner. Production uses `claude --print`,
-// which talks to the real Manta Bus over MCP.
+// Env vars from spawner: MANTA_SNAPSHOT_PATH, MANTA_REPO_ROOT, MANTA_CLONE_ID.
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 const SAFE_KEY = /^[A-Za-z0-9._-]+$/;
 
-async function main() {
-  const snapPath = process.env.MANTA_SNAPSHOT_PATH;
-  if (!snapPath) throw new Error('MANTA_SNAPSHOT_PATH unset');
-  const repoRoot = process.env.MANTA_REPO_ROOT;
-  if (!repoRoot) throw new Error('MANTA_REPO_ROOT unset');
-  const snap = JSON.parse(await fs.readFile(snapPath, 'utf8'));
-  // Snapshot taskContract uses camelCase (cloneId) per @manta/snapshot schema.
-  const cloneId = snap.taskContract.cloneId;
-  if (!SAFE_KEY.test(cloneId)) throw new Error(`unsafe clone_id: ${cloneId}`);
-  const cloneState = process.env.MANTA_FAKE_CLONE_STATE || 'crash';
+async function markDead(repoRoot, cloneId, reason) {
   const registryPath = path.join(repoRoot, '.manta', 'state', 'registry.json');
-
   let reg;
   try {
     reg = JSON.parse(await fs.readFile(registryPath, 'utf8'));
   } catch {
-    reg = { version: 1, clones: {} };
+    // Unit tests use an in-memory RegistryFake; the real on-disk registry
+    // file may not exist. Skip the markDead-on-disk side effect — the
+    // exit code below is what unit tests assert.
+    return;
   }
-  const now = Date.now();
-  // RegisterInputSchema requires metadata: Record<string, string>, so coerce.
-  const metadata = { cast_id: String(snap.castId) };
-  reg.clones[cloneId] = {
-    clone_id: cloneId,
-    mode: snap.taskContract.mode,
-    parent_pid: process.ppid,
-    worktree: snap.cloneWorktree,
-    metadata,
-    registered_at: now,
-    last_heartbeat_at: now,
-    state: 'WORKING',
-  };
+  const rec = reg.clones?.[cloneId];
+  if (!rec) {
+    // Same rationale as above: unit tests don't materialise the record on disk.
+    return;
+  }
+  rec.state = 'DEAD';
+  rec.death_reason = reason;
+  rec.died_at = Date.now();
   await fs.writeFile(registryPath, JSON.stringify(reg, null, 2), 'utf8');
+}
+
+async function main() {
+  const cloneState = process.env.MANTA_FAKE_CLONE_STATE || 'crash';
 
   if (cloneState === 'hang') {
     setInterval(() => {}, 60_000);
     return;
   }
 
-  if (cloneState === 'graceful' || cloneState === 'fail') {
-    reg.clones[cloneId].state = 'DEAD';
-    reg.clones[cloneId].died_at = Date.now();
-    reg.clones[cloneId].death_reason =
-      cloneState === 'graceful' ? 'graceful-finish' : 'fake-fail';
-    await fs.writeFile(registryPath, JSON.stringify(reg, null, 2), 'utf8');
+  if (cloneState === 'crash') {
+    // Just exit. The spawner-pre-registered record stays at STARTING; the
+    // orchestrator's heartbeat death-detector fires once last_heartbeat_at
+    // goes stale.
+    process.exit(0);
   }
 
-  process.exit(cloneState === 'fail' ? 2 : 0);
+  // graceful / fail need access to repo + clone identity to mark DEAD.
+  const repoRoot = process.env.MANTA_REPO_ROOT;
+  const cloneId = process.env.MANTA_CLONE_ID;
+  if (!repoRoot) throw new Error('MANTA_REPO_ROOT unset');
+  if (!cloneId) throw new Error('MANTA_CLONE_ID unset');
+  if (!SAFE_KEY.test(cloneId)) throw new Error(`unsafe clone_id: ${cloneId}`);
+
+  if (cloneState === 'graceful') {
+    await markDead(repoRoot, cloneId, 'graceful-finish');
+    process.exit(0);
+  }
+  if (cloneState === 'fail') {
+    await markDead(repoRoot, cloneId, 'fake-fail');
+    process.exit(2);
+  }
+  throw new Error(`unknown MANTA_FAKE_CLONE_STATE: ${cloneState}`);
 }
 
 main().catch((err) => {

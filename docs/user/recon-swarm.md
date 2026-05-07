@@ -17,7 +17,7 @@ It's the **wrong** call for:
 ## Lifecycle of a clone in recon-swarm
 
 1. **CLI spawn** — `manta cli` creates the worktree, builds a `Snapshot`, writes the `task_contract` to the bus, starts a `claude --print` subprocess pointing at the worktree.
-2. **Register** — the spawner registered the clone *before* the process started, so on launch the clone reads its contract and acks via `manta.ack_contract`.
+2. **Register** — the spawner pre-registers the clone in the Bus *before* launching the `claude` process. This is verified by the behavioural fixture in `packages/manta-cli/tests/spawner/startup-sequence.test.ts` (Phase-1 lockdown, manta-bugs #2 fix). On launch the clone reads its contract via `MANTA_SNAPSHOT_PATH`, acks via `manta.ack_contract`, and heartbeats — its registry record already exists.
 3. **Work** — read files within `scope.allowed_paths`, never write outside `forbidden_paths`, heartbeat every ≤ 10 s.
 4. **Broadcast** — `breakthrough` / `blocker` / `dependency` only; bus traffic is for actionable events.
 5. **Knowledge dump** — atomic `manta.zk_write` notes and `manta.para_append` facts before exit.

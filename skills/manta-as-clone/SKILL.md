@@ -24,6 +24,17 @@ You are a **clone** — an illusion of the main agent — spawned for one specif
 - Append insights to ZK and PARA via `manta.zk_write` / `manta.para_append` while you're alive.
 - On shutdown — even forced — invoke the `manta-graceful-death` skill before exit.
 
+## Startup sequence
+
+The very first four actions, in order, before any tool that touches files (Read, Edit, Write):
+
+1. `Skill` tool → `manta-as-clone` (you are reading it now; the priming preamble told you to load it).
+2. `Read` `process.env.MANTA_SNAPSHOT_PATH` to get your full task contract (JSON file).
+3. `manta.heartbeat` with `{ clone_id, state: "WORKING" }`. If this returns `not_found` — your spawner did not pre-register; abort with a one-line error to the post-mortem path. Do **not** try to self-register (Phase 0 design forbids it; the spawner owns registration).
+4. `manta.task_contract.read` with your `clone_id` + `manta.ack_contract` with a one-sentence interpretation.
+
+If any of steps 2–4 fail twice, exit with a `manta-graceful-death` invocation and let the orchestrator finalize.
+
 ## Forbidden
 
 - **Recursive cast.** Do not invoke any `/manta cast` command unless `phantom-lance` is unlocked (Phase 8). Phase 0 = no recursion. Period.
