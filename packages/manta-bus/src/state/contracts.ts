@@ -10,29 +10,8 @@ import { atomicMutateJson, atomicReadJson } from '../atomic-fs';
 import type { Clock } from '../clock';
 import { BusNotFoundError } from '../errors';
 import type { TaskContract } from '../schema';
+import { canonicalize } from './canonicalize';
 import type { BusPaths } from './paths';
-
-/**
- * Recursively canonicalize a value for stable equality comparison:
- *   - Object keys are sorted alphabetically (insertion-order-independent).
- *   - Arrays are left in their original order — array order may carry
- *     meaning in our schema (e.g. `sibling_clones` priority,
- *     `allowed_paths` precedence). Sorting them would silently equate
- *     contracts with semantically different scopes.
- *   - Primitives are returned as-is.
- */
-function canonicalize(v: unknown): unknown {
-  if (Array.isArray(v)) return v.map(canonicalize);
-  if (v !== null && typeof v === 'object') {
-    const obj = v as Record<string, unknown>;
-    return Object.fromEntries(
-      Object.keys(obj)
-        .sort()
-        .map((k) => [k, canonicalize(obj[k])]),
-    );
-  }
-  return v;
-}
 
 export interface ContractAck {
   interpretation: string;
