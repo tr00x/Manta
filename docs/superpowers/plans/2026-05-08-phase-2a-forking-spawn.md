@@ -2460,7 +2460,7 @@ Verify: `git status` clean; `git log --oneline -5` shows both Phase 2a chunks la
 - `Registry.list()` after either cast returns `metadata.cast_id` AND `metadata.cast_mode` populated for every clone.
 - The asymmetric cumulative-budget gate rejects `--budget-per-cast-usd $7` when two clones at $4 each (post-overlay) total $8.
 - Coverage ≥ 80 % on `state/casts.ts`, `tasks-file.ts`, and the schema additions; whole-workspace sweep green.
-- `--tasks` and `--task` are mutually exclusive (either yields a clear `invalid_input` error message).
+- `--tasks` and `--task` are **complementary**: per-clone entries in `--tasks` override the cast-level `--task`; clones absent from `--tasks` inherit `--task`. (See Task 2.10's "Semantics decision (sticky)" — this overrides the stale "mutually exclusive" line in Chunk 2's scope summary.)
 - Plan reviewer subagent approved both chunks before they executed.
 - Operator-facing docs (`docs/user/forking-realities.md`, README, CHANGELOG) reflect the shipped behaviour without promising un-shipped Phase 2b/2c/2d capabilities.
 

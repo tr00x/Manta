@@ -1,7 +1,8 @@
 # forking-realities — multiple realities, one task
 
 `forking-realities` is the second mode allowlisted on `manta cast` (after
-`recon-swarm`). The shape: spawn N clones (1..3 in Phase 2a) against the
+`recon-swarm`). The shape: spawn N clones (1..5 — the Phase 0 ceiling for
+all modes; spec Sec 6.4 recommends ≤ 3 for forking-realities) against the
 **same task** but with **different per-clone overlays** — typically a
 different `approach_hint` so each clone explores a distinct strategy.
 After the cast, the operator picks the winner by reading each clone's

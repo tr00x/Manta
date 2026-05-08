@@ -78,6 +78,22 @@ describe('cast command (recon-swarm)', () => {
     const reg = await rt.ctx.registry.list();
     expect(reg.length).toBe(2);
     expect(reg.every((r) => r.state === 'DEAD')).toBe(true);
+    // Cast manifest pins the recon-swarm policy on disk: peer_messaging is
+    // 'allowed' (sibling chat permitted), and every roster entry has
+    // assignment=null since recon-swarm has no per-clone overlay.
+    // Guards against the mode-aware ternary in cast.ts being silently
+    // flipped — without this assertion only the forking-realities branch
+    // is end-to-end-tested via tests/integration/forking-spawn.test.ts.
+    const manifestPath = path.join(fx.root, '.manta', 'state', 'casts', 'cast-test-1.json');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8')) as {
+      mode: string;
+      policy: { peer_messaging: string; auto_merge_threshold: number | null };
+      clones: Array<{ clone_id: string; assignment: unknown }>;
+    };
+    expect(manifest.mode).toBe('recon-swarm');
+    expect(manifest.policy.peer_messaging).toBe('allowed');
+    expect(manifest.policy.auto_merge_threshold).toBeNull();
+    expect(manifest.clones.every((c) => c.assignment === null)).toBe(true);
     // Reporter captured key events.
     const events = sink.lines.map((l) => l.event);
     expect(events).toContain('cast.spawn');
