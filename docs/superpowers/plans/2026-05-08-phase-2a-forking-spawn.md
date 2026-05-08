@@ -230,9 +230,11 @@ Expected: existing contracts tests stay green (same algorithm), new canonicalize
 Commit (atomic refactor — separate from manifest infra so a regression bisects clean):
 
 ```bash
-EMAIL_NAME="$(git log -1 --format='%ae %an')"
-EMAIL="${EMAIL_NAME% *}"
-NAME="${EMAIL_NAME#* }"
+# CLAUDE.md HARD RULE: take author from `git log`. Two separate calls —
+# author names with spaces ("Tim Hunt") would break ${VAR% *} parsing of
+# a combined "%ae %an" string.
+EMAIL="$(git log -1 --format='%ae')"
+NAME="$(git log -1 --format='%an')"
 git -c user.email="$EMAIL" -c user.name="$NAME" commit -m "$(cat <<'EOF'
 refactor(bus): extract canonicalize helper into shared state/canonicalize.ts
 
@@ -1477,9 +1479,11 @@ git add packages/manta-bus/src/state/casts.ts \
         docs/user/recon-swarm.md
 
 # CLAUDE.md HARD RULE: take author from a single `git log -1 --format='%ae %an'`.
-EMAIL_NAME="$(git log -1 --format='%ae %an')"
-EMAIL="${EMAIL_NAME% *}"
-NAME="${EMAIL_NAME#* }"
+# CLAUDE.md HARD RULE: take author from `git log`. Two separate calls —
+# author names with spaces ("Tim Hunt") would break ${VAR% *} parsing of
+# a combined "%ae %an" string.
+EMAIL="$(git log -1 --format='%ae')"
+NAME="$(git log -1 --format='%an')"
 git -c user.email="$EMAIL" -c user.name="$NAME" commit -m "$(cat <<'EOF'
 feat(phase-2a): cast manifest infrastructure + cast_mode registry metadata
 
@@ -2418,9 +2422,11 @@ git add packages/manta-cli/src/commands/cast.ts \
         pnpm-lock.yaml
 
 # CLAUDE.md HARD RULE: take author from a single `git log -1 --format='%ae %an'`.
-EMAIL_NAME="$(git log -1 --format='%ae %an')"
-EMAIL="${EMAIL_NAME% *}"
-NAME="${EMAIL_NAME#* }"
+# CLAUDE.md HARD RULE: take author from `git log`. Two separate calls —
+# author names with spaces ("Tim Hunt") would break ${VAR% *} parsing of
+# a combined "%ae %an" string.
+EMAIL="$(git log -1 --format='%ae')"
+NAME="$(git log -1 --format='%an')"
 git -c user.email="$EMAIL" -c user.name="$NAME" commit -m "$(cat <<'EOF'
 feat(phase-2a): forking-realities spawn surface + per-clone task overlay
 
