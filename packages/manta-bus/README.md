@@ -46,6 +46,7 @@ All state lives under `<repo>/.manta/state/`:
 - `locks.json` — heartbeat-based path leases
 - `claims.json` — work-item claims with TTL
 - `contracts/<clone-id>.json` — per-clone task contracts
+- `casts/<cast-id>.json` — cast manifest: mode, roster, policy (Phase 2)
 - `events.jsonl` — append-only audit log
 
 ## Programmatic use

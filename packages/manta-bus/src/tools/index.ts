@@ -3,6 +3,7 @@ import type { Registry } from '../state/registry';
 import type { LocksStore } from '../state/locks';
 import type { ClaimsStore } from '../state/claims';
 import type { ContractsStore } from '../state/contracts';
+import type { CastsStore } from '../state/casts';
 import type { EventsLog } from '../state/events';
 import type { BusPaths } from '../state/paths';
 import type { MemoryWriters } from '../memory-writers';
@@ -19,6 +20,7 @@ export interface BusContext {
   locks: LocksStore;
   claims: ClaimsStore;
   contracts: ContractsStore;
+  casts: CastsStore;
   events: EventsLog;
   memoryWriters: MemoryWriters;
 }

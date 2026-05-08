@@ -2,10 +2,41 @@ import { describe, it, expect, afterEach } from 'vitest';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execa } from 'execa';
-import { spawnClone, runFakeCloneScript, runClaudeCli } from '../../src/spawner/clone-spawner.js';
+import {
+  spawnClone,
+  runFakeCloneScript,
+  runClaudeCli,
+  type CastsCreator,
+} from '../../src/spawner/clone-spawner.js';
+import type { CastManifest, CreateCastInput } from '@manta/bus';
 import { makeRepoFixture, type RepoFixture } from '../helpers/repoFixture.js';
 import { makeRegistryFake } from '../helpers/registryFake.js';
 import { makeSnapshotFor } from '../helpers/snapshotFixture.js';
+
+function makeFakeCasts(opts?: { rejectWith?: Error }): {
+  creator: CastsCreator;
+  calls: CreateCastInput[];
+} {
+  const calls: CreateCastInput[] = [];
+  return {
+    creator: {
+      create(input) {
+        calls.push(input);
+        if (opts?.rejectWith) return Promise.reject(opts.rejectWith);
+        const manifest: CastManifest = {
+          version: 1,
+          cast_id: input.cast_id,
+          mode: input.mode,
+          clones: input.clones,
+          policy: input.policy,
+          created_at: 1700000000000,
+        };
+        return Promise.resolve(manifest);
+      },
+    },
+    calls,
+  };
+}
 
 const fixturePath = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -29,6 +60,10 @@ describe('clone-spawner', () => {
       worktree: fx.root,
       runner: runFakeCloneScript({ scriptPath: fixturePath }),
       registry: makeRegistryFake(),
+      casts: makeFakeCasts().creator,
+      castMode: 'recon-swarm',
+      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      castRoster: [{ clone_id: 'A', assignment: null }],
     });
     expect(handle.cloneId).toBe('A');
     expect(handle.snapshotPath).toContain(fx.root);
@@ -48,6 +83,10 @@ describe('clone-spawner', () => {
         env: { MANTA_FAKE_CLONE_STATE: 'fail' },
       }),
       registry: makeRegistryFake(),
+      casts: makeFakeCasts().creator,
+      castMode: 'recon-swarm',
+      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      castRoster: [{ clone_id: 'A', assignment: null }],
     });
     const result = await handle.exit;
     expect(result.code).toBe(2);
@@ -64,6 +103,10 @@ describe('clone-spawner', () => {
         env: { MANTA_FAKE_CLONE_STATE: 'hang' },
       }),
       registry: makeRegistryFake(),
+      casts: makeFakeCasts().creator,
+      castMode: 'recon-swarm',
+      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      castRoster: [{ clone_id: 'A', assignment: null }],
     });
     handle.kill('SIGTERM');
     const result = await handle.exit;
@@ -85,6 +128,10 @@ describe('clone-spawner', () => {
       worktree: fx.root,
       runner: runClaudeCli({ claudeBin: '/no/such/binary/manta-test-xyzabc' }),
       registry: makeRegistryFake(),
+      casts: makeFakeCasts().creator,
+      castMode: 'recon-swarm',
+      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      castRoster: [{ clone_id: 'A', assignment: null }],
     });
     await expect(handle.exit).rejects.toMatchObject({
       name: 'CliError',
@@ -107,6 +154,10 @@ describe('clone-spawner', () => {
         env: { MANTA_FAKE_CLONE_STATE: 'hang' },
       }),
       registry: makeRegistryFake(),
+      casts: makeFakeCasts().creator,
+      castMode: 'recon-swarm',
+      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      castRoster: [{ clone_id: 'A', assignment: null }],
     });
     const result = await handle.terminate({ gracefulMs: 50 });
     // Child must have died via a signal (SIGTERM if it ignored it briefly,
@@ -122,6 +173,10 @@ describe('clone-spawner', () => {
       worktree: fx.root,
       runner: runFakeCloneScript({ scriptPath: fixturePath }),
       registry: makeRegistryFake(),
+      casts: makeFakeCasts().creator,
+      castMode: 'recon-swarm',
+      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      castRoster: [{ clone_id: 'A', assignment: null }],
     });
     expect(handle.snapshotPath).toMatch(/\.manta\/snapshots\/cast-1\/D\.snapshot\.json$/);
     await handle.exit;
@@ -154,6 +209,10 @@ describe('clone-spawner', () => {
       worktree: fx.root,
       runner: probeRunner,
       registry: makeRegistryFake(),
+      casts: makeFakeCasts().creator,
+      castMode: 'recon-swarm',
+      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      castRoster: [{ clone_id: 'A', assignment: null }],
     });
     await handle.exit;
     expect(captured).toHaveLength(1);
@@ -162,5 +221,95 @@ describe('clone-spawner', () => {
     expect(captured[0]).toContain('--append-system-prompt');
     expect(captured[0]).toContain('--permission-mode');
     expect(captured[0]).toContain('bypassPermissions');
+  });
+
+  it('writes the cast manifest input identically across two spawnClone calls', async () => {
+    fx = await makeRepoFixture();
+    const reg = makeRegistryFake();
+    const casts = makeFakeCasts();
+    const roster = [
+      { clone_id: 'A', assignment: null },
+      { clone_id: 'B', assignment: null },
+    ];
+    const policy = { peer_messaging: 'allowed' as const, auto_merge_threshold: null };
+    const snapA = makeSnapshotFor({ cloneId: 'A', castId: 'cast-spawn-1' });
+    const snapB = makeSnapshotFor({ cloneId: 'B', castId: 'cast-spawn-1' });
+    await spawnClone({
+      repoRoot: fx.root,
+      snapshot: snapA,
+      worktree: fx.root,
+      runner: runFakeCloneScript({ scriptPath: fixturePath }),
+      registry: reg,
+      casts: casts.creator,
+      castMode: 'recon-swarm',
+      castPolicy: policy,
+      castRoster: roster,
+    });
+    await spawnClone({
+      repoRoot: fx.root,
+      snapshot: snapB,
+      worktree: fx.root,
+      runner: runFakeCloneScript({ scriptPath: fixturePath }),
+      registry: reg,
+      casts: casts.creator,
+      castMode: 'recon-swarm',
+      castPolicy: policy,
+      castRoster: roster,
+    });
+    expect(casts.calls).toHaveLength(2);
+    expect(casts.calls[0]).toEqual(casts.calls[1]);
+    expect(casts.calls[0]!.cast_id).toBe('cast-spawn-1');
+  });
+
+  it('throws CliError(register_failed) with cause when casts.create rejects', async () => {
+    fx = await makeRepoFixture();
+    const reg = makeRegistryFake();
+    const cause = new Error('disk full');
+    const casts = makeFakeCasts({ rejectWith: cause });
+    const snap = makeSnapshotFor({ cloneId: 'A', castId: 'cast-spawn-2' });
+    await expect(
+      spawnClone({
+        repoRoot: fx.root,
+        snapshot: snap,
+        worktree: fx.root,
+        runner: runFakeCloneScript({ scriptPath: fixturePath }),
+        registry: reg,
+        casts: casts.creator,
+        castMode: 'recon-swarm',
+        castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+        castRoster: [{ clone_id: 'A', assignment: null }],
+      }),
+    ).rejects.toMatchObject({ kind: 'register_failed' });
+    // Registry record was already written before casts.create — verify no
+    // best-effort rollback (cleanup is cast.ts's concern, not the spawner's).
+    expect(reg.records.find((r) => r.clone_id === 'A')).toBeDefined();
+  });
+
+  it('passes metadata.cast_mode and metadata.cast_id to registry.register', async () => {
+    fx = await makeRepoFixture();
+    const captured: { clone_id: string; metadata?: Record<string, string> }[] = [];
+    const reg = makeRegistryFake({
+      onRegister(input) {
+        captured.push({ clone_id: input.clone_id, metadata: input.metadata });
+      },
+    });
+    const casts = makeFakeCasts();
+    const snap = makeSnapshotFor({ cloneId: 'A', castId: 'cast-spawn-3' });
+    await spawnClone({
+      repoRoot: fx.root,
+      snapshot: snap,
+      worktree: fx.root,
+      runner: runFakeCloneScript({ scriptPath: fixturePath }),
+      registry: reg,
+      casts: casts.creator,
+      castMode: 'forking-realities',
+      castPolicy: { peer_messaging: 'denied', auto_merge_threshold: null },
+      castRoster: [{ clone_id: 'A', assignment: null }],
+    });
+    expect(captured).toHaveLength(1);
+    expect(captured[0]!.metadata).toEqual({
+      cast_id: 'cast-spawn-3',
+      cast_mode: 'forking-realities',
+    });
   });
 });

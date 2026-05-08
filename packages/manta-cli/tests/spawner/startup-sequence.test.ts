@@ -46,6 +46,10 @@ describe('spawn → register → state-transition behavioural fixture (Phase-1 l
       worktree: repoRoot,
       runner: runFakeCloneScript({ scriptPath: fixturePath }),
       registry: rt.ctx.registry,
+      casts: rt.ctx.casts,
+      castMode: 'recon-swarm',
+      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      castRoster: [{ clone_id: 'clone-A', assignment: null }],
     });
 
     // Pre-registration invariant: registry sees clone-A *now*, before exit.
@@ -55,7 +59,7 @@ describe('spawn → register → state-transition behavioural fixture (Phase-1 l
       clone_id: 'clone-A',
       state: 'STARTING',
       mode: 'recon-swarm',
-      metadata: { cast_id: 'cast-X' },
+      metadata: { cast_id: 'cast-X', cast_mode: 'recon-swarm' },
     });
 
     await handle.exit;
@@ -84,6 +88,10 @@ describe('spawn → register → state-transition behavioural fixture (Phase-1 l
       worktree: repoRoot,
       runner: runFakeCloneScript({ scriptPath: fixturePath }),
       registry: rt.ctx.registry,
+      casts: rt.ctx.casts,
+      castMode: 'recon-swarm',
+      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      castRoster: [{ clone_id: 'clone-B', assignment: null }],
     });
 
     const snapPath = path.join(repoRoot, '.manta', 'snapshots', 'cast-Y', 'clone-B.snapshot.json');

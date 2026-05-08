@@ -27,6 +27,7 @@ Clones and the main agent need a single place to coordinate without parsing each
 | `state/locks.ts` | Heartbeat-based per-path leases; stale-cleanup at `staleAfterMs` (default 15 s) |
 | `state/claims.ts` | Work-item claim board with per-claim TTL |
 | `state/contracts.ts` | Per-clone JSON contracts + ack record |
+| `state/casts.ts` | Per-cast manifest: mode, roster, policy (Phase 2) |
 | `state/events.ts` | Append-only JSONL audit log with monotonic IDs |
 | `tools/parse.ts` | Generic Zod-parse helper that throws `BusValidationError` on failure |
 | `tools/*.ts` | One handler module per tool family — each takes a subset of `BusContext` |
@@ -45,6 +46,19 @@ Clones and the main agent need a single place to coordinate without parsing each
 - **Injectable Clock.** All time-sensitive behaviour (lock GC, claim expiry, heartbeat staleness) takes a `Clock`. The test suite uses `FakeClock` to advance time in milliseconds without real waits.
 - **One handler module per tool family.** Allows targeted unit tests, keeps each file under ~200 lines, and matches the spec's grouping (lifecycle / contract / work / locks / communication / memory).
 - **Errors are typed, not stringly.** `BusValidationError` / `BusNotFoundError` / `BusConflictError` / `BusLockedError` / `BusStateError`. They map to MCP error-envelope categories deterministically in `serializeError`.
+
+## Cast manifest
+
+`CastsStore` (state/casts.ts) records one document per cast at
+`.manta/state/casts/<castId>.json`. The manifest captures cast-level state
+that does not belong on per-clone records: the cast's mode, its roster of
+clone_ids, and its policy (peer messaging allowed/denied, auto-merge
+threshold). The store is `atomicMutateJson`-backed and idempotent on
+identical input — the spawner calls `casts.create` for every clone of every
+cast, and the first call wins.
+
+Phase 2 readers: bus filter (sibling messaging — Phase 2b),
+orchestrator (cast finalisation — Phase 2c), CLI (replay/audit — Phase 2d).
 
 ## Audit-trail invariant
 

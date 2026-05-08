@@ -1,5 +1,5 @@
 import * as path from 'node:path';
-import { CloneIdSchema } from '../schema';
+import { CastIdSchema, CloneIdSchema } from '../schema';
 
 export interface BusPaths {
   readonly repoRoot: string;
@@ -9,8 +9,10 @@ export interface BusPaths {
   readonly claims: string;
   readonly eventsLog: string;
   readonly contractsDir: string;
+  readonly castsDir: string;
   readonly lockfileDir: string;
   contractFile(cloneId: string): string;
+  castFile(castId: string): string;
 }
 
 export function busPaths(repoRoot: string): BusPaths {
@@ -26,6 +28,7 @@ export function busPaths(repoRoot: string): BusPaths {
     claims: path.join(stateDir, 'claims.json'),
     eventsLog: path.join(stateDir, 'events.jsonl'),
     contractsDir: path.join(stateDir, 'contracts'),
+    castsDir: path.join(stateDir, 'casts'),
     lockfileDir: path.join(stateDir, '.locks'),
     contractFile(cloneId: string): string {
       const parsed = CloneIdSchema.safeParse(cloneId);
@@ -33,6 +36,13 @@ export function busPaths(repoRoot: string): BusPaths {
         throw new Error(`busPaths.contractFile: invalid clone_id: ${cloneId}`);
       }
       return path.join(stateDir, 'contracts', `${parsed.data}.json`);
+    },
+    castFile(castId: string): string {
+      const parsed = CastIdSchema.safeParse(castId);
+      if (!parsed.success) {
+        throw new Error(`busPaths.castFile: invalid cast_id: ${castId}`);
+      }
+      return path.join(stateDir, 'casts', `${parsed.data}.json`);
     },
   };
 }

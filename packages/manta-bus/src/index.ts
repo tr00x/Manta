@@ -9,6 +9,7 @@ export { Registry } from './state/registry';
 export { LocksStore } from './state/locks';
 export { ClaimsStore } from './state/claims';
 export { ContractsStore } from './state/contracts';
+export { CastsStore } from './state/casts';
 export { EventsLog } from './state/events';
 export type { CloneRecord } from './state/registry';
 export type { LockLease } from './state/locks';

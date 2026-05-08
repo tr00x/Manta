@@ -11,6 +11,7 @@ describe('busPaths', () => {
     expect(p.eventsLog).toBe('/repo/.manta/state/events.jsonl');
     expect(p.contractsDir).toBe('/repo/.manta/state/contracts');
     expect(p.contractFile('A')).toBe('/repo/.manta/state/contracts/A.json');
+    expect(p.castsDir).toBe('/repo/.manta/state/casts');
     expect(p.lockfileDir).toBe('/repo/.manta/state/.locks');
   });
 
@@ -22,5 +23,13 @@ describe('busPaths', () => {
     const p = busPaths('/repo');
     expect(() => p.contractFile('../escape')).toThrow();
     expect(() => p.contractFile('a/b')).toThrow();
+  });
+
+  it('busPaths.castFile validates cast_id and joins under stateDir/casts', () => {
+    const p = busPaths('/tmp/repo');
+    expect(p.castFile('cast-1700000000000')).toBe(
+      '/tmp/repo/.manta/state/casts/cast-1700000000000.json',
+    );
+    expect(() => p.castFile('cast/../bad')).toThrow();
   });
 });

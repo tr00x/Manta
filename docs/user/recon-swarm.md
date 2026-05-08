@@ -41,5 +41,10 @@ Each clone leaves three artifact families:
 | Worktree branch | Optional file changes (Phase-0 typically read-only) | `.manta/worktrees/clone-<id>/` |
 | Post-mortem | Lifecycle record + event timeline | `docs/post-mortems/` |
 | ZK notes | Atomic insights | `docs/zk/` |
+| Cast manifest | Cast-level mode + roster + policy | `.manta/state/casts/<castId>.json` |
+
+* A cast manifest at `.manta/state/casts/<castId>.json` — see
+  [docs/user/cast-manifest.md](./cast-manifest.md). Same file is written for
+  every cast mode; nothing recon-swarm-specific.
 
 To stitch a unified map: read each post-mortem's "Event timeline" section to see what the clone explored, then read its ZK notes for distilled findings.

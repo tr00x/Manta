@@ -7,6 +7,7 @@ import {
   LocksStore,
   ClaimsStore,
   ContractsStore,
+  CastsStore,
   EventsLog,
   fsMemoryWriters,
   systemClock,
@@ -52,6 +53,7 @@ export async function createRuntime(opts: CreateRuntimeOptions): Promise<Runtime
   }
   const stateDir = path.join(repoRoot, '.manta', 'state');
   await fs.mkdir(path.join(stateDir, 'contracts'), { recursive: true });
+  await fs.mkdir(path.join(stateDir, 'casts'), { recursive: true });
   await fs.mkdir(path.join(stateDir, '.locks'), { recursive: true });
 
   const thresholds = opts.thresholdOverrides
@@ -67,6 +69,7 @@ export async function createRuntime(opts: CreateRuntimeOptions): Promise<Runtime
     locks: new LocksStore(paths, clock, { staleAfterMs: thresholds.staleLockMs }),
     claims: new ClaimsStore(paths, clock),
     contracts: new ContractsStore(paths, clock),
+    casts: new CastsStore(paths, clock),
     events: new EventsLog(paths, clock),
     memoryWriters: fsMemoryWriters({ repoRoot, clock }),
   };

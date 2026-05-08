@@ -13,6 +13,7 @@ import {
   LocksStore,
   ClaimsStore,
   ContractsStore,
+  CastsStore,
   EventsLog,
   fsMemoryWriters,
   type BusContext,
@@ -31,6 +32,7 @@ describe('runTickLoop', () => {
     root = await fs.mkdtemp(path.join(os.tmpdir(), 'manta-tick-'));
     await fs.mkdir(path.join(root, '.manta', 'state', '.locks'), { recursive: true });
     await fs.mkdir(path.join(root, '.manta', 'state', 'contracts'), { recursive: true });
+    await fs.mkdir(path.join(root, '.manta', 'state', 'casts'), { recursive: true });
     clock = new FakeClock(1_000_000);
     const paths = busPaths(root);
     ctx = {
@@ -40,6 +42,7 @@ describe('runTickLoop', () => {
       locks: new LocksStore(paths, clock, { staleAfterMs: 15_000 }),
       claims: new ClaimsStore(paths, clock),
       contracts: new ContractsStore(paths, clock),
+      casts: new CastsStore(paths, clock),
       events: new EventsLog(paths, clock),
       memoryWriters: fsMemoryWriters({ repoRoot: root, clock }),
     };

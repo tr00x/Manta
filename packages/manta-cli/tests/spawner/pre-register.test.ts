@@ -4,11 +4,31 @@ import { fileURLToPath } from 'node:url';
 import {
   spawnClone,
   runFakeCloneScript,
+  type CastsCreator,
   type CloneRunner,
 } from '../../src/spawner/clone-spawner.js';
+import type { CastManifest } from '@manta/bus';
 import { makeRepoFixture, type RepoFixture } from '../helpers/repoFixture.js';
 import { makeRegistryFake } from '../helpers/registryFake.js';
 import { makeSnapshotFor } from '../helpers/snapshotFixture.js';
+
+const RECON_POLICY = { peer_messaging: 'allowed' as const, auto_merge_threshold: null };
+
+function noopCasts(): CastsCreator {
+  return {
+    create(input) {
+      const m: CastManifest = {
+        version: 1,
+        cast_id: input.cast_id,
+        mode: input.mode,
+        clones: input.clones,
+        policy: input.policy,
+        created_at: 1700000000000,
+      };
+      return Promise.resolve(m);
+    },
+  };
+}
 
 const fixturePath = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -46,6 +66,10 @@ describe('spawnClone — pre-registration (Phase-1 lockdown, closes manta-bugs #
       worktree: fx.root,
       runner,
       registry,
+      casts: noopCasts(),
+      castMode: 'recon-swarm',
+      castPolicy: RECON_POLICY,
+      castRoster: [{ clone_id: 'A', assignment: null }],
     });
     await handle.exit;
 
@@ -54,7 +78,7 @@ describe('spawnClone — pre-registration (Phase-1 lockdown, closes manta-bugs #
     expect(registry.records[0]).toMatchObject({
       clone_id: 'A',
       state: 'STARTING',
-      metadata: { cast_id: 'cast-X' },
+      metadata: { cast_id: 'cast-X', cast_mode: 'recon-swarm' },
     });
   });
 
@@ -88,6 +112,10 @@ describe('spawnClone — pre-registration (Phase-1 lockdown, closes manta-bugs #
       worktree: fx.root,
       runner,
       registry: slowRegister,
+      casts: noopCasts(),
+      castMode: 'recon-swarm',
+      castPolicy: RECON_POLICY,
+      castRoster: [{ clone_id: 'B', assignment: null }],
     });
     await handle.exit;
 
@@ -121,6 +149,10 @@ describe('spawnClone — pre-registration (Phase-1 lockdown, closes manta-bugs #
         worktree: fx.root,
         runner,
         registry,
+        casts: noopCasts(),
+        castMode: 'recon-swarm',
+        castPolicy: RECON_POLICY,
+        castRoster: [{ clone_id: 'C', assignment: null }],
       }),
     ).rejects.toMatchObject({
       name: 'CliError',
@@ -151,6 +183,10 @@ describe('spawnClone — pre-registration (Phase-1 lockdown, closes manta-bugs #
       worktree: fx.root,
       runner,
       registry: makeRegistryFake(),
+      casts: noopCasts(),
+      castMode: 'recon-swarm',
+      castPolicy: RECON_POLICY,
+      castRoster: [{ clone_id: 'D', assignment: null }],
     });
     await handle.exit;
 

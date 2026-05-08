@@ -1,7 +1,15 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { execa, type ExecaChildProcess, type ExecaReturnValue } from 'execa';
-import type { CloneRecord, RegisterInput } from '@manta/bus';
+import type {
+  CastManifest,
+  CastPolicy,
+  CloneAssignment,
+  CloneRecord,
+  CreateCastInput,
+  Mode,
+  RegisterInput,
+} from '@manta/bus';
 import { serializeSnapshot, type Snapshot } from '@manta/snapshot';
 import { CliError } from '../errors.js';
 import { buildInitialPrompt, buildPrimingText } from './priming.js';
@@ -28,12 +36,32 @@ export interface RegistryWriter {
   register(input: RegisterInput): Promise<CloneRecord>;
 }
 
+/**
+ * Narrow seam for the cast manifest writer. Mirrors `RegistryWriter` so unit
+ * tests can fake `casts.create` without standing up a full `BusContext`. The
+ * production `CastsStore` from `@manta/bus` satisfies this interface.
+ */
+export interface CastsCreator {
+  create(input: CreateCastInput): Promise<CastManifest>;
+}
+
 export interface SpawnCloneOptions {
   repoRoot: string;
   snapshot: Snapshot;
   worktree: string;
   runner: CloneRunner;
   registry: RegistryWriter;
+  casts: CastsCreator;
+  /** Cast-level info needed to write/extend the manifest. */
+  castMode: Mode;
+  castPolicy: CastPolicy;
+  /**
+   * Full intended roster of clone_ids for this cast (in spawn order). The
+   * spawner uses this to write the manifest on first clone of the cast; on
+   * subsequent clones the manifest already exists and `casts.create` is
+   * idempotent (same input).
+   */
+  castRoster: ReadonlyArray<{ clone_id: string; assignment: CloneAssignment | null }>;
 }
 
 export interface CloneHandle {
@@ -83,10 +111,31 @@ export async function spawnClone(opts: SpawnCloneOptions): Promise<CloneHandle> 
       mode: opts.snapshot.taskContract.mode,
       parent_pid: process.pid,
       worktree: opts.worktree,
-      metadata: { cast_id: castId },
+      // metadata.cast_mode is the join key the Phase 2b sibling-messaging
+      // filter uses without round-tripping the cast manifest for every check.
+      metadata: { cast_id: castId, cast_mode: opts.castMode },
     });
   } catch (cause) {
     throw new CliError(`failed to pre-register clone ${cloneId}`, {
+      kind: 'register_failed',
+      cause,
+    });
+  }
+
+  // Cast manifest is per-cast, not per-clone. We call `casts.create` for every
+  // clone in the cast — `CastsStore.create` is idempotent on identical input,
+  // so the first call writes the manifest and subsequent calls are no-ops.
+  // This avoids a "first-clone-special" branch and survives clone-A failing
+  // to spawn (clone-B's call still creates the manifest).
+  try {
+    await opts.casts.create({
+      cast_id: castId,
+      mode: opts.castMode,
+      clones: [...opts.castRoster],
+      policy: opts.castPolicy,
+    });
+  } catch (cause) {
+    throw new CliError(`failed to create cast manifest for ${castId}`, {
       kind: 'register_failed',
       cause,
     });

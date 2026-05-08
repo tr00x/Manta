@@ -10,6 +10,7 @@ import { Registry } from './state/registry';
 import { LocksStore } from './state/locks';
 import { ClaimsStore } from './state/claims';
 import { ContractsStore } from './state/contracts';
+import { CastsStore } from './state/casts';
 import { EventsLog } from './state/events';
 import { fsMemoryWriters, type MemoryWriters } from './memory-writers';
 import type { BusContext } from './tools/index';
@@ -84,6 +85,7 @@ export async function createBusServer(opts: CreateBusServerOptions): Promise<Bus
   const locks = new LocksStore(paths, clock, { staleAfterMs: opts.staleLockMs ?? 15_000 });
   const claims = new ClaimsStore(paths, clock);
   const contracts = new ContractsStore(paths, clock);
+  const casts = new CastsStore(paths, clock);
   const events = new EventsLog(paths, clock);
   const memoryWriters =
     opts.memoryWriters ?? fsMemoryWriters({ repoRoot: opts.repoRoot, clock });
@@ -94,6 +96,7 @@ export async function createBusServer(opts: CreateBusServerOptions): Promise<Bus
     locks,
     claims,
     contracts,
+    casts,
     events,
     memoryWriters,
   };

@@ -174,6 +174,84 @@ export const ParaAppendInputSchema = z
   })
   .strict();
 
+// Cast manifest — Sec 7 (best-of-N flow needs cast-level state) + research:
+// docs/research/phase-2-codepath-map.md §2.3 (per-cast manifest motivation)
+// + docs/research/phase-2-bus-isolation.md §4.4 (forward-compatible policy
+// shape so future modes — council/decoy/etc. — slot in without branching on
+// `mode === 'forking-realities'`).
+export const CastIdSchema = z
+  .string()
+  .min(1)
+  .max(96)
+  .regex(/^[A-Za-z0-9_.-]+$/, 'cast_id must match /^[A-Za-z0-9_.-]+$/');
+
+export const CastPolicySchema = z
+  .object({
+    // Phase 2: 'allowed' (recon-swarm and friends) | 'denied' (forking-realities).
+    // String-enum (rather than boolean) is the forward-compatible cut from
+    // research §4.4 — a future `peer_messaging: 'role-based'` or 'main-only'
+    // slots in additively.
+    peer_messaging: z.enum(['allowed', 'denied']),
+    // Phase 2: stays null (manual-merge default per research best-of-n §4 hybrid
+    // mode); Phase 3+ can set a value in [0, 1]. Null encodes "manual review
+    // required" without overloading the number space.
+    auto_merge_threshold: z
+      .number()
+      .min(0)
+      .max(1)
+      .nullable(),
+  })
+  .strict();
+
+export const CloneAssignmentSchema = z
+  .object({
+    task: z.string().min(1).max(8_000).optional(),
+    approach_hint: z.string().max(8_000).optional(),
+    scope: ScopeSchema.optional(),
+    budget_usd: z.number().positive().optional(),
+    deadline_seconds: z.number().int().positive().optional(),
+  })
+  .strict();
+
+const CastClonesEntrySchema = z
+  .object({
+    clone_id: CloneIdSchema,
+    assignment: CloneAssignmentSchema.nullable(),
+  })
+  .strict();
+
+export const CastManifestSchema = z
+  .object({
+    version: z.literal(1),
+    cast_id: CastIdSchema,
+    mode: ModeSchema,
+    clones: z
+      .array(CastClonesEntrySchema)
+      .min(1)
+      .refine(
+        (xs) => new Set(xs.map((c) => c.clone_id)).size === xs.length,
+        { message: 'roster must not contain duplicate clone_ids' },
+      ),
+    policy: CastPolicySchema,
+    created_at: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const CreateCastInputSchema = z
+  .object({
+    cast_id: CastIdSchema,
+    mode: ModeSchema,
+    clones: z
+      .array(CastClonesEntrySchema)
+      .min(1)
+      .refine(
+        (xs) => new Set(xs.map((c) => c.clone_id)).size === xs.length,
+        { message: 'roster must not contain duplicate clone_ids' },
+      ),
+    policy: CastPolicySchema,
+  })
+  .strict();
+
 // Inferred types — exported so handlers and stores can share them.
 export type CloneId = z.infer<typeof CloneIdSchema>;
 export type Mode = z.infer<typeof ModeSchema>;
@@ -194,3 +272,8 @@ export type MessageInput = z.infer<typeof MessageInputSchema>;
 export type DriftReportInput = z.infer<typeof DriftReportInputSchema>;
 export type ZkWriteInput = z.infer<typeof ZkWriteInputSchema>;
 export type ParaAppendInput = z.infer<typeof ParaAppendInputSchema>;
+export type CastId = z.infer<typeof CastIdSchema>;
+export type CastPolicy = z.infer<typeof CastPolicySchema>;
+export type CloneAssignment = z.infer<typeof CloneAssignmentSchema>;
+export type CastManifest = z.infer<typeof CastManifestSchema>;
+export type CreateCastInput = z.infer<typeof CreateCastInputSchema>;

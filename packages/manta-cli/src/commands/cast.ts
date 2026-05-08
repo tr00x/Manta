@@ -2,7 +2,7 @@ import type { Runtime } from '../runtime.js';
 import type { Reporter } from '../output/reporter.js';
 import type { CommandResult } from './status.js';
 import type { Mode, Snapshot } from '@manta/snapshot';
-import type { TaskContract as BusTaskContract } from '@manta/bus';
+import type { CastPolicy, TaskContract as BusTaskContract } from '@manta/bus';
 import type { CloneRunner, CloneHandle } from '../spawner/clone-spawner.js';
 import { spawnClone } from '../spawner/clone-spawner.js';
 import { addWorktree, removeWorktree, type WorktreeRecord } from '../spawner/worktree.js';
@@ -127,6 +127,13 @@ export async function runCastCommand(
   const handles: CloneHandle[] = [];
   const worktrees: WorktreeRecord[] = [];
 
+  // Default policy for any cast — Chunk 2 adjusts it for forking-realities.
+  const castPolicy: CastPolicy = {
+    peer_messaging: 'allowed',
+    auto_merge_threshold: null,
+  };
+  const castRoster = cloneIds.map((id) => ({ clone_id: id, assignment: null }));
+
   try {
     for (const cloneId of cloneIds) {
       const wt = await addWorktree({
@@ -175,6 +182,10 @@ export async function runCastCommand(
         worktree: wt.path,
         runner: opts.runner,
         registry: rt.ctx.registry,
+        casts: rt.ctx.casts,
+        castMode: opts.mode,
+        castPolicy,
+        castRoster,
       });
       handles.push(handle);
       opts.reporter.info('cast.spawn', { cloneId, worktree: wt.path });
