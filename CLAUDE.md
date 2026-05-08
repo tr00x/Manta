@@ -228,8 +228,9 @@ Cast если хотя бы одно:
 
 - Никогда не трогать `git config --global` без явного запроса
 - Author override через `-c user.email=... -c user.name=...` per command (это не config update, это override на один вызов)
-- **Откуда брать author email/name** (HARD RULE — нарушал 2026-05-07):
-  - Всегда — `git log -1 --format='%ae %an'`. Дословно эту пару в `-c user.email=… -c user.name=…`. Без угадываний, без модификаций регистра, без сокращений.
+- **Откуда брать author email/name** (HARD RULE — нарушал 2026-05-07, повтор 2026-05-08):
+  - **Две отдельные команды**: `EMAIL="$(git log -1 --format='%ae')"` и `NAME="$(git log -1 --format='%an')"`. Подставить дословно в `-c user.email="$EMAIL" -c user.name="$NAME"`.
+  - **НЕ использовать** `git log -1 --format='%ae %an'` с последующим shell-парсингом через `${VAR% *}` / `${VAR#* }` — `% *` strips shortest match from end и ломается на именах с пробелами ("Tim Hunt" → EMAIL="...Tim", NAME="Tim Hunt"). Нарушал 2026-05-08 в плане 2b.
   - Если `git log` пустой (новый репо / первый коммит) — **остановиться и спросить юзера**. Не подставлять.
   - **НИКОГДА** не использовать `<userEmail>` / `<userInfo>` из системного промпта как git author. Это identifier юзера для чата, не git identity.
   - **НИКОГДА** не выдумывать имя «по контексту» (типа Timur из директории `/Users/timur/...`). Reading directory ≠ identity.
