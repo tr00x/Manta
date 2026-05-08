@@ -62,6 +62,35 @@ describe('buildPrimingText', () => {
   });
 });
 
+describe('buildPrimingText — {APPROACH_HINT_BLOCK} substitution (Phase 2a)', () => {
+  it('expands {APPROACH_HINT_BLOCK} to "Approach hint: ..." when set', () => {
+    const snap = makeSnapshotFor({
+      cloneId: 'A',
+      approachHint: 'use an index on orders.customer_id',
+    });
+    const text = buildPrimingText(snap);
+    expect(text).toContain('Approach hint: use an index on orders.customer_id');
+    expect(text).not.toContain('{APPROACH_HINT_BLOCK}');
+  });
+
+  it('removes the {APPROACH_HINT_BLOCK} placeholder entirely when approachHint is null', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', approachHint: null });
+    const text = buildPrimingText(snap);
+    expect(text).not.toContain('{APPROACH_HINT_BLOCK}');
+    expect(text).not.toMatch(/Approach hint:\s*$/m); // no dangling label
+    // No orphan triple newline either — the substitution returns "" not "\n":
+    expect(text).not.toMatch(/\n\n\nHeartbeat is implicit/);
+  });
+
+  it('substitutes hint independently per clone', () => {
+    const a = buildPrimingText(makeSnapshotFor({ cloneId: 'A', approachHint: 'index' }));
+    const b = buildPrimingText(makeSnapshotFor({ cloneId: 'B', approachHint: 'denormalize' }));
+    expect(a).toContain('Approach hint: index');
+    expect(b).toContain('Approach hint: denormalize');
+    expect(a).not.toContain('denormalize');
+  });
+});
+
 describe('buildInitialPrompt', () => {
   const snap = makeSnapshotFor({ cloneId: 'clone-A', task: 'map auth/* and billing/*' });
 

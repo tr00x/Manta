@@ -15,9 +15,9 @@ Without the `claude mcp add` step every clone fails at the bus transport. Full w
 
 ## Status
 
-- [x] Phase 0 — `recon-swarm` foundation (this commit)
+- [x] Phase 0 — `recon-swarm` foundation
 - [ ] Phase 1 — `recon-swarm` production-grade lockdown
-- [ ] Phase 2 — `forking-realities`
+- [~] Phase 2a — `forking-realities` spawn surface (allowlist + per-clone tasks file + cast manifest); bus isolation (2b) + merge-review (2c) + observability (2d) pending. See `docs/user/forking-realities.md`.
 - [ ] Phase 3 — Charge system + budgets + cooldowns
 - [ ] Phase 4 — Wave-1 closeout (`refactor-wave`, `bug-hunt`)
 - [ ] Phase 5 — Daemon-mode runtime

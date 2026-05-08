@@ -11,6 +11,8 @@ export interface SnapshotFor {
   siblingClones?: string[];
   deadlineMs?: number;
   budgetUsd?: number;
+  /** Optional per-clone approach hint; null/undefined → contract.approachHint = null. */
+  approachHint?: string | null;
 }
 
 export function makeSnapshotFor(opts: SnapshotFor): Snapshot {
@@ -31,5 +33,6 @@ export function makeSnapshotFor(opts: SnapshotFor): Snapshot {
     parentSessionId: opts.castId ?? 'cast-test',
     castId: opts.castId ?? 'cast-test',
     budgetUsd: opts.budgetUsd ?? 5,
+    approachHint: opts.approachHint ?? null,
   });
 }

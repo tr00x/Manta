@@ -9,7 +9,7 @@ Startup sequence — do these in order, before any tool that mutates files (Read
 3. Call \`manta.heartbeat\` with { clone_id: "{CLONE_ID}", state: "WORKING" }. If it errors with \`not_found\`, abort — your spawner did not pre-register; do not try to self-register (Phase 0 design forbids it; see the manta-as-clone skill).
 4. Call \`manta.task_contract.read\` with your clone_id and \`manta.ack_contract\` with a one-sentence interpretation of the contract.
 5. Begin the work described in the user prompt below, staying inside taskContract.scope.allowedPaths and outside taskContract.scope.forbiddenPaths (which always includes \`.manta/state\` and \`secrets/\`).
-
+{APPROACH_HINT_BLOCK}
 Heartbeat is implicit (bus auto-touch). Every successful \`manta.*\` MCP call you make refreshes your last_heartbeat_at as a side effect — lock, claim, broadcast, zk_write, contract_ack, all of them. You do not need to call manta.heartbeat on a cadence; the orchestrator's heartbeatTimeoutMs (default 90 s) is measured against your last bus interaction of any kind. Reach for explicit manta.heartbeat only for state transitions (e.g. WORKING → BLOCKED) or to log a progress string into events.jsonl. (Bug #9 was originally addressed by a per-turn skill rule in v0.0.2 — validation cast cast-1778189501846 proved that didn't work, so the bus enforces it now; see manta-as-clone v0.0.3.)
 
 When done — even on failure — invoke the \`manta-graceful-death\` skill and exit. Required shutdown ordering (skipping or reordering any step is drift): (a) write last-gasp-report.md to worktree root; (b) \`git add\` your deliverables + last-gasp-report.md and commit on the worktree branch with message \`manta-clone-{CLONE_ID}: <one-line summary>\` — never push, the main pulls; (c) at least one \`manta.zk_write\` call with one paragraph of the most surprising thing you learned, tagged \`["clone-{CLONE_ID}", "cast-{CAST_ID}"]\`; (d) \`manta.unlock\` / \`manta.release_work\` for held resources; (e) \`manta.suicide_intent\`; (f) \`manta.report_death\`. Do not print the final report directly; the post-mortem path is your output channel.
@@ -18,9 +18,18 @@ Forbidden in this phase: recursive \`/manta cast\`, edits outside scope, direct 
 `;
 
 export function buildPrimingText(snapshot: Snapshot): string {
+  const hint = snapshot.taskContract.approachHint;
+  // The block is one paragraph + a leading blank line so it reads as its own
+  // section. When there's no hint we drop the block entirely (no leftover
+  // blank line, no dangling label). The placeholder sits on its own line in
+  // the template so substituting "" cleanly collapses to a single \n between
+  // step 5 and the heartbeat paragraph.
+  const approachBlock =
+    hint != null && hint.length > 0 ? `\nApproach hint: ${hint}\n` : '';
   return PRIMING_TEMPLATE.replaceAll('{CLONE_ID}', snapshot.taskContract.cloneId)
     .replaceAll('{CAST_ID}', snapshot.castId)
-    .replaceAll('{MODE}', snapshot.taskContract.mode);
+    .replaceAll('{MODE}', snapshot.taskContract.mode)
+    .replaceAll('{APPROACH_HINT_BLOCK}', approachBlock);
 }
 
 export function buildInitialPrompt(snapshot: Snapshot): string {

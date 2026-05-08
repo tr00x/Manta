@@ -2,7 +2,11 @@ import type { Runtime } from '../runtime.js';
 import type { Reporter } from '../output/reporter.js';
 import type { CommandResult } from './status.js';
 import type { Mode, Snapshot } from '@manta/snapshot';
-import type { CastPolicy, TaskContract as BusTaskContract } from '@manta/bus';
+import type {
+  CastPolicy,
+  CloneAssignment,
+  TaskContract as BusTaskContract,
+} from '@manta/bus';
 import type { CloneRunner, CloneHandle } from '../spawner/clone-spawner.js';
 import { spawnClone } from '../spawner/clone-spawner.js';
 import { addWorktree, removeWorktree, type WorktreeRecord } from '../spawner/worktree.js';
@@ -11,7 +15,13 @@ import { runTickLoop } from '../tick-loop.js';
 import { CliError } from '../errors.js';
 import { verifyMantaBusRegistered } from './mcp-preflight.js';
 
-const SUPPORTED_MODES: ReadonlySet<Mode> = new Set<Mode>(['recon-swarm']);
+// Phase 2a: forking-realities joins recon-swarm. Spec Sec 2 #2; see
+// docs/research/phase-2-codepath-map.md §1.1 for the per-mode capability
+// table deferral note (Phase 4+).
+const SUPPORTED_MODES: ReadonlySet<Mode> = new Set<Mode>([
+  'recon-swarm',
+  'forking-realities',
+]);
 const CLONE_NAMES: readonly string[] = ['A', 'B', 'C', 'D', 'E']; // Phase 0 ceiling = 5
 const DEFAULT_DEADLINE_MS = 1_200_000; // 20 min per spec Sec 6.2
 
@@ -39,6 +49,14 @@ export interface RunCastOptions {
    * `secrets/` forbidden (existing pre-bug-#6 behaviour preserved for tests).
    */
   scope?: CastScopeOptions;
+  /**
+   * Per-clone task / approach / scope / budget overlay. Keys are clone_id strings
+   * (must be a subset of the spawn roster — keys for clones not in the roster
+   * cause invalid_input). Values override the cast-level defaults for that clone
+   * only; missing fields fall back to cast-level. Optional — if omitted, every
+   * clone receives the cast-level defaults.
+   */
+  cloneAssignments?: Record<string, CloneAssignment>;
   runner: CloneRunner;
   reporter: Reporter;
   /** Skip the `claude mcp list` pre-flight. Tests with fake runners pass false. */
@@ -51,6 +69,14 @@ const DEFAULT_SCOPE: CastScopeOptions = {
   maxFilesChanged: 0,
 };
 
+interface EffectiveAssignment {
+  task: string;
+  approachHint: string | null;
+  scope: CastScopeOptions;
+  budgetUsd: number;
+  deadlineMs: number;
+}
+
 /**
  * `manta cast <mode>` — orchestrate a full cast lifecycle:
  *   1. Validate mode + cloneCount + cumulative cost gate.
@@ -61,10 +87,10 @@ const DEFAULT_SCOPE: CastScopeOptions = {
  *      tick-budget elapses.
  *   5. Reap surviving subprocesses (best effort), emit summary.
  *
- * Phase-0 invariants:
- *   - Only `recon-swarm` mode is supported (other modes throw invalid_input).
+ * Phase-2a invariants:
+ *   - Modes allowlisted: `recon-swarm`, `forking-realities`.
  *   - cloneCount is bounded 1..5.
- *   - Cumulative cost gate: cloneCount × per-clone-USD ≤ per-cast-USD.
+ *   - Cumulative cost gate: Σ(per-clone effective budget) ≤ budget-per-cast.
  */
 export async function runCastCommand(
   rt: Runtime,
@@ -72,7 +98,7 @@ export async function runCastCommand(
 ): Promise<CommandResult> {
   if (!SUPPORTED_MODES.has(opts.mode)) {
     throw new CliError(
-      `mode "${opts.mode}" is not supported in Phase 0 (only recon-swarm)`,
+      `mode "${opts.mode}" is not supported (allowed: ${[...SUPPORTED_MODES].join(', ')})`,
       { kind: 'invalid_input' },
     );
   }
@@ -87,15 +113,75 @@ export async function runCastCommand(
     );
   }
 
-  // Cumulative cost gate (Phase-0 interim; Phase 3 ledger replaces). Per-clone
-  // budget × clone count must not exceed the per-cast cap. Defaults
-  // (5 × clones, 15 cap) reject 4+ clones — operator must explicitly opt in.
-  const totalBudgetUsd = opts.cloneCount * opts.budgetUsdPerClone;
-  if (totalBudgetUsd > opts.budgetUsdPerCast) {
+  const cloneIds = CLONE_NAMES.slice(0, opts.cloneCount);
+  const assignments = opts.cloneAssignments ?? {};
+
+  // Reject any assignment key not in the roster — operator typo guard. The
+  // roster is fixed by --clones (Phase 0 ceiling = 5), so a key like 'Z' or
+  // 'clone-A' (different naming convention) flags up before we waste a worktree.
+  for (const id of Object.keys(assignments)) {
+    if (!cloneIds.includes(id)) {
+      throw new CliError(
+        `cloneAssignments key "${id}" is not a member of the spawn roster (${cloneIds.join(', ')})`,
+        { kind: 'invalid_input' },
+      );
+    }
+  }
+
+  // Cast-level scope validation runs once up front; the overlay either inherits
+  // this or overrides scope per-clone. Per-clone scopes are validated by zod
+  // (ScopeSchema) during parseTasksFile, so we only check the cast-level fall-
+  // back here.
+  const castScope = opts.scope ?? DEFAULT_SCOPE;
+  if (
+    !Number.isInteger(castScope.maxFilesChanged) ||
+    castScope.maxFilesChanged < 0
+  ) {
     throw new CliError(
-      `cumulative budget (cloneCount=${opts.cloneCount} × $${opts.budgetUsdPerClone} = $${totalBudgetUsd}) ` +
-        `exceeds --budget-per-cast-usd=$${opts.budgetUsdPerCast}. ` +
-        `Reduce --clones, lower --budget-per-clone-usd, or raise --budget-per-cast-usd.`,
+      `--max-files-changed must be a non-negative integer; got ${castScope.maxFilesChanged}`,
+      { kind: 'invalid_input' },
+    );
+  }
+  if (castScope.allowedPaths.length === 0) {
+    throw new CliError(
+      `--allowed-paths must list at least one path (default ".")`,
+      { kind: 'invalid_input' },
+    );
+  }
+
+  // Compute per-clone effective overlay (task / approach / scope / budget /
+  // deadline). Each field falls back to the cast-level default when the
+  // assignment omits it. Cumulative budget gate is Σ effective per-clone caps,
+  // not N×cap — asymmetric overrides are honoured.
+  const effective: Record<string, EffectiveAssignment> = {};
+  let totalBudgetUsd = 0;
+  for (const id of cloneIds) {
+    const a = assignments[id] ?? {};
+    const e: EffectiveAssignment = {
+      task: a.task ?? opts.task,
+      approachHint: a.approach_hint ?? null,
+      scope: a.scope
+        ? {
+            allowedPaths: a.scope.allowed_paths,
+            forbiddenPaths: a.scope.forbidden_paths,
+            maxFilesChanged: a.scope.max_files_changed,
+          }
+        : castScope,
+      budgetUsd: a.budget_usd ?? opts.budgetUsdPerClone,
+      deadlineMs:
+        a.deadline_seconds != null ? a.deadline_seconds * 1_000 : DEFAULT_DEADLINE_MS,
+    };
+    effective[id] = e;
+    totalBudgetUsd += e.budgetUsd;
+  }
+
+  if (totalBudgetUsd > opts.budgetUsdPerCast) {
+    const detail = cloneIds
+      .map((id) => `${id}=$${effective[id]!.budgetUsd}`)
+      .join(' + ');
+    throw new CliError(
+      `cumulative budget (${detail} = $${totalBudgetUsd}) exceeds --budget-per-cast-usd=$${opts.budgetUsdPerCast}. ` +
+        `Reduce per-clone budgets, lower --budget-per-clone-usd, or raise --budget-per-cast-usd.`,
       { kind: 'invalid_input' },
     );
   }
@@ -106,36 +192,27 @@ export async function runCastCommand(
     await verifyMantaBusRegistered();
   }
 
-  const scope = opts.scope ?? DEFAULT_SCOPE;
-  if (
-    !Number.isInteger(scope.maxFilesChanged) ||
-    scope.maxFilesChanged < 0
-  ) {
-    throw new CliError(
-      `--max-files-changed must be a non-negative integer; got ${scope.maxFilesChanged}`,
-      { kind: 'invalid_input' },
-    );
-  }
-  if (scope.allowedPaths.length === 0) {
-    throw new CliError(
-      `--allowed-paths must list at least one path (default ".")`,
-      { kind: 'invalid_input' },
-    );
-  }
-
-  const cloneIds = CLONE_NAMES.slice(0, opts.cloneCount);
   const handles: CloneHandle[] = [];
   const worktrees: WorktreeRecord[] = [];
 
-  // Default policy for any cast — Chunk 2 adjusts it for forking-realities.
-  const castPolicy: CastPolicy = {
-    peer_messaging: 'allowed',
-    auto_merge_threshold: null,
-  };
-  const castRoster = cloneIds.map((id) => ({ clone_id: id, assignment: null }));
+  // Mode-aware policy. Recorded on the manifest now; Phase 2b enforces
+  // peer_messaging at the bus surface.
+  const castPolicy: CastPolicy =
+    opts.mode === 'forking-realities'
+      ? { peer_messaging: 'denied', auto_merge_threshold: null }
+      : { peer_messaging: 'allowed', auto_merge_threshold: null };
+
+  // Roster carries the per-clone CloneAssignment if one exists (forking-
+  // realities) or null otherwise (recon-swarm). Phase 2c merge-review reads
+  // it via CastsStore.read; Phase 2b filter only consumes policy + clone_ids.
+  const castRoster = cloneIds.map((id) => ({
+    clone_id: id,
+    assignment: assignments[id] ?? null,
+  }));
 
   try {
     for (const cloneId of cloneIds) {
+      const e = effective[cloneId]!;
       const wt = await addWorktree({
         repoRoot: rt.repoRoot,
         name: `clone-${cloneId}`,
@@ -145,17 +222,18 @@ export async function runCastCommand(
       const snap = buildCloneSnapshot({
         cloneId,
         mode: opts.mode,
-        task: opts.task,
+        task: e.task,
         // snapshot.Scope uses camelCase (allowedPaths/forbiddenPaths/maxFilesChanged);
         // the bus's TaskContractSchema uses snake_case. We translate at the
         // ctx.contracts.write boundary below.
         scope: {
-          allowedPaths: scope.allowedPaths,
-          forbiddenPaths: scope.forbiddenPaths,
-          maxFilesChanged: scope.maxFilesChanged,
+          allowedPaths: e.scope.allowedPaths,
+          forbiddenPaths: e.scope.forbiddenPaths,
+          maxFilesChanged: e.scope.maxFilesChanged,
         },
+        approachHint: e.approachHint,
         siblingClones: cloneIds.filter((id) => id !== cloneId),
-        deadlineMs: DEFAULT_DEADLINE_MS,
+        deadlineMs: e.deadlineMs,
         parentWorktree: rt.repoRoot,
         cloneWorktree: wt.path,
         parentPid: process.pid,
@@ -164,7 +242,7 @@ export async function runCastCommand(
         // this with a real Claude-Code session id when daemon-mode lands.
         parentSessionId: opts.castId,
         castId: opts.castId,
-        budgetUsd: opts.budgetUsdPerClone,
+        budgetUsd: e.budgetUsd,
       });
 
       // Translate snapshot.taskContract (camelCase) → bus.TaskContract
@@ -302,8 +380,11 @@ export async function runCastCommand(
  * drift surfaces as a single edit instead of N call-sites. The unit drift
  * (snapshot.deadlineSeconds vs bus.deadline_ms) is the only non-mechanical
  * conversion.
+ *
+ * @internal — exported for contract-drift tests in tests/commands/cast.test.ts.
+ * Not part of the public CLI surface; do not import from outside this package.
  */
-function toBusContract(snap: Snapshot): BusTaskContract {
+export function toBusContract(snap: Snapshot): BusTaskContract {
   const tc = snap.taskContract;
   const deadlineMs = tc.deadlineSeconds * 1_000;
   const base = {

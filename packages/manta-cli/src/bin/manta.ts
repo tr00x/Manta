@@ -7,10 +7,12 @@ import { runKillCommand } from '../commands/kill.js';
 import { runAbortCommand } from '../commands/abort.js';
 import { runRecoverCommand } from '../commands/recover.js';
 import { runClaudeCli } from '../spawner/clone-spawner.js';
+import { parseTasksFile } from '../spawner/tasks-file.js';
 import { createReporter, StderrSink } from '../output/reporter.js';
 import { isCliError } from '../errors.js';
 import type { CommandResult } from '../commands/status.js';
 import type { Mode } from '@manta/snapshot';
+import type { CloneAssignment } from '@manta/bus';
 
 /**
  * Run a command body inside a freshly composed Runtime. Uses
@@ -44,7 +46,7 @@ async function main(): Promise<void> {
 
   program
     .command('cast <mode>')
-    .description('Spawn N clones of the given mode (Phase 0: recon-swarm only)')
+    .description('Spawn N clones of the given mode (Phase 2a: recon-swarm, forking-realities)')
     .option('-n, --clones <n>', 'number of clones (1..5)', '2')
     .option('-t, --task <task>', 'task description', 'unspecified')
     .option('--cycle-interval-ms <ms>', 'orchestrator cycle interval', '5000')
@@ -70,12 +72,17 @@ async function main(): Promise<void> {
       'comma-separated list of paths each clone MUST NOT touch. Default: ".manta/state,secrets/".',
       '.manta/state,secrets/',
     )
+    .option(
+      '--tasks <path>',
+      "path to a YAML/JSON file with per-clone task overlays. Combines with --task: clones present in the file use the file's entry; clones absent fall back to --task. See docs/user/forking-realities.md for the schema.",
+    )
     .action(
       async (
         mode: string,
         options: {
           clones: string;
           task: string;
+          tasks?: string;
           cycleIntervalMs: string;
           tickBudgetMs: string;
           budgetPerCloneUsd: string;
@@ -90,6 +97,12 @@ async function main(): Promise<void> {
             .split(',')
             .map((p) => p.trim())
             .filter((p) => p.length > 0);
+        // --tasks and --task are complementary, not mutually exclusive: per-
+        // clone overlay wins, unspecified clones inherit --task. Parse errors
+        // surface as CliError(invalid_input) — bubbled by main()'s isCliError
+        // branch.
+        const cloneAssignments: Record<string, CloneAssignment> | undefined =
+          options.tasks != null ? parseTasksFile(options.tasks) : undefined;
         await runWithRuntime((rt) =>
           runCastCommand(rt, {
             // Cast through unknown so commander's stringly-typed mode flows
@@ -106,6 +119,10 @@ async function main(): Promise<void> {
               forbiddenPaths: splitCsv(options.forbiddenPaths),
               maxFilesChanged: parseInt(options.maxFilesChanged, 10),
             },
+            // Conditional spread: under exactOptionalPropertyTypes, `undefined`
+            // is not assignable to `cloneAssignments?: Record<...>`. Only emit
+            // the property when --tasks was supplied.
+            ...(cloneAssignments !== undefined ? { cloneAssignments } : {}),
             castId: `cast-${Date.now()}`,
             runner: runClaudeCli(),
             reporter,

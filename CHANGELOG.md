@@ -4,6 +4,17 @@ All notable changes to Manta. Format follows [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- `forking-realities` mode allowlist (Phase 2a — spawn surface only; bus isolation is Phase 2b, merge-review is Phase 2c).
+- Cast manifest at `.manta/state/casts/<castId>.json` (mode + roster + policy; idempotent across clones).
+- `registry.metadata.cast_mode` (Phase 2b filter join key).
+- Per-clone task overlay via `--tasks <yaml|json>` (`manta cast`); `--task` remains the cast-level fallback.
+- Asymmetric per-clone budgets — cumulative gate switches from `N×cap` to `Σ(per-clone caps)`.
+- `{APPROACH_HINT_BLOCK}` placeholder in the priming preamble (substitutes `Approach hint: …` or empty).
+- New runtime dep: `yaml@^2.6` (for `--tasks` parsing).
+- Operator-facing doc `docs/user/forking-realities.md`.
+
 ## [0.1.0] — Phase 0 (recon-swarm foundation)
 
 ### Added

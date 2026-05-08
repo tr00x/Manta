@@ -1,15 +1,28 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runCastCommand } from '../../src/commands/cast.js';
+import type { Snapshot } from '@manta/snapshot';
+import { TaskContractSchema as BusTaskContractSchema } from '@manta/bus';
+import { runCastCommand, toBusContract } from '../../src/commands/cast.js';
 import {
   runFakeCloneScript,
   type CloneRunner,
 } from '../../src/spawner/clone-spawner.js';
-import { createReporter, MemorySink } from '../../src/output/reporter.js';
+import { createReporter, MemorySink, type Reporter } from '../../src/output/reporter.js';
 import { createRuntime } from '../../src/runtime.js';
 import { makeRepoFixture, type RepoFixture } from '../helpers/repoFixture.js';
+import { makeSnapshotFor } from '../helpers/snapshotFixture.js';
+import { parseTasksFile } from '../../src/spawner/tasks-file.js';
+
+const noopReporter: Reporter = {
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+};
 
 const fixturePath = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -71,14 +84,16 @@ describe('cast command (recon-swarm)', () => {
     expect(events).toContain('cast.done');
   });
 
-  it('rejects unsupported modes', async () => {
+  it('rejects unsupported modes (e.g. council)', async () => {
     fx = await makeRepoFixture();
     const rt = await createRuntime({ repoRoot: fx.root });
     await expect(
       runCastCommand(rt, {
         // Cast through `unknown` to keep the type-system honest while still
-        // exercising the runtime's invalid_input branch for non-recon-swarm.
-        mode: 'forking-realities' as unknown as 'recon-swarm',
+        // exercising the runtime's invalid_input branch for not-yet-allowlisted
+        // modes (Phase 2a allows recon-swarm + forking-realities; council
+        // is reserved for Phase 8).
+        mode: 'council' as unknown as 'recon-swarm',
         task: 't',
         cloneCount: 1,
         cycleIntervalMs: 50,
@@ -343,5 +358,252 @@ describe('cast command (recon-swarm)', () => {
         scope: { allowedPaths: [], forbiddenPaths: [], maxFilesChanged: 0 },
       }),
     ).rejects.toMatchObject({ name: 'CliError', kind: 'invalid_input' });
+  });
+});
+
+describe('cast command (forking-realities allowlist + per-clone overlay)', () => {
+  let fx: RepoFixture | undefined;
+  afterEach(async () => {
+    await fx?.cleanup();
+    fx = undefined;
+  });
+
+  it('accepts forking-realities mode (Phase 2a)', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: {
+        heartbeatTimeoutMs: 100,
+        startupGraceMs: 100,
+        parentPidCheckEnabled: false,
+      },
+    });
+    const result = await runCastCommand(rt, {
+      mode: 'forking-realities',
+      task: 'placeholder',
+      cloneCount: 2,
+      cycleIntervalMs: 50,
+      tickBudgetMs: 5_000,
+      castId: 'cast-test-fr-1',
+      budgetUsdPerClone: 1,
+      budgetUsdPerCast: 5,
+      runner: runFakeCloneScript({ scriptPath: fixturePath }),
+      reporter: noopReporter,
+      verifyMcp: false,
+    });
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('overlays per-clone task / approachHint from cloneAssignments', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: {
+        heartbeatTimeoutMs: 100,
+        startupGraceMs: 100,
+        parentPidCheckEnabled: false,
+      },
+    });
+    const realRunner = runFakeCloneScript({ scriptPath: fixturePath });
+    const captured: Snapshot[] = [];
+    const recordingRunner: CloneRunner = {
+      run(input) {
+        const raw = readFileSync(input.env.MANTA_SNAPSHOT_PATH!, 'utf-8');
+        captured.push(JSON.parse(raw) as Snapshot);
+        return realRunner.run(input);
+      },
+    };
+    await runCastCommand(rt, {
+      mode: 'forking-realities',
+      task: 'cast-default task',
+      cloneCount: 2,
+      cycleIntervalMs: 50,
+      tickBudgetMs: 5_000,
+      castId: 'cast-test-overlay-1',
+      budgetUsdPerClone: 1,
+      budgetUsdPerCast: 5,
+      cloneAssignments: {
+        A: { task: 'rewrite the SQL', approach_hint: 'use an index' },
+        B: { task: 'rewrite the SQL', approach_hint: 'denormalize the table', budget_usd: 2 },
+      },
+      runner: recordingRunner,
+      reporter: noopReporter,
+      verifyMcp: false,
+    });
+    const a = captured.find((s) => s.taskContract.cloneId === 'A')!;
+    const b = captured.find((s) => s.taskContract.cloneId === 'B')!;
+    expect(a.taskContract.task).toBe('rewrite the SQL');
+    expect(a.taskContract.approachHint).toBe('use an index');
+    expect(b.taskContract.approachHint).toBe('denormalize the table');
+    expect(b.budget.dollarsTotal).toBe(2); // per-clone override
+  });
+
+  it('cumulative budget gate sums per-clone budgets, not N×cap', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({ repoRoot: fx.root });
+    // Two clones at $4 each = $8 total; cap = $7 → must reject.
+    await expect(
+      runCastCommand(rt, {
+        mode: 'forking-realities',
+        task: 'x',
+        cloneCount: 2,
+        cycleIntervalMs: 50,
+        tickBudgetMs: 5_000,
+        castId: 'cast-test-asym-1',
+        budgetUsdPerClone: 1, // cast-level default
+        budgetUsdPerCast: 7,
+        cloneAssignments: {
+          A: { task: 'a', budget_usd: 4 },
+          B: { task: 'b', budget_usd: 4 },
+        },
+        runner: runFakeCloneScript({ scriptPath: fixturePath }),
+        reporter: noopReporter,
+        verifyMcp: false,
+      }),
+    ).rejects.toMatchObject({
+      kind: 'invalid_input',
+      message: expect.stringMatching(/cumulative budget.*\$8.*exceeds.*\$7/) as unknown as string,
+    });
+  });
+
+  it('falls back to cast-level defaults when an assignment is missing for a clone', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: {
+        heartbeatTimeoutMs: 100,
+        startupGraceMs: 100,
+        parentPidCheckEnabled: false,
+      },
+    });
+    const realRunner = runFakeCloneScript({ scriptPath: fixturePath });
+    const captured: Snapshot[] = [];
+    const recordingRunner: CloneRunner = {
+      run(input) {
+        const raw = readFileSync(input.env.MANTA_SNAPSHOT_PATH!, 'utf-8');
+        captured.push(JSON.parse(raw) as Snapshot);
+        return realRunner.run(input);
+      },
+    };
+    await runCastCommand(rt, {
+      mode: 'forking-realities',
+      task: 'cast-level fallback task',
+      cloneCount: 3,
+      cycleIntervalMs: 50,
+      tickBudgetMs: 5_000,
+      castId: 'cast-test-fallback-1',
+      budgetUsdPerClone: 1,
+      budgetUsdPerCast: 5,
+      cloneAssignments: {
+        A: { task: 'A-only override' }, // B and C have no entry → inherit
+      },
+      runner: recordingRunner,
+      reporter: noopReporter,
+      verifyMcp: false,
+    });
+    const a = captured.find((s) => s.taskContract.cloneId === 'A')!;
+    const b = captured.find((s) => s.taskContract.cloneId === 'B')!;
+    const c = captured.find((s) => s.taskContract.cloneId === 'C')!;
+    expect(a.taskContract.task).toBe('A-only override');
+    expect(b.taskContract.task).toBe('cast-level fallback task');
+    expect(c.taskContract.task).toBe('cast-level fallback task');
+    // Approach hints default to null when no per-clone override.
+    expect(a.taskContract.approachHint).toBeNull();
+    expect(b.taskContract.approachHint).toBeNull();
+    expect(c.taskContract.approachHint).toBeNull();
+  });
+
+  it('rejects an assignment key that is not a member of the spawn roster (typo guard)', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({ repoRoot: fx.root });
+    await expect(
+      runCastCommand(rt, {
+        mode: 'forking-realities',
+        task: 'x',
+        cloneCount: 2, // roster is [A, B]
+        cycleIntervalMs: 50,
+        tickBudgetMs: 5_000,
+        castId: 'cast-test-typo-1',
+        budgetUsdPerClone: 1,
+        budgetUsdPerCast: 5,
+        cloneAssignments: {
+          A: { task: 'a' },
+          Z: { task: 'typo — Z is not in roster' },
+        },
+        runner: runFakeCloneScript({ scriptPath: fixturePath }),
+        reporter: noopReporter,
+        verifyMcp: false,
+      }),
+    ).rejects.toMatchObject({
+      kind: 'invalid_input',
+      message: expect.stringContaining('Z') as unknown as string,
+    });
+  });
+
+  it('parses --tasks YAML at the CLI seam and applies it through runCastCommand', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: {
+        heartbeatTimeoutMs: 100,
+        startupGraceMs: 100,
+        parentPidCheckEnabled: false,
+      },
+    });
+    const dir = mkdtempSync(join(tmpdir(), 'manta-cli-tasks-'));
+    try {
+      const f = join(dir, 'plan.yaml');
+      writeFileSync(f, `A:\n  task: A-from-yaml\nB:\n  task: B-from-yaml\n`);
+      const cloneAssignments = parseTasksFile(f);
+      const realRunner = runFakeCloneScript({ scriptPath: fixturePath });
+      const captured: Snapshot[] = [];
+      const recordingRunner: CloneRunner = {
+        run(input) {
+          const raw = readFileSync(input.env.MANTA_SNAPSHOT_PATH!, 'utf-8');
+          captured.push(JSON.parse(raw) as Snapshot);
+          return realRunner.run(input);
+        },
+      };
+      const result = await runCastCommand(rt, {
+        mode: 'forking-realities',
+        task: 'cast-default-ignored',
+        cloneCount: 2,
+        cycleIntervalMs: 50,
+        tickBudgetMs: 5_000,
+        castId: 'cast-cli-yaml-1',
+        budgetUsdPerClone: 1,
+        budgetUsdPerCast: 5,
+        cloneAssignments,
+        runner: recordingRunner,
+        reporter: noopReporter,
+        verifyMcp: false,
+      });
+      expect(result.exitCode).toBe(0);
+      expect(captured.find((s) => s.taskContract.cloneId === 'A')!.taskContract.task).toBe('A-from-yaml');
+      expect(captured.find((s) => s.taskContract.cloneId === 'B')!.taskContract.task).toBe('B-from-yaml');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('toBusContract — snapshot ↔ bus approach_hint translation drift', () => {
+  it('elides approach_hint when snapshot.approachHint is null', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', approachHint: null });
+    const bus = toBusContract(snap);
+    expect(BusTaskContractSchema.parse(bus)).toBeDefined(); // round-trips through bus zod
+    expect((bus as { approach_hint?: string }).approach_hint).toBeUndefined();
+  });
+
+  it('sets approach_hint when snapshot.approachHint is non-null', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', approachHint: 'use an index' });
+    const bus = toBusContract(snap);
+    expect((bus as { approach_hint?: string }).approach_hint).toBe('use an index');
+  });
+
+  it('round-trips a non-null approachHint through bus zod', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', approachHint: 'denormalize' });
+    const bus = BusTaskContractSchema.parse(toBusContract(snap));
+    expect(bus.approach_hint).toBe('denormalize');
   });
 });
