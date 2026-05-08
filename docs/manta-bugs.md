@@ -24,6 +24,26 @@
 
 ## Open bugs
 
+### #14 — `auditAppend` callback fires on idempotent no-op `CastsStore.create` calls
+
+**Discovered:** 2026-05-08, code-quality review of Phase 2a Chunk 1 commit `69de728` (cast-manifest infrastructure).
+**Severity:** Medium — observable only when Phase 2c wires a real audit-event callback into `casts.create`. Currently no production caller passes `auditAppend`, so the bug is latent. But `casts.create` is **explicitly designed** to be called idempotently by every clone of a cast (see `clone-spawner.ts` lines 125-129 rationale), so once an audit hook is attached, every cast emits N duplicate audit entries (one per clone) instead of one.
+**Status:** Open — fix scheduled for Phase 2c when the audit hook is actually attached. Logged before Chunk 2 to prevent silent regression.
+**Reproducer (forward-looking):**
+1. Phase 2c attaches `auditAppend` callback to `casts.create` to record cast-creation events in the events log.
+2. A 3-clone cast spawns: clone-A creates the manifest (mutator returns `next` with new content; audit fires once — correct).
+3. Clone-B calls `casts.create` with identical input (idempotent path — mutator returns `current` unchanged); but `atomicMutateJson` calls `auditAppend()` unconditionally after the mutator (`packages/manta-bus/src/atomic-fs.ts:101-107`), so audit fires again — wrong.
+4. Clone-C same story — audit fires a third time.
+5. Result: events log shows 3 `cast.created` events for one cast.
+**Root cause:** `atomicMutateJson` invokes `auditAppend` unconditionally if provided, with no signal from the mutator about whether new content was actually written. `state/contracts.ts` shares the same pattern but is typically called once per contract version (write-new-version semantic), so the bug is invisible there. `state/casts.ts` is the first store where idempotent-every-call is part of the contract.
+**Fix (proposed):** Two viable approaches —
+- (a) Extend `atomicMutateJson` to detect mutator returning `===` reference-identical `current` and skip `auditAppend`. Reference-identity is what idempotent paths already use; semantic-equality detection (canonicalized) would also work but is more complex. Cleaner downstream because all stores benefit. Cross-cuts `contracts.ts`, `registry.ts` etc. — needs regression sweep.
+- (b) Move the audit-fire decision into `CastsStore.create` itself: read existing manifest first (outside the mutex), compare canonically, and pass `auditAppend` to `atomicMutateJson` only if the input differs. Simpler change, isolated to casts.ts, but adds a non-mutex read before the write — race window is benign (worst case is firing the callback when we shouldn't, which is the current bug — net no worse).
+- **Recommended:** (a). The fix belongs in the shared infra so the same trap doesn't bite Phase 4+ stores.
+**Lessons:**
+- "Pre-existing pattern" is not the same as "correct pattern" — `contracts.ts` happened to dodge this because of its single-writer-per-version usage. New stores with new usage shapes need their audit semantics audited.
+- Idempotency contracts must specify side-effect semantics, not just data semantics. `casts.create` documents idempotent data writes but says nothing about audit emissions.
+
 ### #9 — Heartbeat cadence is not interleaved with long read sequences (skill-level enforcement is non-functional)
 
 **Discovered:** 2026-05-07, Phase-2 research-prep cast `cast-1778187665150` (after bug #8 fix in `9ed5609`). Independently surfaced by clone A and clone C in their last-gasp reports, with concrete fix proposals.

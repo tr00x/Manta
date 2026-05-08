@@ -213,7 +213,7 @@ export const CloneAssignmentSchema = z
   })
   .strict();
 
-const CastClonesEntrySchema = z
+export const CastClonesEntrySchema = z
   .object({
     clone_id: CloneIdSchema,
     assignment: CloneAssignmentSchema.nullable(),
@@ -275,5 +275,6 @@ export type ParaAppendInput = z.infer<typeof ParaAppendInputSchema>;
 export type CastId = z.infer<typeof CastIdSchema>;
 export type CastPolicy = z.infer<typeof CastPolicySchema>;
 export type CloneAssignment = z.infer<typeof CloneAssignmentSchema>;
+export type CastClonesEntry = z.infer<typeof CastClonesEntrySchema>;
 export type CastManifest = z.infer<typeof CastManifestSchema>;
 export type CreateCastInput = z.infer<typeof CreateCastInputSchema>;
