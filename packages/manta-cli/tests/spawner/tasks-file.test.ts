@@ -72,6 +72,21 @@ B:
     }
   });
 
+  it('throws with "<no extension>" marker when the file has no extension at all', () => {
+    // path.extname('plan') === '' — the fallback branch in tasks-file.ts:26
+    // surfaces "<no extension>" instead of an empty string so the CLI error
+    // is grep-able. Without this case, the ternary's right-hand side is
+    // never covered.
+    const dir = mkdtempSync(join(tmpdir(), 'manta-tf-'));
+    try {
+      const f = join(dir, 'plan');
+      writeFileSync(f, 'A:\n  task: x\n');
+      expect(() => parseTasksFile(f)).toThrow(/<no extension>/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('rejects an empty assignments object', () => {
     const dir = mkdtempSync(join(tmpdir(), 'manta-tf-'));
     try {
