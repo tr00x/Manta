@@ -323,3 +323,64 @@ Strategy 1's helper returns `false` (= "not isolated, fall through to existing l
 | 3. Orchestrator-policed redaction | `orchestrator.ts` post-cycle filter on `events.readAll` consumers | ~80 LOC + per-event rules | Soft, post-hoc | **Reject** — solves a different problem; degenerates into Strategy 1 in the cases that matter. |
 
 Combined Strategy 1+2 closes the spec Sec 5.8 surface for Phase 2 with one schema patch, one error class, one helper function, one handler edit each in `broadcast` and `message`, one env var, one skill v0.0.3 bullet, and four tests. Ship as Phase-2 Chunk 2 (after worktree-N spawning lands in Chunk 1).
+
+---
+
+## 9. Industry update — 2026-05-22 (post-cast addendum)
+
+Original bus-isolation research (above) was authored 2026-05-07 by clone-C with prior-art annotated as "tertiary, no WebSearch performed in this cast" (§7). Verifying those characterisations now, plus surveying what shipped industry-side since then. **None of the new entries change the recommendation (Strategy 1 + Strategy 2 still ships).** They sharpen the framing of *what Manta is unique in* and *why competitor isolation models leave the Sec 5.8 surface open*.
+
+### What every public competitor does for isolation, and what gap it leaves
+
+| System | Isolation primitive | Peer-bus exists? | Plagiarism prevention? | Maps to Manta |
+|---|---|---|---|---|
+| **Claude Code Agent Teams** (Anthropic, v2.1.32+, experimental) | None at filesystem level — "two teammates editing the same file leads to overwrites; break the work so each teammate owns a different set of files" | **Yes** — mailbox with direct teammate-to-teammate messaging, plus shared task list with file-lock-based claim | **No** — teammates can read each other's outputs via mailbox; design intent is collaboration, not adversarial parallel candidates | Closer to `recon-swarm` (peer messaging *allowed*) than `forking-realities`. Anthropic's mailbox is the closest public competitor to our `manta.message` MCP tool. The fact that it ships **with no isolation mode at all** confirms there is no off-the-shelf solution for Sec 5.8. |
+| **Replit Agent 4** (2026-03) | Each task runs in "isolated environments — exact copies of your current project"; merge-agent resolves conflicts on reintegration | No peer-bus disclosed; coordination via orchestrator | N/A — forks are different *tasks*, not parallel candidates for the same task | Different problem domain (refactor-wave-like). No insight transferable to Phase 2b. |
+| **oh-my-codex / Conductor / Composio agent-orchestrator** | Git worktree per agent; PreToolUse/PostToolUse hooks prevent cross-boundary writes | No bus; coordination via shared `.git` object database and tmux dashboard | Not addressed — there is nothing to leak through because no peer-channel exists | Validates that worktree isolation is necessary and table-stakes (matches Manta Phase 0 baseline). Doesn't address Sec 5.8 because the problem doesn't exist in their architecture. |
+| **CrewAI** | Process-level agent isolation; communication via tasks/delegations | Implicit via task delegation; no broadcast surface | Soft, prompt-level only (matches Manta's Strategy 2 if used alone) | Verified §7's characterisation. Strategy 2 alone is what CrewAI ships; Manta improves on this with Strategy 1's hard-stop at the bus. |
+| **AutoGen GroupChat** | None at filesystem level; group-chat-manager logic at orchestrator | Yes — every message broadcast to every participant by default | None built-in; isolation requires custom group-chat-manager rules | Verified §7's characterisation. Closest to a "Strategy 3" shape — exactly the pattern §6 rejects for being soft and post-hoc. |
+| **LangGraph** | `thread_id`-scoped checkpointer | Channel membership cast-scoped at the persistence layer | Hard via thread isolation, but channel-per-cast model differs from Manta's per-clone-within-cast | Verified §7's characterisation. `thread_id` is structurally similar to Manta's `metadata.cast_id` stamp, but LangGraph isolates at thread boundaries; Manta isolates *within* a cast (forking-realities siblings) which LangGraph doesn't natively address. |
+
+**Synthesis:** the public competitor that comes closest architecturally — Claude Code Agent Teams — explicitly *opts out* of the isolation problem ("break the work so each teammate owns a different set of files"). The competitor that comes closest to forking-realities semantically — Replit Agent 4 — solves a different problem (different tasks, not parallel candidates). **No public system enforces Sec 5.8 because no public system has both (a) a peer-messaging bus and (b) parallel candidates for the same task.** Manta is in unclaimed territory; ship Strategy 1+2 as-is.
+
+### Validates our design
+
+- **Bus-layer filter (Strategy 1) is the right mechanism for hard isolation.** Every public system that punts on isolation (Agent Teams, AutoGen) does so *because* the filter is missing at the message-bus layer. The few that have it (LangGraph thread_id) prove it works.
+- **Worktree isolation is necessary but insufficient.** oh-my-codex's PreToolUse/PostToolUse hooks confirm filesystem-level isolation is industry standard; Phase 0 baseline is correct. But that isolation doesn't address peer messaging — exactly the gap Strategy 1 closes.
+- **Cast-stamp at write time, not read-time redaction.** Strategy 3 (§6) was rejected on the grounds that orchestrator-policed redaction is post-hoc. AutoGen's GroupChat broadcasting-then-filtering is the cautionary example: write-time leakage exists in their architecture because the filter runs at read time.
+
+### Adjacent changes worth tracking (deferred, not Phase 2b)
+
+These come from competitor observation, not from spec changes:
+
+1. **`MANTA_BUS_PEER_SCOPE=denied` semantic stays right, but consider exposing it as `peer_scope: 'denied'|'cast'|'global'`.** Phase 2b ships binary denied/allowed; Phase 4 modes (`refactor-wave`, `bug-hunt`) may want `cast`-scoped peer messaging where siblings in the same cast can talk but cross-cast cannot. Defer to Phase 4 — needs use case validation from dogfood first.
+2. **`TaskCompleted` / `TeammateIdle` hooks (Agent Teams).** Anthropic infrastructurised lifecycle events that Manta currently expresses in the `manta-graceful-death` skill (soft prior). When Phase 4+ matures, consider migrating to PreToolUse/PostToolUse hook surface for hard enforcement — consistent with `claude-code-pitfalls.md` §3-§4 guidance. Defer until skill-based approach actually fails in dogfood; speculative migration burns budget.
+3. **Audit `events.readAll` consumer list (§5).** The original research listed `post-mortem.ts:44` as the only production caller. Verify before Phase 2b execute — if a second caller appeared (e.g., new debug/replay tooling from Phase 2d preview), Strategy 1 may need extension. Cheap to re-check: `grep -rn 'events.readAll\|EventsLog.readAll' packages/`. Treat as Phase 2b pre-flight, not blocking.
+
+### What we are explicitly choosing not to copy
+
+- **Agent Teams' mailbox-over-isolation default.** For `forking-realities`, hard deny at the bus is correct. For `recon-swarm`, our existing `peer_messaging: 'allowed'` already matches Agent Teams' default — no change needed.
+- **AutoGen-style "filter on read" architecture.** Confirmed write-time leakage risk in §6. Reject again.
+- **Replit-style merge-agent for sibling reconciliation.** Phase 2c best-of-N replaces this — sibling diffs are scored and one wins, no reconciliation needed.
+
+### Updated source list
+
+See "Sources" below — entries 1-9 are the original 2026-05-07 cast prior-art (mostly Wikipedia/spec); entries 10-15 added 2026-05-22.
+
+## Sources
+
+1. `docs/superpowers/specs/2026-05-06-manta-pattern-design.md` Sec 5.5, 5.7, 5.8, 11
+2. `packages/manta-bus/src/server.ts` — 18-tool handler surface
+3. `packages/manta-bus/src/state/events.ts` — append-only log architecture
+4. `packages/manta-bus/src/tools/communication.ts` — broadcast/message/drift handlers
+5. `packages/manta-bus/src/tools/contract.ts` — task_contract handlers
+6. `packages/manta-cli/src/spawner/clone-spawner.ts` — spawner pre-registration and env injection
+7. `packages/manta-orchestrator/src/post-mortem.ts` — only production `events.readAll` consumer at time of cast
+8. LangGraph checkpointer thread_id scoping (general docs, characterisation verified)
+9. CrewAI delegation model (general docs, characterisation verified)
+10. [Claude Code Agent Teams — official docs (Anthropic)](https://code.claude.com/docs/en/agent-teams) — mailbox / shared task list / file-lock claim / "no built-in worktree isolation" admission
+11. [Replit — What's changed from Agent 3 to Agent 4 (2026-03)](https://replit.com/blog/whats-changed-agent3-to-agent4) — fork-per-task + merge-agent architecture
+12. [particula.tech — oh-my-codex worktree pattern](https://particula.tech/blog/parallel-coding-agents-worktree-pattern-oh-my-codex) — PreToolUse/PostToolUse hooks for cross-boundary writes
+13. [ComposioHQ/agent-orchestrator](https://github.com/ComposioHQ/agent-orchestrator) — git-worktree-per-agent, no peer-bus
+14. [AutoGen GroupChat docs](https://microsoft.github.io/autogen/stable/user-guide/core-user-guide/components/group-chat.html) — broadcast-all default, characterisation verified
+15. [LangGraph checkpointer / thread_id docs](https://langchain-ai.github.io/langgraph/concepts/persistence/) — thread-scoped persistence as Strategy-1 analogue

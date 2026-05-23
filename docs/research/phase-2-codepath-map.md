@@ -634,3 +634,56 @@ metadata key (`cast_mode`).
   Output is one markdown file with file:line citations."
 - I did not investigate Wave-2 prerequisites (daemon mode, Phase 5);
   those are out of Phase 2's bootstrap-by-Manta scope per spec Sec 15.1.
+
+---
+
+## 10. Industry update — 2026-05-22 (post-cast addendum)
+
+Original codepath map (above) was authored 2026-05-07 by clone-A as an internal-surface walk. Phase 2a since shipped (cast manifest + forking-realities spawn surface, commits `69de728` / `80d3ea9` / `05a9df0`). This addendum cross-references current §1-§9 against what shipped publicly in industry between 2026-02 and 2026-05, and flags two callsite changes that have already landed.
+
+### Already-landed deltas to §3-§5 (Phase 2a, executed)
+
+The original map's §3-§5 listed Bus / CLI / Orchestrator surfaces as targets *to be modified* by Phase 2. Phase 2a executed three of those:
+
+- **`packages/manta-bus/src/state/casts.ts`** (new) — `CastsStore` lives alongside the surfaces enumerated in §3. References to "cast manifest" in §4-§5 of the original map should now be read as concrete code, not future work.
+- **`packages/manta-cli/src/spawner/clone-spawner.ts`** — `metadata.cast_mode` now stamped at spawn (§4 anticipated this). The pre-registration codepath in §4 was correctly identified as the modification point.
+- **`packages/manta-cli/src/spawner/priming.ts`** — `{APPROACH_HINT_BLOCK}` placeholder added per §5's "per-clone priming variation" requirement.
+
+Phase 2b (bus isolation) targets the same surfaces §3-§5 enumerate; the map is still authoritative for the Bus side.
+
+### Industry validation of the codepath shape
+
+The original map was Manta-internal — no comparison with public competitor codebases. Surveying 2026 multi-agent coding systems against the surface §1 lays out:
+
+| Surface | Manta location | Public competitor equivalent | Notes |
+|---|---|---|---|
+| Worktree allocation per clone | `packages/manta-cli/src/spawner/worktree.ts` | oh-my-codex, Conductor, Composio agent-orchestrator, Claude Squad — all worktree-per-worker | **Industry-standard pattern.** Manta's choice from Phase 0 validated. |
+| Clone spawn with primed system prompt | `packages/manta-cli/src/spawner/clone-spawner.ts` + `priming.ts` | Claude Code Agent Teams "spawn prompt" + subagent definition; oh-my-codex 30 role templates | Manta is unique in that the priming preserves *main's* identity rather than swapping in a role identity. |
+| Peer-message bus | `packages/manta-bus/src/server.ts` (18 tools) | Claude Code Agent Teams mailbox; AutoGen GroupChat | Closest competitor surface. None offer hard isolation at the bus layer (see `phase-2-bus-isolation.md` §9 for full comparison). |
+| Cast manifest / task list | `packages/manta-bus/src/state/casts.ts` (new in Phase 2a) | Claude Code Agent Teams `~/.claude/tasks/{team-name}/` | Same abstraction, different scope: Anthropic's task list is *shared write* across teammates; Manta's cast manifest is *spawner write, clone read* (idempotent). |
+| Post-mortem composer | `packages/manta-orchestrator/src/post-mortem.ts` | No public equivalent — competitors do not produce structured post-mortems per parallel session | Manta-unique surface. |
+| Best-of-N merge review | TBD (Phase 2c plan) | No public equivalent — Replit's merge-agent solves a different problem (different tasks, not N candidates) | Phase 2c stays in unclaimed territory. |
+| `TaskCompleted` / `TeammateIdle` lifecycle hooks | Currently expressed via `manta-graceful-death` skill (soft prior) | Claude Code Agent Teams `TeammateIdle`/`TaskCreated`/`TaskCompleted` hooks with exit-2 veto | Anthropic infrastructurised what Manta keeps in skill text. Migration to PreToolUse/PostToolUse hooks is on the Phase 4+ roadmap (see `claude-code-pitfalls.md` §3-§4). Not a Phase 2b/2c gate. |
+
+### Two callsite re-checks recommended before Phase 2b execute
+
+Original map §5 listed `packages/manta-orchestrator/src/post-mortem.ts:44` as the only production caller of `events.readAll`. Phase 2a touched orchestrator-adjacent surfaces; verify before Phase 2b plan ships:
+
+1. `grep -rn 'events\.readAll\|EventsLog\.readAll' packages/` — confirm caller list unchanged. If a Phase 2d preview (debug/replay tooling) added a second caller, Strategy 1 in `phase-2-bus-isolation.md` may need scope extension.
+2. `grep -rn 'task_contract\.read\|TaskContractStore\.read' packages/` — verify that cross-clone reads in `packages/manta-orchestrator/` only happen for the orchestrator's own audit purposes, not for any new "show siblings progress" feature that might have crept in.
+
+Both checks are cheap (30 seconds) and fall under Phase 2b pre-flight discipline; no action if greps confirm the original map.
+
+### Out of scope, again
+
+- I did not re-walk the codebase in this addendum; the original §1-§9 surface remains accurate except where Phase 2a already executed against it.
+- I did not survey non-public competitors (Devin, Codex CLI internal architectures) — limited to what shipped with public docs or source.
+- I did not investigate whether agentic-rubric pre-pass (see `phase-2-best-of-n-patterns.md` §"Industry update") needs new codepath additions — that's a Phase 2c plan-author concern.
+
+### Sources added 2026-05-22
+
+10. [Claude Code Agent Teams — official docs (Anthropic)](https://code.claude.com/docs/en/agent-teams)
+11. [Replit — What's changed from Agent 3 to Agent 4 (2026-03)](https://replit.com/blog/whats-changed-agent3-to-agent4)
+12. [particula.tech — oh-my-codex worktree pattern](https://particula.tech/blog/parallel-coding-agents-worktree-pattern-oh-my-codex)
+13. [ComposioHQ/agent-orchestrator](https://github.com/ComposioHQ/agent-orchestrator)
+14. Phase 2a executed commits: `69de728` (cast manifest infrastructure), `80d3ea9` (forking-realities spawn surface), `05a9df0` (review-fix I-1/I-2/I-3)

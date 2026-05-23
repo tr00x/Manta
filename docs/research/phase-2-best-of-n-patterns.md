@@ -223,6 +223,50 @@ The arc: **rank deterministically, decide humanly, audit obsessively, harvest lo
 
 ---
 
+## Industry update — 2026-05-22 (post-cast addendum)
+
+Original best-of-N research (above) was authored 2026-05-07 by clone-B with prior-art frozen at AlphaCode / Coder-Reviewer-Reranking / self-consistency. Since then the multi-agent coding space shipped major releases (Replit Agent 4 in March, Claude Code Agent Teams as experimental flag, multi-agent code-review tools, agentic-rubric research from Scale Labs). This section records what changed, what validates Manta's design, and where the academic frontier moved past our static-weight rubric.
+
+### What shipped in industry and how it maps to Manta
+
+| Product / paper | Mechanism | Maps to | Verdict for Manta |
+|---|---|---|---|
+| **Replit Agent 4** (2026-03-11) | Fork-per-task with auto-merge agent resolving ~90% conflicts | `refactor-wave` (Phase 4), not `forking-realities` | Different problem — forks are *different tasks*, not N candidates for the same task. No best-of-N selection mechanism. Keep our merge-review architecture; Phase 2c stays the more general design. |
+| **Claude Code Agent Teams** (Anthropic, v2.1.32+, experimental) | Team-lead + teammates + shared task list + mailbox + `TaskCompleted`/`TeammateIdle` hooks | Closer to `recon-swarm` than `forking-realities`. **Specialised** teammate roles, no built-in worktree isolation, no best-of-N. | Validates that the parallel-coordination shape (lead + task list + lifecycle hooks) is industry-correct. Manta differs by: same-prompt cloning, mandatory worktree isolation, best-of-N selection for `forking-realities`. |
+| **calimero-network/ai-code-reviewer** | 2-5 LLM agents in parallel, "Review Aggregator clusters findings → consensus score → rank by severity × agreement" | Closer to multi-perspective code review than forking-realities. Aggregates **findings**, not candidates. | Confirms consensus weighting works for review aggregation. Manta's choice to keep main-agent as merge-reviewer (Phase 2c) instead of a "reviewer panel" is justified for `N ∈ {2, 3}` — panel-style payoff appears at higher N. |
+| **Scale Labs — Agentic Rubrics** ([blog](https://labs.scale.com/blog/agentic-rubrics), arxiv 2601.04171) | Verifier actively explores the repository to **ground rubric criteria in actual code paths, interfaces, and project conventions** before scoring | Direct upgrade path for Phase 2c scoring | **Static weights in `.manta/config/scoring.json` are state-of-the-art-as-of-2025, not 2026.** Agentic rubric inspects repo (`.eslintrc`, `tsconfig.json`, perf budgets, existing test patterns) and tunes weights per-cast. See "Phase 2c addendum" below. |
+| **Scalable Best-of-N via Self-Certainty** (arxiv 2502.18581, 2026) | Model's own probability mass (self-certainty) used as ranking signal; outperforms universal self-consistency on code generation | Tie-breaker enhancement to §5 | Adds a third tier between composite score and `crypto.randomInt`: ask each clone to rate own confidence at end-of-task, use as tertiary tie-breaker. Cheap to add. |
+| **Inference-Time Code Selection via Symbolic Equivalence Partitioning** (arxiv 2604.06485, 2026) | Group candidates by behavioural equivalence on synthesised test inputs before scoring | Could collapse §4 "ties within ε=0.05" smarter | If two candidates produce identical test behaviour on hard test gate, the diff/complexity tiebreak is more principled than composite score. **Deferred** — only matters if hard test gate stops being uniquely passing/failing. |
+
+### What this validates in our original research
+
+- **Tournament selection rejected** (§1) — every 2026 multi-agent system that runs `N=2..5` uses flat ranking, not brackets. Validated.
+- **Pareto frontier rejected for primary selection** (§2) — calimero/Replit/Agent Teams all collapse to scalar selection. Validated.
+- **Composite weighted scoring** (§4) — rubric-based scoring with PASS/FAIL per item + scalar 1-10 is current SOTA per Scale Labs / `RubricRefine` (arxiv 2605.09730). Manta's `coverage 0.30 / diff 0.20 / complexity 0.20 / type 0.15 / lint 0.15 + perf bonus 0.10` is in the SOTA shape, just with static weights instead of agentic.
+- **Hard test gate before scoring** (§4) — matches "verification step checks each candidate finding against actual code behavior" across multi-agent code-review tooling. Validated.
+- **Insight harvesting from losers** (§7) — no public competitor harvests anything from non-winning candidates. They throw losers away. Manta's ZK-harvest-from-graveyard is original; keep it.
+
+### What is unique to Manta (no public equivalent as of 2026-05-22)
+
+1. **Best-of-N candidates for the same task contract.** Replit forks different tasks, Agent Teams assigns different roles. Nobody else runs N clones of the same task and picks one.
+2. **Same-prompt self-cloning.** Industry consensus is specialised roles (oh-my-codex 30 roles, calimero per-domain reviewers, Agent Teams role lenses). Manta is the only system where clones inherit the lead's identity.
+3. **Bus-level isolation enforcing plagiarism prevention** between sibling candidates (Phase 2b plan). Industry isolation is worktree-only, which doesn't address peer messaging because no one else has a peer-messaging bus to begin with.
+4. **Loser-side insight harvest** as a first-class output of the merge-review flow.
+
+### Phase 2c addendum — actionable changes to fold into the next sub-plan
+
+Not blocking Phase 2b. To be incorporated when Phase 2c plan is written:
+
+- **Agentic rubric pre-pass (Scale Labs)**: before computing the composite score, `manta-merge-review` reads project conventions — `tsconfig.json` strictness, `.eslintrc.*`, `vitest.config.ts` coverage thresholds, perf budgets if any — and adjusts the `.manta/config/scoring.json` weights for that cast. Worked example: project enforces `strict: true` + `noUncheckedIndexedAccess: true` → bump `type` weight from 0.15 to 0.25, reduce `diff` by 0.10. Audit every adjustment to Tier 4.
+- **Self-certainty as tertiary tie-breaker (arxiv 2502.18581)**: when composite scores land within the ε=0.05 noise band (§5), before falling back to `crypto.randomInt`, ask each tied clone for a one-line self-certainty rating at end-of-task (priming addition or skill section). Highest self-cert wins; random only if still tied within ±0.5 on a 1-10 scale.
+- **Don't add**: symbolic equivalence partitioning (arxiv 2604.06485) — needs synthesised test inputs that don't yet exist, and our hard test gate already disambiguates most ties before scoring.
+
+### What we are explicitly choosing not to copy
+
+- **Agent Teams "specialist teammate" pattern.** Same-prompt cloning is the paradigm-shift claim; specialising clones would erase it.
+- **Replit-style auto-merge agent for forking-realities.** Auto-merge across candidates makes sense for `refactor-wave` (Phase 4) but not for best-of-N where the winning candidate already contains a complete, mergeable diff.
+- **Consensus-of-findings aggregation** (calimero). For `N ∈ {2, 3}` consensus is binary or near-binary and adds no information over flat ranking; payoff appears at N ≥ 5.
+
 ## Sources
 
 1. [Tournament selection — Wikipedia](https://en.wikipedia.org/wiki/Tournament_selection)
@@ -234,6 +278,14 @@ The arc: **rank deterministically, decide humanly, audit obsessively, harvest lo
 7. [Li et al. — Competition-Level Code Generation with AlphaCode (arXiv 2203.07814)](https://ar5iv.labs.arxiv.org/html/2203.07814)
 8. [Zhang et al. — Coder Reviewer Reranking for Code Generation (arXiv 2211.16490)](https://arxiv.org/abs/2211.16490)
 9. [Wang et al. — Self-Consistency Improves Chain of Thought Reasoning in Language Models (arXiv 2203.11171)](https://arxiv.org/abs/2203.11171)
+10. [Claude Code Agent Teams — official docs (Anthropic)](https://code.claude.com/docs/en/agent-teams)
+11. [Replit — What's changed from Agent 3 to Agent 4 (2026-03)](https://replit.com/blog/whats-changed-agent3-to-agent4)
+12. [calimero-network/ai-code-reviewer — multi-agent review aggregator](https://github.com/calimero-network/ai-code-reviewer)
+13. [Scale Labs — Agentic Rubrics: Teaching AI to Verify Code the Way Developers Do](https://labs.scale.com/blog/agentic-rubrics)
+14. [Agentic Rubrics as Contextual Verifiers for SWE Agents (arXiv 2601.04171)](https://arxiv.org/pdf/2601.04171)
+15. [Scalable Best-of-N Selection for Large Language Models via Self-Certainty (arXiv 2502.18581)](https://arxiv.org/pdf/2502.18581)
+16. [Inference-Time Code Selection via Symbolic Equivalence Partitioning (arXiv 2604.06485)](https://arxiv.org/pdf/2604.06485)
+17. [RubricRefine: Training-Free Pre-Execution Refinement (arXiv 2605.09730)](https://arxiv.org/html/2605.09730v1)
 
 [1]: https://en.wikipedia.org/wiki/Tournament_selection
 [2]: https://www.baeldung.com/cs/ga-tournament-selection
