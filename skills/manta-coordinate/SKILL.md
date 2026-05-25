@@ -2,7 +2,7 @@
 name: manta-coordinate
 description: File locks, broadcast etiquette, work-claim board. How a clone shares the bus without stepping on siblings.
 audience: clone
-version: 0.0.1
+version: 0.0.2
 related: [manta-as-clone]
 ---
 
@@ -22,6 +22,15 @@ Multiple clones share a single Manta Bus. Coordination is data-driven (locks, cl
   - `dependency` — discovered code that affects another clone's scope
 - **Drift report**: every ~50 actions, call `manta.drift_report { score: 0..1, evidence }` so the main agent can spot scope drift early.
 - **Anchor sync**: when you receive a `contract_refresh` event from the main, re-read `manta.task_contract.read` and re-ack via `manta.ack_contract`.
+
+## Cast-agnostic contract_refresh (Sec 5.7)
+
+When you broadcast a `manta.contract_refresh` it fans out to every active
+clone, regardless of cast. Therefore the payload must be cast-agnostic —
+do not include per-cast approach hints, per-cast scope, or per-cast
+deliberations. For per-cast updates, use `manta.task_contract.write` per
+clone instead. Violation is a soft information leak across casts (research
+clone-C §6 "Contract refresh content").
 
 ## Forbidden
 

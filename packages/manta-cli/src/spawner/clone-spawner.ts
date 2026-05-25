@@ -147,6 +147,10 @@ export async function spawnClone(opts: SpawnCloneOptions): Promise<CloneHandle> 
       MANTA_SNAPSHOT_PATH: snapshotPath,
       MANTA_REPO_ROOT: opts.repoRoot,
       MANTA_CLONE_ID: cloneId,
+      MANTA_BUS_PEER_SCOPE:
+        opts.snapshot.taskContract.mode === 'forking-realities'
+          ? 'parent-only'
+          : 'siblings-allowed',
     },
     appendSystemPrompt: buildPrimingText(opts.snapshot),
     prompt: buildInitialPrompt(opts.snapshot),

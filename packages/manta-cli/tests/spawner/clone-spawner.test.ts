@@ -223,6 +223,52 @@ describe('clone-spawner', () => {
     expect(captured[0]).toContain('bypassPermissions');
   });
 
+  it('injects MANTA_BUS_PEER_SCOPE=parent-only for forking-realities clones', async () => {
+    fx = await makeRepoFixture();
+    let capturedEnv: Record<string, string> | undefined;
+    const envRunner = {
+      run(input: { cwd: string; env: Record<string, string>; appendSystemPrompt: string; prompt: string }) {
+        capturedEnv = input.env;
+        return execa(process.execPath, ['-e', 'process.exit(0)'], { reject: false });
+      },
+    };
+    await spawnClone({
+      repoRoot: fx.root,
+      snapshot: makeSnapshotFor({ cloneId: 'A', castId: 'cast-fr-env', mode: 'forking-realities' }),
+      worktree: fx.root,
+      runner: envRunner,
+      registry: makeRegistryFake(),
+      casts: makeFakeCasts().creator,
+      castMode: 'forking-realities',
+      castPolicy: { peer_messaging: 'denied', auto_merge_threshold: null },
+      castRoster: [{ clone_id: 'A', assignment: null }],
+    });
+    expect(capturedEnv?.MANTA_BUS_PEER_SCOPE).toBe('parent-only');
+  });
+
+  it('injects MANTA_BUS_PEER_SCOPE=siblings-allowed for recon-swarm clones', async () => {
+    fx = await makeRepoFixture();
+    let capturedEnv: Record<string, string> | undefined;
+    const envRunner = {
+      run(input: { cwd: string; env: Record<string, string>; appendSystemPrompt: string; prompt: string }) {
+        capturedEnv = input.env;
+        return execa(process.execPath, ['-e', 'process.exit(0)'], { reject: false });
+      },
+    };
+    await spawnClone({
+      repoRoot: fx.root,
+      snapshot: makeSnapshotFor({ cloneId: 'A', castId: 'cast-rs-env' }),
+      worktree: fx.root,
+      runner: envRunner,
+      registry: makeRegistryFake(),
+      casts: makeFakeCasts().creator,
+      castMode: 'recon-swarm',
+      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      castRoster: [{ clone_id: 'A', assignment: null }],
+    });
+    expect(capturedEnv?.MANTA_BUS_PEER_SCOPE).toBe('siblings-allowed');
+  });
+
   it('writes the cast manifest input identically across two spawnClone calls', async () => {
     fx = await makeRepoFixture();
     const reg = makeRegistryFake();

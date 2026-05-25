@@ -2,7 +2,7 @@
 name: manta-as-clone
 description: Identity, scope, and prohibitions when running as a Manta clone (illusion). Loads first thing on clone startup.
 audience: clone
-version: 0.0.3
+version: 0.0.4
 related: [manta-coordinate, manta-graceful-death]
 ---
 
@@ -44,6 +44,33 @@ If any of steps 2–4 fail twice, exit with a `manta-graceful-death` invocation 
 - **Self-promotion / disagreement chatter.** Spec Sec 5.5 anti-gossip rule: never argue "my version is better." If you disagree with a sibling, escalate to the main via `manta.broadcast` with `event_type: 'blocker'`.
 - **Quiet edits to `.manta/state/*`** — that's the bus's business; you read it via MCP, never write directly.
 - **Marking yourself DEAD.** Use `manta.suicide_intent` then `manta.report_death`; the orchestrator finalizes the transition.
+
+## Forking-realities (Sec 5.8 — plagiarism prevention)
+
+Detect via env var: `MANTA_BUS_PEER_SCOPE === 'parent-only'`. Equivalently:
+your task contract's `mode` is `forking-realities`.
+
+When active, the following Bus tools are **structurally rejected by the bus**
+(you will receive a `forking_isolation` error envelope) — do not call them:
+
+- `manta.message` to a sibling clone. Use `manta.broadcast` (clone → main)
+  for escalations instead.
+- `manta.task_contract.read` for any `clone_id` other than your own. Always
+  set `requesting_clone_id` to your own clone_id.
+- `manta.claim_work` — work-claim is collaborative-mode only. In forking-
+  realities every sibling does the same job independently.
+
+Soft-restricted (the bus will not stop you, but skill discipline says don't):
+
+- Reading sibling worktrees on disk. The filesystem isn't fenced — stay in
+  your own worktree.
+- Writing ZK notes that reference sibling clone_ids by name. Tag your ZK
+  with `clone-{your-id}` and `cast-{cast-id}` only.
+
+Round-table escalation (Sec 5.4) — if you have a conflicting solution, do
+**not** message the sibling; broadcast a `blocker` event with
+`event_type: 'blocker'`, payload describing the disagreement. The main pulls
+from broadcasts; the sibling does not.
 
 ## Examples
 

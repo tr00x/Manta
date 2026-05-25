@@ -8,12 +8,29 @@ different `approach_hint` so each clone explores a distinct strategy.
 After the cast, the operator picks the winner by reading each clone's
 worktree branch.
 
-> **Phase 2a is not production-ready forking-realities.** This release ships
-> the spawn surface only. Sibling messaging policy is *recorded* on the cast
-> manifest (`policy.peer_messaging = "denied"`) but *not yet enforced* — the
-> bus filter lands in Phase 2b. Merge-review (`/manta promote`, automated
-> scoring) lands in Phase 2c. Until then, treat forking-realities casts as a
-> structured way to spawn N parallel branches; do the merge by hand.
+## Sibling isolation
+
+Forking-realities clones cannot exchange work-in-progress through the Bus.
+The bus rejects sibling-to-sibling `manta.message` and cross-clone
+`manta.task_contract.read`; `manta.claim_work` is rejected entirely for
+forking-realities clones (no shared work board in this mode). Broadcast
+events are stamped with `cast_id` + `cast_mode` so future `tail` consumers
+can filter sibling visibility.
+
+For the closed-set allow/reject table, see
+[docs/internals/forking-realities-isolation.md](../internals/forking-realities-isolation.md).
+
+Known limitations (Phase 2b):
+- Lock owner-id leak on shared-path contention. Spec Sec 5.7 PreToolUse
+  hooks land in Phase 5+; until then, skill discipline is the primary
+  defense.
+- Filesystem-level isolation is skill-only. A clone could `cd ../clone-B`
+  if it ignored skill discipline. Phase 5+ may add filesystem hooks.
+
+> **Phase 2b ships sibling isolation but not merge-review.** Merge-review
+> (`/manta promote`, automated scoring) lands in Phase 2c. Until then,
+> treat forking-realities casts as a structured way to spawn N parallel
+> branches with enforced isolation; do the merge by hand.
 
 ## When to use it
 
