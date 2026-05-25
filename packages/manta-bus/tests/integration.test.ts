@@ -208,6 +208,14 @@ describe('Manta Bus end-to-end (recon-swarm slice)', () => {
     expect(lockParsed.error).toBe('locked');
 
     // claims — clone B cannot grab the claim A held before restart
+    // Phase 2b: claim_work now verifies the caller is registered.
+    await call(client2, 'manta.register', {
+      clone_id: 'B',
+      mode: 'recon-swarm',
+      parent_pid: 2,
+      worktree: '/w',
+      metadata: {},
+    });
     const claimErr = await client2.callTool({
       name: 'manta.claim_work',
       arguments: { clone_id: 'B', item: 'task-x', timeout_ms: 60_000 },

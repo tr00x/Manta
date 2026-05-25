@@ -22,6 +22,7 @@ import { createCommunicationHandlers } from './tools/communication';
 import { createMemoryHandlers } from './tools/memory';
 import {
   BusConflictError,
+  BusForkingIsolationError,
   BusLockedError,
   BusNotFoundError,
   BusStateError,
@@ -332,6 +333,18 @@ function serializeError(err: unknown): SerializedError {
       error: 'locked',
       message: err.message,
       details: { path: err.path, ownerCloneId: err.ownerCloneId },
+    };
+  }
+  if (err instanceof BusForkingIsolationError) {
+    return {
+      error: 'forking_isolation',
+      message: err.message,
+      details: {
+        tool: err.tool,
+        from: err.fromCloneId,
+        to: err.toCloneId ?? null,
+        cast_id: err.castId,
+      },
     };
   }
   if (err instanceof BusStateError) {

@@ -3,6 +3,7 @@ import { FakeClock } from '../../src/clock';
 import { busPaths } from '../../src/state/paths';
 import { ClaimsStore } from '../../src/state/claims';
 import { EventsLog } from '../../src/state/events';
+import { Registry } from '../../src/state/registry';
 import { makeTmpRoot } from '../helpers/tmpRoot';
 import { createWorkHandlers } from '../../src/tools/work';
 import { BusConflictError, BusValidationError } from '../../src/errors';
@@ -17,9 +18,25 @@ describe('work handlers', () => {
     ({ root, cleanup } = await makeTmpRoot());
     clock = new FakeClock(1_000_000);
     const paths = busPaths(root);
+    const registry = new Registry(paths, clock);
+    await registry.register({
+      clone_id: 'A',
+      mode: 'recon-swarm',
+      parent_pid: 1,
+      worktree: '/w',
+      metadata: {},
+    });
+    await registry.register({
+      clone_id: 'B',
+      mode: 'recon-swarm',
+      parent_pid: 2,
+      worktree: '/w',
+      metadata: {},
+    });
     handlers = createWorkHandlers({
       claims: new ClaimsStore(paths, clock),
       events: new EventsLog(paths, clock),
+      registry,
     });
   });
   afterEach(async () => {

@@ -1,6 +1,8 @@
 import { BroadcastInputSchema, DriftReportInputSchema, MessageInputSchema } from '../schema';
 import type { BusContext } from './index';
 import { parse } from './parse';
+import { siblingsInSameForkingCast } from './forking-isolation';
+import { BusForkingIsolationError } from '../errors';
 import type { BusEvent } from '../state/events';
 
 export interface CommunicationHandlers {
@@ -15,22 +17,39 @@ export function createCommunicationHandlers(
   return {
     async broadcast(input) {
       const parsed = parse(BroadcastInputSchema, input, 'broadcast');
+      const r = await ctx.registry.get(parsed.clone_id);
       const event = await ctx.events.append({
         type: 'broadcast',
         clone_id: parsed.clone_id,
-        payload: { event_type: parsed.event_type, body: parsed.payload },
+        payload: {
+          event_type: parsed.event_type,
+          body: parsed.payload,
+          cast_id: r.metadata.cast_id ?? null,
+          cast_mode: r.metadata.cast_mode ?? null,
+        },
       });
       return { event };
     },
 
     async message(input) {
       const parsed = parse(MessageInputSchema, input, 'message');
-      // Verify both clones are known — addressing a non-existent peer is a
-      // structural error, not a policy decision (see ARCHITECTURE.md). The
-      // registry's get() throws BusNotFoundError on miss, which the server's
-      // serializeError maps to the `not_found` envelope.
-      await ctx.registry.get(parsed.from_clone_id);
-      await ctx.registry.get(parsed.to_clone_id);
+      await Promise.all([
+        ctx.registry.get(parsed.from_clone_id),
+        ctx.registry.get(parsed.to_clone_id),
+      ]);
+      const sib = await siblingsInSameForkingCast(
+        { registry: ctx.registry },
+        parsed.from_clone_id,
+        parsed.to_clone_id,
+      );
+      if (sib.same) {
+        throw new BusForkingIsolationError({
+          tool: 'manta.message',
+          fromCloneId: parsed.from_clone_id,
+          toCloneId: parsed.to_clone_id,
+          castId: sib.castId,
+        });
+      }
       const event = await ctx.events.append({
         type: 'message',
         clone_id: parsed.from_clone_id,

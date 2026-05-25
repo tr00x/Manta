@@ -3,6 +3,7 @@ import { FakeClock } from '../../src/clock';
 import { busPaths } from '../../src/state/paths';
 import { ContractsStore } from '../../src/state/contracts';
 import { EventsLog } from '../../src/state/events';
+import { Registry } from '../../src/state/registry';
 import { makeTmpRoot } from '../helpers/tmpRoot';
 import { createContractHandlers } from '../../src/tools/contract';
 import { BusNotFoundError, BusValidationError } from '../../src/errors';
@@ -20,6 +21,7 @@ describe('contract handlers', () => {
     handlers = createContractHandlers({
       contracts: new ContractsStore(paths, clock),
       events: new EventsLog(paths, clock),
+      registry: new Registry(paths, clock),
     });
   });
   afterEach(async () => {

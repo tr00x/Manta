@@ -24,6 +24,10 @@ export const ModeSchema = z.enum([
 
 export const CloneStateSchema = z.enum(['STARTING', 'WORKING', 'BLOCKED', 'WINDING_DOWN', 'DEAD']);
 
+// Matches CastIdSchema pattern — duplicated here because metadata is
+// Record<string, string>, not typed against CastIdSchema directly.
+const SafeCastIdRegex = /^[A-Za-z0-9._-]+$/;
+
 export const RegisterInputSchema = z
   .object({
     clone_id: CloneIdSchema,
@@ -32,7 +36,19 @@ export const RegisterInputSchema = z
     worktree: z.string().min(1),
     metadata: z.record(z.string(), z.string()).default({}),
   })
-  .strict();
+  .strict()
+  .refine(
+    (input) => {
+      if (input.mode !== 'forking-realities') return true;
+      const id = input.metadata.cast_id;
+      return typeof id === 'string' && SafeCastIdRegex.test(id);
+    },
+    {
+      message:
+        'forking-realities clones must register with metadata.cast_id matching /^[A-Za-z0-9._-]+$/',
+      path: ['metadata', 'cast_id'],
+    },
+  );
 
 export const HeartbeatInputSchema = z
   .object({
@@ -85,6 +101,7 @@ export const TaskContractWriteInputSchema = z
 export const TaskContractReadInputSchema = z
   .object({
     clone_id: CloneIdSchema,
+    requesting_clone_id: CloneIdSchema.optional(),
   })
   .strict();
 

@@ -74,10 +74,18 @@ describe('audit-trail invariant — events.append fault aborts state mutation', 
 
   it('work.claim: failing events.append leaves no claim', async () => {
     const paths = busPaths(root);
+    const registry = new Registry(paths, clock);
+    await registry.register({
+      clone_id: 'A',
+      mode: 'recon-swarm',
+      parent_pid: 1,
+      worktree: '/w',
+      metadata: {},
+    });
     const claims = new ClaimsStore(paths, clock);
     const events = new EventsLog(paths, clock);
     vi.spyOn(events, 'append').mockRejectedValueOnce(new Error('claim log fail'));
-    const handlers = createWorkHandlers({ claims, events });
+    const handlers = createWorkHandlers({ claims, events, registry });
 
     await expect(
       handlers.claim({ clone_id: 'A', item: 'task-1', timeout_ms: 60_000 }),
@@ -91,7 +99,7 @@ describe('audit-trail invariant — events.append fault aborts state mutation', 
     const contracts = new ContractsStore(paths, clock);
     const events = new EventsLog(paths, clock);
     vi.spyOn(events, 'append').mockRejectedValueOnce(new Error('contract log fail'));
-    const handlers = createContractHandlers({ contracts, events });
+    const handlers = createContractHandlers({ contracts, events, registry: new Registry(paths, clock) });
 
     await expect(
       handlers.write({

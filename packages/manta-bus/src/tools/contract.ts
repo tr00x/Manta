@@ -6,6 +6,8 @@ import {
 } from '../schema';
 import type { BusContext } from './index';
 import { parse } from './parse';
+import { crossCloneRead } from './forking-isolation';
+import { BusForkingIsolationError } from '../errors';
 import type { BusEvent } from '../state/events';
 import type { StoredContract, ContractAck } from '../state/contracts';
 
@@ -17,13 +19,11 @@ export interface ContractHandlers {
 }
 
 export function createContractHandlers(
-  ctx: Pick<BusContext, 'contracts' | 'events'>,
+  ctx: Pick<BusContext, 'contracts' | 'events' | 'registry'>,
 ): ContractHandlers {
   return {
     async write(input) {
       const parsed = parse(TaskContractWriteInputSchema, input, 'task_contract.write');
-      // Audit-then-state: events.append runs inside the contract file mutex,
-      // before tmp+rename. Same invariant as lifecycle handlers.
       let event!: BusEvent;
       const stored = await ctx.contracts.write(parsed.contract, async () => {
         event = await ctx.events.append({
@@ -37,6 +37,20 @@ export function createContractHandlers(
 
     async read(input) {
       const parsed = parse(TaskContractReadInputSchema, input, 'task_contract.read');
+      if (parsed.requesting_clone_id) {
+        const cr = await crossCloneRead(
+          { registry: ctx.registry },
+          parsed.requesting_clone_id,
+          parsed.clone_id,
+        );
+        if (cr.blocked) {
+          throw new BusForkingIsolationError({
+            tool: 'manta.task_contract.read',
+            fromCloneId: parsed.requesting_clone_id,
+            castId: cr.castId,
+          });
+        }
+      }
       const stored = await ctx.contracts.read(parsed.clone_id);
       return { stored };
     },

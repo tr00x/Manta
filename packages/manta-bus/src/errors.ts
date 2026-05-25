@@ -44,3 +44,26 @@ export class BusLockedError extends Error {
     this.ownerCloneId = ownerCloneId;
   }
 }
+
+export class BusForkingIsolationError extends Error {
+  readonly tool: string;
+  readonly fromCloneId: string;
+  readonly toCloneId: string | undefined;
+  readonly castId: string;
+  constructor(input: {
+    tool: string;
+    fromCloneId: string;
+    toCloneId?: string;
+    castId: string;
+  }) {
+    const target = input.toCloneId ? ` → ${input.toCloneId}` : '';
+    super(
+      `forking-realities cast ${input.castId}: ${input.tool} from ${input.fromCloneId}${target} is forbidden (Sec 5.8)`,
+    );
+    this.name = 'BusForkingIsolationError';
+    this.tool = input.tool;
+    this.fromCloneId = input.fromCloneId;
+    this.toCloneId = input.toCloneId;
+    this.castId = input.castId;
+  }
+}
