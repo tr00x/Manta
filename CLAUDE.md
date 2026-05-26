@@ -180,6 +180,28 @@ Cast если хотя бы одно:
 - Drift > 30% от текущей задачи у мейна — зовём `manta status`, читаем CLAUDE.md, перечитываем задачу
 - Юзер сказал «стоп» — `/manta abort` мгновенно
 
+## Post-cast merge ceremony (HARD RULE — нарушал 2026-05-26, Phase 3 Chunk 2)
+
+Каждый forking-realities cast генерирует `docs/merge-reviews/cast-<id>.md`. Это **первый** артефакт который надо прочитать после завершения каста. Не мёржить обе ветки «потому что обе полезные» — следовать verdict'у.
+
+**Обязательный чеклист (пропуск шага = баг в процессе):**
+1. `cat docs/merge-reviews/cast-<id>.md` — прочитать verdict и scores
+2. Следовать verdict'у: если "merge A" — merge A. Код из B — cherry-pick отдельных коммитов если нужно, не blind merge
+3. Code review субагентом (`Agent` type=`code-reviewer`) на diff winning branch перед merge
+4. Merge + resolve conflicts + build+test sweep
+5. Post-mortem в `docs/post-mortems/`
+6. Commit artifacts (merge-review, tasks yaml, post-mortem)
+
+**Task YAML — shared prereqs:**
+- Shared prerequisite module (создаваемый файл от которого зависят оба клона) → назначить ОДНОМУ клону
+- Второму клону в описании: "Этот файл создаёт Clone X. Пиши против интерфейса из плана, твой код будет тестироваться после merge с реализацией Clone X."
+- НЕ использовать self-help pattern "создай если не существует" — в forking-realities worktrees изолированы, оба создадут, гарантированный add/add конфликт (нарушал 2026-05-26)
+
+**Monitor casts:**
+- Для cast'ов < 20 минут: не ставить monitor вообще — дождаться background task completion
+- Если monitor нужен: эмитить ТОЛЬКО state transitions (STARTING→WORKING→WINDING_DOWN→DEAD), не heartbeat ages
+- Не поллить registry вручную (см. feedback-no-heartbeat-polling)
+
 ## Project ergonomics
 
 - Working directory: `/Users/timur/projectos/manta`
