@@ -11,6 +11,10 @@ import { runInspectCommand } from '../commands/inspect.js';
 import { runTailCommand } from '../commands/tail.js';
 import { runReplayCommand } from '../commands/replay.js';
 import { runAuditCommand } from '../commands/audit.js';
+import { runCostCommand } from '../commands/cost.js';
+import { runChargesCommand } from '../commands/charges.js';
+import { runRefreshCommand } from '../commands/refresh.js';
+import { runLimitCommand } from '../commands/limit.js';
 import { runClaudeCli } from '../spawner/clone-spawner.js';
 import { parseTasksFile } from '../spawner/tasks-file.js';
 import { createReporter, StderrSink } from '../output/reporter.js';
@@ -263,6 +267,50 @@ async function main(): Promise<void> {
           ...(options.gaps ? { gapThreshold: parseInt(options.gapThreshold, 10) } : {}),
           reporter,
         }),
+      );
+    });
+
+  program
+    .command('cost [period]')
+    .description('Show daily/weekly spend summary')
+    .action(async (period: string | undefined) => {
+      const p = period === 'week' ? 'week' : 'today';
+      await runWithRuntime((rt) => runCostCommand(rt, { period: p, reporter }));
+    });
+
+  program
+    .command('charges')
+    .description('Show charge system state — current charges, cooldown, mode availability')
+    .action(async () => {
+      await runWithRuntime((rt) => runChargesCommand(rt, { reporter }));
+    });
+
+  program
+    .command('refresh')
+    .description('Reset cooldown with double-confirm')
+    .action(async () => {
+      await runWithRuntime((rt) => runRefreshCommand(rt, { reporter }));
+    });
+
+  const limitCmd = program
+    .command('limit')
+    .description('Read/write budget configuration');
+
+  limitCmd
+    .command('get [key]')
+    .description('Show budget config (all or specific key)')
+    .action(async (key?: string) => {
+      await runWithRuntime((rt) =>
+        runLimitCommand(rt, { subcommand: 'get', key, reporter }),
+      );
+    });
+
+  limitCmd
+    .command('set <key> <value>')
+    .description('Update a budget config value')
+    .action(async (key: string, value: string) => {
+      await runWithRuntime((rt) =>
+        runLimitCommand(rt, { subcommand: 'set', key, value, reporter }),
       );
     });
 
