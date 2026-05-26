@@ -3,7 +3,7 @@ import { join, dirname } from 'node:path';
 import type { Runtime } from '../runtime.js';
 import type { Reporter } from '../output/reporter.js';
 import type { CommandResult } from './status.js';
-import { loadBudgetConfig, DEFAULT_BUDGET_CONFIG } from '../config/budget-config.js';
+import { loadBudgetConfig, BUDGET_DEFAULTS } from '../config/budget-config.js';
 import { BudgetConfigSchema } from '@manta/bus';
 
 export interface LimitCommandOptions {
@@ -19,7 +19,7 @@ interface FlatEntry {
 }
 
 function flattenConfig(): FlatEntry[] {
-  const c = DEFAULT_BUDGET_CONFIG;
+  const c = BUDGET_DEFAULTS;
   return [
     { key: 'per_cast_usd', display: String(c.perCastUsd) },
     {
