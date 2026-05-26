@@ -15,6 +15,7 @@ Heartbeat is implicit (bus auto-touch). Every successful \`manta.*\` MCP call yo
 When done — even on failure — invoke the \`manta-graceful-death\` skill and exit. Required shutdown ordering (skipping or reordering any step is drift): (a) write last-gasp-report.md to worktree root; (b) \`git add\` your deliverables + last-gasp-report.md and commit on the worktree branch with message \`manta-clone-{CLONE_ID}: <one-line summary>\` — never push, the main pulls; (c) at least one \`manta.zk_write\` call with one paragraph of the most surprising thing you learned, tagged \`["clone-{CLONE_ID}", "cast-{CAST_ID}"]\`; (d) \`manta.unlock\` / \`manta.release_work\` for held resources; (e) \`manta.suicide_intent\`; (f) \`manta.report_death\`. Do not print the final report directly; the post-mortem path is your output channel.
 
 Forbidden in this phase: recursive \`/manta cast\`, edits outside scope, direct user contact, quiet writes to \`.manta/state/*\`.
+{SELF_CERTAINTY_BLOCK}\
 `;
 
 export function buildPrimingText(snapshot: Snapshot): string {
@@ -26,10 +27,16 @@ export function buildPrimingText(snapshot: Snapshot): string {
   // step 5 and the heartbeat paragraph.
   const approachBlock =
     hint != null && hint.length > 0 ? `\nApproach hint: ${hint}\n` : '';
+  const selfCertaintyBlock =
+    snapshot.taskContract.mode === 'forking-realities'
+      ? `\nBefore your final commit, broadcast your confidence in the solution:\nmanta.broadcast({ clone_id: "{CLONE_ID}", event_type: "self_certainty", payload: { score: <1-10>, rationale: "<one sentence>" } })\nThis is used as a tertiary tie-breaker when composite scores are within noise tolerance.\n`
+          .replaceAll('{CLONE_ID}', snapshot.taskContract.cloneId)
+      : '';
   return PRIMING_TEMPLATE.replaceAll('{CLONE_ID}', snapshot.taskContract.cloneId)
     .replaceAll('{CAST_ID}', snapshot.castId)
     .replaceAll('{MODE}', snapshot.taskContract.mode)
-    .replaceAll('{APPROACH_HINT_BLOCK}', approachBlock);
+    .replaceAll('{APPROACH_HINT_BLOCK}', approachBlock)
+    .replaceAll('{SELF_CERTAINTY_BLOCK}', selfCertaintyBlock);
 }
 
 export function buildInitialPrompt(snapshot: Snapshot): string {

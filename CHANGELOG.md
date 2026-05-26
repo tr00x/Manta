@@ -6,6 +6,13 @@ All notable changes to Manta. Format follows [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Merge-review scoring engine + `/manta promote` command (Phase 2c). After a forking-realities cast, the CLI auto-collects metrics (test pass/fail, coverage delta, diff size, complexity, tsc errors, lint) per candidate, scores them with a composite weighted metric, and writes `docs/merge-reviews/<castId>.md`. Operator promotes the winner via `manta promote <castId>/<cloneId>` — merges the branch, graveyards losers.
+- Agentic rubric pre-pass: reads `tsconfig.json`, `.eslintrc.*`, `vitest.config.ts` to adjust scoring weights per-cast. Auditable weight adjustments in the merge-review document.
+- Self-certainty tie-breaker: forking-realities clones broadcast confidence scores (`self_certainty` event type) used as tertiary tie-breaker within ε noise band.
+- Cross-candidate ZK harvest: convergent rewrites (files changed by 2+ clones) surfaced as ZK notes tagged `loser-insights`.
+- `manta-merge-review` skill (main-side) + `/manta promote` slash command.
+- Graveyard helper: `moveWorktreeToGraveyard` moves loser worktrees to `.manta/graveyard/<castId>-<cloneId>/` with `info.json` sidecar.
+- `docs/internals/merge-review-scoring.md` — weight rationale, agentic rubric, tie-breaking chain.
 - `forking-realities` mode allowlist (Phase 2a — spawn surface only; bus isolation is Phase 2b, merge-review is Phase 2c).
 - Cast manifest at `.manta/state/casts/<castId>.json` (mode + roster + policy; idempotent across clones).
 - `registry.metadata.cast_mode` (Phase 2b filter join key).

@@ -19,7 +19,9 @@ import {
   mergeThresholds,
   makeProbe,
   fsPostMortemWriter,
+  fsMergeReviewWriter,
   type Thresholds,
+  type MergeReviewWriter,
 } from '@manta/orchestrator';
 
 import { CliError } from './errors.js';
@@ -34,6 +36,7 @@ export interface Runtime {
   ctx: BusContext;
   orchestrator: Orchestrator;
   thresholds: Thresholds;
+  mergeReviewWriter: MergeReviewWriter;
   dispose: () => Promise<void>;
 }
 
@@ -81,11 +84,17 @@ export async function createRuntime(opts: CreateRuntimeOptions): Promise<Runtime
     writer: fsPostMortemWriter({ repoRoot, postMortemDir: thresholds.postMortemDir }),
   });
 
+  const mergeReviewWriter = fsMergeReviewWriter({
+    repoRoot,
+    mergeReviewDir: thresholds.mergeReviewDir,
+  });
+
   return {
     repoRoot,
     ctx,
     orchestrator,
     thresholds,
+    mergeReviewWriter,
     dispose: async () => {
       // No resources to release in Phase 0 — placeholder for daemon-mode.
     },

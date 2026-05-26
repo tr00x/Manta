@@ -8,6 +8,7 @@ export const ThresholdsSchema = z
     parentPidCheckEnabled: z.boolean(),
     cycleIntervalMs: z.number().int().positive(),
     postMortemDir: z.string().min(1),
+    mergeReviewDir: z.string().min(1),
   })
   .strict();
 
@@ -36,6 +37,7 @@ export const defaultThresholds: Thresholds = {
   parentPidCheckEnabled: true,
   cycleIntervalMs: 5_000,
   postMortemDir: 'docs/post-mortems',
+  mergeReviewDir: 'docs/merge-reviews',
 };
 
 export function mergeThresholds(override: Partial<Thresholds>): Thresholds {

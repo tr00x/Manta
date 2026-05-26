@@ -91,6 +91,23 @@ describe('buildPrimingText — {APPROACH_HINT_BLOCK} substitution (Phase 2a)', (
   });
 });
 
+describe('buildPrimingText — self-certainty (Phase 2c)', () => {
+  it('forking-realities priming includes self_certainty broadcast instruction', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', mode: 'forking-realities' });
+    const text = buildPrimingText(snap);
+    expect(text).toContain('self_certainty');
+    expect(text).toContain('score');
+    expect(text).not.toContain('{SELF_CERTAINTY_BLOCK}');
+  });
+
+  it('recon-swarm priming does NOT include self_certainty', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', mode: 'recon-swarm' });
+    const text = buildPrimingText(snap);
+    expect(text).not.toContain('self_certainty');
+    expect(text).not.toContain('{SELF_CERTAINTY_BLOCK}');
+  });
+});
+
 describe('buildInitialPrompt', () => {
   const snap = makeSnapshotFor({ cloneId: 'clone-A', task: 'map auth/* and billing/*' });
 

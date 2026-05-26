@@ -148,7 +148,7 @@ export const LockInputSchema = z
   })
   .strict();
 
-export const BroadcastEventTypeSchema = z.enum(['breakthrough', 'blocker', 'dependency']);
+export const BroadcastEventTypeSchema = z.enum(['breakthrough', 'blocker', 'dependency', 'self_certainty']);
 
 export const BroadcastInputSchema = z
   .object({

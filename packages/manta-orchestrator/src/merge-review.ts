@@ -53,7 +53,7 @@ export interface BusContext {
   casts: { read(castId: string): Promise<CastManifest>; list(): Promise<CastManifest[]> };
   registry: { list(): Promise<CloneRecord[]> };
   events: {
-    readAll(): Promise<Array<{ type: string; payload?: Record<string, unknown> }>>;
+    readAll(): Promise<Array<{ type: string; clone_id?: string; payload: unknown }>>;
     append(record: unknown): Promise<void>;
   };
 }
@@ -74,8 +74,8 @@ export async function findFinalisedCasts(
 
   const reviewedCastIds = new Set(
     events
-      .filter((e) => e.type === 'merge_review' && e.payload?.cast_id)
-      .map((e) => e.payload!.cast_id as string),
+      .filter((e) => e.type === 'merge_review' && (e.payload as Record<string, unknown>)?.cast_id)
+      .map((e) => (e.payload as Record<string, unknown>).cast_id as string),
   );
 
   const results: FinalisedCast[] = [];

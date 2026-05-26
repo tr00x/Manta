@@ -14,6 +14,10 @@ import { buildCloneSnapshot } from '../spawner/snapshot-builder.js';
 import { runTickLoop } from '../tick-loop.js';
 import { CliError } from '../errors.js';
 import { verifyMantaBusRegistered } from './mcp-preflight.js';
+import { loadScoringConfig, runMergeReview, type BusContext as MergeReviewBusContext } from '@manta/orchestrator';
+import { createMetricCollector } from './merge-review-collector.js';
+import { adjustWeightsFromProject } from './rubric-prepass.js';
+import { listWorktrees } from '../spawner/worktree.js';
 
 // Phase 2a: forking-realities joins recon-swarm. Spec Sec 2 #2; see
 // docs/research/phase-2-codepath-map.md §1.1 for the per-mode capability
@@ -324,6 +328,49 @@ export async function runCastCommand(
         }
       }),
     );
+    if (opts.mode === 'forking-realities' && !loopResult.aborted) {
+      try {
+        const config = await loadScoringConfig(rt.repoRoot);
+        const { config: adjustedConfig, adjustments } = await adjustWeightsFromProject(rt.repoRoot, config);
+        const collector = createMetricCollector();
+        const allEvents = await rt.ctx.events.readAll();
+        const allWorktrees = await listWorktrees({ repoRoot: rt.repoRoot });
+
+        const candidates = await Promise.all(
+          cloneIds.map(async (id) => {
+            const expectedBranch = `manta/${opts.castId}/${id}`;
+            const wt = allWorktrees.find((w) => w.branch === expectedBranch);
+            const wtPath = wt?.path ?? `${rt.repoRoot}/.manta/worktrees/clone-${id}`;
+            const collected = await collector.collect(id, wtPath, 'main');
+            const certEvent = allEvents.find(
+              (e) =>
+                e.clone_id === id &&
+                e.type === 'broadcast' &&
+                (e.payload as Record<string, unknown> | null)?.event_type === 'self_certainty',
+            );
+            const selfCertainty = certEvent
+              ? ((certEvent.payload as Record<string, unknown> | null)?.score as number) ?? null
+              : null;
+            return { ...collected, selfCertainty };
+          }),
+        );
+
+        await runMergeReview(rt.ctx as unknown as MergeReviewBusContext, {
+          castId: opts.castId,
+          candidates,
+          config: adjustedConfig,
+          weightAdjustments: adjustments,
+          writer: rt.mergeReviewWriter,
+        });
+        opts.reporter.info('cast.merge_review', { cast: opts.castId });
+      } catch (err) {
+        opts.reporter.info('cast.merge_review_failed', {
+          cast: opts.castId,
+          error: (err as Error)?.message ?? String(err),
+        });
+      }
+    }
+
     opts.reporter.info('cast.done', {
       cast: opts.castId,
       clones: cloneIds.length,

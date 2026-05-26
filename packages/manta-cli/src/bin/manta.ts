@@ -6,6 +6,7 @@ import { runStatusCommand } from '../commands/status.js';
 import { runKillCommand } from '../commands/kill.js';
 import { runAbortCommand } from '../commands/abort.js';
 import { runRecoverCommand } from '../commands/recover.js';
+import { runPromoteCommand } from '../commands/promote.js';
 import { runClaudeCli } from '../spawner/clone-spawner.js';
 import { parseTasksFile } from '../spawner/tasks-file.js';
 import { createReporter, StderrSink } from '../output/reporter.js';
@@ -165,6 +166,23 @@ async function main(): Promise<void> {
     .description('Run one orchestrator cycle to clean up stale state')
     .action(async () => {
       await runWithRuntime((rt) => runRecoverCommand(rt, { reporter }));
+    });
+
+  program
+    .command('promote <target>')
+    .description('Merge the winning candidate from a forking-realities cast (format: castId/cloneId)')
+    .action(async (target: string) => {
+      const sep = target.indexOf('/');
+      if (sep === -1) {
+        process.stderr.write('[manta] promote: expected format castId/cloneId\n');
+        process.exitCode = 1;
+        return;
+      }
+      const castId = target.slice(0, sep);
+      const cloneId = target.slice(sep + 1);
+      await runWithRuntime((rt) =>
+        runPromoteCommand(rt, { castId, cloneId, reporter }),
+      );
     });
 
   await program.parseAsync(process.argv);

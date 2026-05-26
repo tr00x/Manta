@@ -2,7 +2,7 @@
 name: manta-as-clone
 description: Identity, scope, and prohibitions when running as a Manta clone (illusion). Loads first thing on clone startup.
 audience: clone
-version: 0.0.4
+version: 0.0.5
 related: [manta-coordinate, manta-graceful-death]
 ---
 
@@ -20,7 +20,7 @@ You are a **clone** — an illusion of the main agent — spawned for one specif
 - **Heartbeat is implicit on every successful `manta.*` MCP call** (bus auto-touch, bug #9 structural fix). You do **not** need to call `manta.heartbeat` on a cadence — any successful bus interaction (lock, claim, broadcast, zk_write, contract_ack, …) updates your `last_heartbeat_at` as a side effect. The orchestrator's `heartbeatTimeoutMs` (default 90 s) is measured against your last bus interaction of any kind, not your last explicit `manta.heartbeat` call. Skill-level "first call of every turn must be heartbeat" rules were tried in v0.0.2 and validation cast `cast-1778189501846` proved they don't work — that's why the bus enforces it now.
 - **Call `manta.heartbeat` explicitly only for state transitions or progress reporting.** Examples: transition `WORKING → BLOCKED` (escalation), `WORKING → WINDING_DOWN` (graceful shutdown via `manta.suicide_intent`), or `WORKING → WORKING` with a `progress` string when you hit a milestone you want in `events.jsonl`. Do not heartbeat just to "stay alive" — your other bus calls already do that.
 - Renew any held file lock every ≤ 5 s via `manta.renew_lock` (this is also a normal bus call, so it implicitly heartbeats too).
-- Broadcast filtered events: `breakthrough`, `blocker`, `dependency`. Send via `manta.broadcast`.
+- Broadcast filtered events: `breakthrough`, `blocker`, `dependency`, `self_certainty`. Send via `manta.broadcast`.
 - Direct-message a sibling clone via `manta.message` only for round-table escalation (Sec 5.4).
 - Append insights to ZK and PARA via `manta.zk_write` / `manta.para_append` while you're alive.
 - On shutdown — even forced — invoke the `manta-graceful-death` skill before exit.
@@ -44,6 +44,10 @@ If any of steps 2–4 fail twice, exit with a `manta-graceful-death` invocation 
 - **Self-promotion / disagreement chatter.** Spec Sec 5.5 anti-gossip rule: never argue "my version is better." If you disagree with a sibling, escalate to the main via `manta.broadcast` with `event_type: 'blocker'`.
 - **Quiet edits to `.manta/state/*`** — that's the bus's business; you read it via MCP, never write directly.
 - **Marking yourself DEAD.** Use `manta.suicide_intent` then `manta.report_death`; the orchestrator finalizes the transition.
+
+### Self-certainty (forking-realities only)
+
+Before your final commit, broadcast a self-certainty score (1-10) rating your confidence in the solution. This is used as a tie-breaker when composite scores are within noise tolerance. Example: `manta.broadcast({ clone_id: "<your-id>", event_type: "self_certainty", payload: { score: 8, rationale: "Clean solution, all tests pass, no hacks" } })`. Skipping is fine — the scoring engine handles absence gracefully.
 
 ## Forking-realities (Sec 5.8 — plagiarism prevention)
 

@@ -27,10 +27,38 @@ Known limitations (Phase 2b):
 - Filesystem-level isolation is skill-only. A clone could `cd ../clone-B`
   if it ignored skill discipline. Phase 5+ may add filesystem hooks.
 
-> **Phase 2b ships sibling isolation but not merge-review.** Merge-review
-> (`/manta promote`, automated scoring) lands in Phase 2c. Until then,
-> treat forking-realities casts as a structured way to spawn N parallel
-> branches with enforced isolation; do the merge by hand.
+## Merge review
+
+When all clones in a forking-realities cast are DEAD, the CLI automatically
+collects metrics from each clone's worktree and generates a scored
+merge-review at `docs/merge-reviews/<castId>.md`.
+
+The scoring engine evaluates candidates on 6 axes: test coverage delta,
+diff size, cyclomatic complexity delta, TypeScript errors, ESLint
+warnings/errors, and performance (when benchmarks exist). Candidates whose
+test suite fails are disqualified entirely.
+
+An agentic rubric pre-pass adjusts weights based on the project's
+configuration (e.g., strict tsconfig bumps the typeCheck weight). Weights
+can also be tuned manually via `.manta/config/scoring.json`.
+
+The merge-review document includes:
+- **Verdict**: `manual_review_required` (Phase 2 default), `auto_merge_eligible`,
+  `no_candidates_passed_gate`, or `dominance_inversion_flagged`.
+- **Score table**: per-candidate normalized scores and composite ranking.
+- **Tie-break explanation**: axis priority → Pareto dominance → self-certainty → defer.
+- **Proposed merge command**: the exact `git merge` to run.
+
+To promote the winner:
+
+```bash
+manta promote <castId>/<cloneId>
+```
+
+This merges the winner's branch (`--no-ff`), moves loser worktrees to
+`.manta/graveyard/`, and emits a `promote` event. The operator can promote
+any clone in the roster — not just the top-ranked one — when domain
+knowledge overrides the scoring engine's recommendation.
 
 ## When to use it
 
@@ -145,9 +173,9 @@ After a successful `manta cast forking-realities`:
   `metadata.cast_id = "<castId>"`. The Phase 2b sibling-message filter
   joins on these without re-reading the manifest.
 
-Merge-review is manual until Phase 2c lands — the operator inspects each
-`manta/<castId>/<cloneId>` branch via plain `git diff` / `git log` and
-merges the chosen one with `git merge`.
+After a cast, the merge-review is auto-generated. The operator reads
+`docs/merge-reviews/<castId>.md`, inspects branches via `git diff`, and
+runs `manta promote <castId>/<cloneId>` to merge the chosen winner.
 
 ## Runtime dependency note
 

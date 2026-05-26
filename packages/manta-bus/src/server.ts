@@ -197,7 +197,7 @@ export async function createBusServer(opts: CreateBusServerOptions): Promise<Bus
     },
     {
       name: 'manta.broadcast',
-      description: 'Broadcast a filtered event (breakthrough/blocker/dependency)',
+      description: 'Broadcast a filtered event (breakthrough/blocker/dependency/self_certainty)',
       inputSchema: jsonSchema(),
       handle: (args) => comm.broadcast(args),
     },

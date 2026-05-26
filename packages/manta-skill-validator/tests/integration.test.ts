@@ -20,17 +20,17 @@ describe('Phase 0e content integration', () => {
     expect(result.warnings).toEqual([]);
   });
 
-  it('all four Phase-0 skills are present', async () => {
+  it('all skills are present', async () => {
     const result = await validateAll(repoRoot);
     const skillReports = result.reports.filter((r) => r.path.startsWith('skills/'));
     const skills = skillReports.map((r) => r.path.replace(/^skills\//, '').replace(/\/SKILL\.md$/, '')).sort();
-    expect(skills).toEqual(['manta-as-clone', 'manta-cast-decide', 'manta-coordinate', 'manta-graceful-death']);
+    expect(skills).toEqual(['manta-as-clone', 'manta-cast-decide', 'manta-coordinate', 'manta-graceful-death', 'manta-merge-review']);
   });
 
-  it('all five Phase-0 slash commands are present', async () => {
+  it('all slash commands are present', async () => {
     const result = await validateAll(repoRoot);
     const commandReports = result.reports.filter((r) => r.path.startsWith('commands/'));
     const commands = commandReports.map((r) => r.path.replace(/^commands\//, '').replace(/\.md$/, '')).sort();
-    expect(commands).toEqual(['abort', 'cast', 'kill', 'recover', 'status']);
+    expect(commands).toEqual(['abort', 'cast', 'kill', 'promote', 'recover', 'status']);
   });
 });
