@@ -56,4 +56,9 @@ describe('estimateCost', () => {
     expect(result.totalEstimatedUsd).toBe(5.00);
     expect(result.cloneCount).toBe(1);
   });
+
+  it('throws on cloneCount < 1', () => {
+    expect(() => estimateCost('recon-swarm', 0, makeConfig())).toThrow('cloneCount must be >= 1');
+    expect(() => estimateCost('recon-swarm', -1, makeConfig())).toThrow('cloneCount must be >= 1');
+  });
 });

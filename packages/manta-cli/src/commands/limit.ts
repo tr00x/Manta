@@ -3,7 +3,7 @@ import { join, dirname } from 'node:path';
 import type { Runtime } from '../runtime.js';
 import type { Reporter } from '../output/reporter.js';
 import type { CommandResult } from './status.js';
-import { loadBudgetConfig, BUDGET_DEFAULTS } from '../config/budget-config.js';
+import { loadBudgetConfig, type ResolvedBudgetConfig } from '../config/budget-config.js';
 import { BudgetConfigSchema } from '@manta/bus';
 
 export interface LimitCommandOptions {
@@ -18,8 +18,7 @@ interface FlatEntry {
   display: string;
 }
 
-function flattenConfig(): FlatEntry[] {
-  const c = BUDGET_DEFAULTS;
+function flattenConfig(c: ResolvedBudgetConfig): FlatEntry[] {
   return [
     { key: 'per_cast_usd', display: String(c.perCastUsd) },
     {
@@ -88,11 +87,10 @@ async function handleGet(
     return { exitCode: 0, stdout: `${opts.key}: ${v}` };
   }
 
-  const entries = flattenConfig();
+  const entries = flattenConfig(config);
   const lines: string[] = [];
   for (const e of entries) {
-    const current = resolvedValue(config, e.key) ?? e.display;
-    lines.push(`${e.key}:`.padEnd(35) + current);
+    lines.push(`${e.key}:`.padEnd(35) + e.display);
   }
   opts.reporter.info('limit.get');
   return { exitCode: 0, stdout: lines.join('\n') };

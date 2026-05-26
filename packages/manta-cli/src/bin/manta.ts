@@ -88,7 +88,7 @@ async function main(): Promise<void> {
     .option('--dry-run', 'Show cost preview without spawning', false)
     .option('--daily-cap-usd <amount>', 'Override daily budget cap (default: from config or $50)', parseFloat)
     .option('--force', 'Force cast even if daily cap would be exceeded', false)
-    .option('--no-charge-check', 'Skip charge system check (testing only)', false)
+    .option('--charge-check', 'Enable charge system check (use --no-charge-check to skip)', true)
     .action(
       async (
         mode: string,

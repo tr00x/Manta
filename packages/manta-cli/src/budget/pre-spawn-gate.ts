@@ -65,25 +65,12 @@ export async function runPreSpawnGate(
     }
 
     if (chargeState.current_charges < chargeCost) {
-      opts.reporter.warn('gate.insufficient_charges', {
+      const event = chargeState.current_charges < 0 && chargeCost > 1
+        ? 'gate.overdraft_restricted'
+        : 'gate.insufficient_charges';
+      opts.reporter.warn(event, {
         have: chargeState.current_charges,
         need: chargeCost,
-        mode: opts.mode,
-      });
-      return {
-        passed: false,
-        costEstimate,
-        chargesAfterDeduct: chargeState.current_charges,
-        dailySpentAfter: (await opts.dailySpend.read()).spent_usd,
-        dailyRemaining: await opts.dailySpend.getRemaining(dailyCap),
-        committed: false,
-      };
-    }
-
-    if (chargeState.current_charges < 0 && chargeCost > 1) {
-      opts.reporter.warn('gate.overdraft_restricted', {
-        charges: chargeState.current_charges,
-        modeCost: chargeCost,
         mode: opts.mode,
       });
       return {

@@ -2,6 +2,7 @@ import type { Runtime } from '../runtime.js';
 import type { Reporter } from '../output/reporter.js';
 import type { CommandResult } from './status.js';
 import { MODE_CHARGE_COST, type ChargeState, type Mode } from '@manta/bus';
+import { loadBudgetConfig } from '../config/budget-config.js';
 
 export interface ChargesCommandOptions {
   reporter: Reporter;
@@ -50,7 +51,8 @@ export async function runChargesCommand(
     lines.push(`Last cast: ${formatDuration(agoMs)} ago`);
   }
 
-  const idleRecoveryMs = 30 * 60_000;
+  const budgetConfig = await loadBudgetConfig(rt.repoRoot);
+  const idleRecoveryMs = budgetConfig.charges.idleRecoveryMinutes * 60_000;
   if (state.current_charges < state.charges_max) {
     const baseline = Math.max(state.last_idle_recovery_at, state.last_cast_ended_at);
     const elapsed = now - baseline;

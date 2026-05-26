@@ -15,6 +15,9 @@ export function estimateCost(
   config: ResolvedBudgetConfig,
   perCloneBudgetOverride?: number,
 ): CostEstimate {
+  if (cloneCount < 1) {
+    throw new Error(`estimateCost: cloneCount must be >= 1, got ${cloneCount}`);
+  }
   const perClone = config.costEstimates[mode] ?? 2.00;
   const perCloneBudget = perCloneBudgetOverride ??
     (config.perCloneUsd === 'auto' ? config.perCastUsd / cloneCount : config.perCloneUsd);
