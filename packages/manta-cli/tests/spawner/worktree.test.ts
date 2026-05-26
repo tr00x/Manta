@@ -50,6 +50,18 @@ describe('worktree', () => {
     expect(branches).toContain('manta/clone-B');
   });
 
+  it('addWorktree cleans up stale worktree at same path', async () => {
+    fx = await makeRepoFixture();
+    const wt1 = await addWorktree({ repoRoot: fx.root, name: 'clone-A', branch: 'manta/cast-1/A' });
+    expect(wt1.path).toContain('clone-A');
+    const wt2 = await addWorktree({ repoRoot: fx.root, name: 'clone-A', branch: 'manta/cast-2/A' });
+    expect(wt2.branch).toBe('manta/cast-2/A');
+    const all = await listWorktrees({ repoRoot: fx.root });
+    const cloneAEntries = all.filter((w: WorktreeRecord) => w.branch.includes('/A'));
+    expect(cloneAEntries).toHaveLength(1);
+    expect(cloneAEntries[0]!.branch).toBe('manta/cast-2/A');
+  });
+
   it('addWorktree rejects an unsafe name', async () => {
     fx = await makeRepoFixture();
     await expect(

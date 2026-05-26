@@ -29,20 +29,21 @@ export async function installHeartbeatHook(
   await fs.mkdir(path.dirname(scriptPath), { recursive: true });
   await fs.writeFile(scriptPath, touchScript, 'utf8');
 
+  const hookEntry = {
+    matcher: '',
+    hooks: [
+      {
+        type: 'command' as const,
+        command: `node "${scriptPath}"`,
+        timeout: 5000,
+      },
+    ],
+  };
+
   const settings = {
     hooks: {
-      PostToolUse: [
-        {
-          matcher: '',
-          hooks: [
-            {
-              type: 'command' as const,
-              command: `node "${scriptPath}"`,
-              timeout: 5000,
-            },
-          ],
-        },
-      ],
+      PreToolUse: [hookEntry],
+      PostToolUse: [hookEntry],
     },
   };
 

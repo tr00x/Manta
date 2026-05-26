@@ -10,7 +10,7 @@ describe('heartbeat-hook', () => {
     return fs.mkdtemp(path.join(os.tmpdir(), 'manta-hb-hook-'));
   }
 
-  it('installs .claude/settings.local.json with PostToolUse hook', async () => {
+  it('installs .claude/settings.local.json with PreToolUse and PostToolUse hooks', async () => {
     const root = await makeTmp();
     const worktree = path.join(root, 'worktree');
     await fs.mkdir(worktree, { recursive: true });
@@ -21,9 +21,13 @@ describe('heartbeat-hook', () => {
       const settings = JSON.parse(raw) as Record<string, unknown>;
       expect(settings).toHaveProperty('hooks');
       expect(settings).toHaveProperty('hooks.PostToolUse');
-      const hooks = (settings.hooks as Record<string, unknown>).PostToolUse as Array<Record<string, unknown>>;
-      expect(hooks).toHaveLength(1);
-      expect(hooks[0]).toHaveProperty('hooks');
+      expect(settings).toHaveProperty('hooks.PreToolUse');
+      const post = (settings.hooks as Record<string, unknown>).PostToolUse as Array<Record<string, unknown>>;
+      const pre = (settings.hooks as Record<string, unknown>).PreToolUse as Array<Record<string, unknown>>;
+      expect(post).toHaveLength(1);
+      expect(pre).toHaveLength(1);
+      expect(post[0]).toHaveProperty('hooks');
+      expect(pre[0]).toHaveProperty('hooks');
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

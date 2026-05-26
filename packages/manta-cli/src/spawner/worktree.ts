@@ -1,3 +1,4 @@
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execa } from 'execa';
 
@@ -25,6 +26,16 @@ export async function addWorktree(opts: AddWorktreeOptions): Promise<WorktreeRec
     throw new Error(`unsafe worktree name: ${opts.name}`);
   }
   const wtPath = path.join(opts.repoRoot, '.manta', 'worktrees', opts.name);
+
+  if (fs.existsSync(wtPath)) {
+    try {
+      await execa('git', ['worktree', 'remove', '--force', wtPath], { cwd: opts.repoRoot });
+    } catch {
+      await fs.promises.rm(wtPath, { recursive: true, force: true });
+    }
+    await execa('git', ['worktree', 'prune'], { cwd: opts.repoRoot });
+  }
+
   await execa('git', ['worktree', 'add', '-b', opts.branch, wtPath, 'HEAD'], {
     cwd: opts.repoRoot,
   });
