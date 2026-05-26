@@ -26,7 +26,7 @@ describe('death-detector', () => {
     await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
     // Move out of STARTING via a real heartbeat; only after that does the heartbeat threshold apply.
     await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
-    ctx.clock.advance(91_000);
+    ctx.clock.advance(defaultThresholds.heartbeatTimeoutMs + 1_000);
     const result = await findDeadClones(ctx, {
       thresholds: defaultThresholds,
       probe: makeProbe({ alive: () => true }),
@@ -37,11 +37,8 @@ describe('death-detector', () => {
   });
 
   it('STARTING clones get startup grace period (no DEAD before grace expires)', async () => {
-    // Bug #7 (Phase-2 dogfood): cold-start `claude --print` + priming + skill load
-    // can exceed 30s before first MCP heartbeat. STARTING state must use startupGraceMs
-    // against registered_at, not heartbeatTimeoutMs against last_heartbeat_at.
     await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
-    ctx.clock.advance(31_000); // over old 30s heartbeat default but under startupGraceMs (90s); STARTING grace must skip this
+    ctx.clock.advance(defaultThresholds.startupGraceMs - 1_000);
     const within = await findDeadClones(ctx, {
       thresholds: defaultThresholds,
       probe: makeProbe({ alive: () => true }),
@@ -51,7 +48,7 @@ describe('death-detector', () => {
 
   it('STARTING clones DO die once startup grace exceeded', async () => {
     await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
-    ctx.clock.advance(91_000); // over startupGraceMs (90_000)
+    ctx.clock.advance(defaultThresholds.startupGraceMs + 1_000);
     const result = await findDeadClones(ctx, {
       thresholds: defaultThresholds,
       probe: makeProbe({ alive: () => true }),
@@ -76,13 +73,12 @@ describe('death-detector', () => {
   it('does not double-count: stale-and-orphaned reports a single record', async () => {
     await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 999, worktree: '/w', metadata: {} });
     await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
-    ctx.clock.advance(91_000);
+    ctx.clock.advance(defaultThresholds.heartbeatTimeoutMs + 1_000);
     const result = await findDeadClones(ctx, {
       thresholds: defaultThresholds,
       probe: makeProbe({ alive: () => false }),
     });
     expect(result).toHaveLength(1);
-    // Reason is composite when both triggers fire
     expect(result[0]!.reason).toMatch(/heartbeat/);
     expect(result[0]!.reason).toMatch(/parent/);
   });

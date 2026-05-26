@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { defaultThresholds, mergeThresholds, ThresholdsSchema } from '../src/thresholds';
 
 describe('thresholds', () => {
-  it('defaults match Sec 6.2 / Sec 6.3 / Sec 9 blocker #5 + bug #7 startup grace', () => {
-    expect(defaultThresholds.heartbeatTimeoutMs).toBe(90_000);
-    expect(defaultThresholds.startupGraceMs).toBe(90_000);
+  it('defaults match Sec 6.2 / Sec 6.3 / Sec 9 blocker #5 + Phase 2d dogfood', () => {
+    expect(defaultThresholds.heartbeatTimeoutMs).toBe(300_000);
+    expect(defaultThresholds.startupGraceMs).toBe(300_000);
     expect(defaultThresholds.staleLockMs).toBe(15_000);
     expect(defaultThresholds.parentPidCheckEnabled).toBe(true);
     expect(defaultThresholds.cycleIntervalMs).toBe(5_000);
