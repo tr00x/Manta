@@ -11,3 +11,6 @@ export * from './orchestrator';
 export * from './scoring';
 export * from './merge-review-writer';
 export * from './merge-review';
+export * from './forensic-timeline';
+export * from './replay';
+export * from './audit';
