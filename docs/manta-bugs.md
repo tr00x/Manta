@@ -28,12 +28,10 @@
 
 **Discovered:** 2026-05-26, during Phase 2c Chunk 2 development. Confirmed pre-existing by reverting all Phase 2c changes and re-running.
 **Severity:** Medium — tests only; production code paths unaffected (handlers still emit events to EventsLog). The test assertions access `result.event.type` but `result.event` is `undefined`.
-**Status:** Open.
-**Reproducer:**
-1. `pnpm --filter @manta/bus test`
-2. 8 tests fail across `contract.test.ts`, `lifecycle.test.ts`, `locks.test.ts`, `work.test.ts` — all with `TypeError: Cannot read properties of undefined (reading 'type')` on `result.event`.
-**Root cause:** Not yet investigated. Likely the handler return shape changed without updating tests, or a dependency upgrade (zod 3.25.76) altered strict-mode object shapes. The 204 passing bus tests confirm the handlers and stores themselves work; only the event-return-from-handler assertions are broken.
-**Recommended next step:** Compare `result` shape in a failing test to determine whether handlers stopped returning `{ event }` or whether the tests are accessing a renamed property.
+**Status:** Fixed in `4a56ff9`.
+**Root cause:** Bug #14 fix (`baffc88`) used reference equality (`next !== current`) in `atomicMutateJson` to detect idempotent no-ops. But Registry/Locks/Claims/Contracts mutators mutate `current` in-place and return the same reference → `next === current` always true → `auditAppend` callback never fired → `event` variable (declared with `let event!: BusEvent`) stayed `undefined`.
+**Fix:** Replace reference equality with JSON snapshot comparison: `JSON.stringify(current)` before mutator vs `JSON.stringify(next)` after. In-place mutations produce different JSON (audit fires); true idempotent returns produce identical JSON (audit skipped). 489/489 tests green workspace-wide.
+**Lessons:** Reference equality is not a reliable mutation detector when mutators are allowed to mutate the input in-place. This is the same class of bug as bug #14 — both stem from `atomicMutateJson` trying to infer mutation semantics from the mutator's return value without a contract about whether in-place mutation is allowed.
 
 ### #14 — `auditAppend` callback fires on idempotent no-op `CastsStore.create` calls
 
