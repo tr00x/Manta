@@ -1,0 +1,117 @@
+A:
+  task: |
+    MISSION: Map existing observability infrastructure in the Manta codebase for Phase 2d.
+
+    CONTEXT: Phase 2d will add Tier 2-4 CLI commands (inspect, tail, replay, audit).
+    Before designing them, we need an exact map of what already exists that these commands can leverage.
+
+    READ THESE FILES (in order):
+    1. docs/superpowers/specs/2026-05-06-manta-pattern-design.md — Sec 11 (Observability tiers table + 11.1 features)
+    2. packages/manta-bus/src/state/events.ts — EventsLog class, readSince, append, event schemas
+    3. packages/manta-bus/src/state/registry.ts — Registry data model (what inspect can show)
+    4. packages/manta-bus/src/state/contracts.ts — ContractsStore (contract data for inspect/audit)
+    5. packages/manta-bus/src/state/casts.ts — CastsStore, cast manifest (what replay needs)
+    6. packages/manta-bus/src/state/claims.ts — ClaimsStore (work claims for audit)
+    7. packages/manta-orchestrator/src/post-mortem-writer.ts — PostMortemWriter interface
+    8. packages/manta-orchestrator/src/post-mortem.ts — PostMortemComposer (what replay can reuse)
+    9. packages/manta-cli/src/commands/status.ts — existing Tier 1 command (pattern for new commands)
+    10. packages/manta-cli/src/commands/cast.ts — cast lifecycle (where tail/inspect hook in)
+    11. packages/manta-cli/src/runtime.ts — Runtime composer (how commands access bus context)
+    12. packages/manta-orchestrator/src/orchestrator.ts — runCycle, getStatus (data sources)
+
+    DELIVERABLE: docs/research/phase-2d-observability-infra-map.md
+    Structure:
+    - ## Existing Data Sources (EventsLog schema, Registry fields, Contracts fields, Cast manifest fields)
+    - ## Existing Consumers (status command, post-mortem writer, merge-review)
+    - ## Integration Points for Phase 2d (where each new command hooks into existing infra)
+    - ## Missing Infrastructure (what Phase 2d must build new vs reuse)
+    - ## EventsLog.readSince API analysis (current signature, filtering capabilities, gaps)
+
+    CONSTRAINT: Do NOT design the commands themselves — just map what exists. Other clones design the commands.
+
+B:
+  task: |
+    MISSION: Design `/manta tail` (Tier 3) and `/manta inspect` (Tier 2) CLI commands for Phase 2d.
+
+    CONTEXT: Manta is a self-cloning Claude Code pattern. Phase 2d adds observability commands.
+    - Tier 2 (inspect): deep dive into one clone — contract, last N actions, locks, drift, budget
+    - Tier 3 (tail): polling-based log stream of a clone's events into the main's chat
+
+    READ THESE FILES (in order):
+    1. docs/superpowers/specs/2026-05-06-manta-pattern-design.md — Sec 11 (tiers table), Sec 12 (command palette)
+    2. packages/manta-cli/src/commands/status.ts — existing Tier 1 pattern (how CLI commands are structured)
+    3. packages/manta-cli/src/commands/cast.ts — tick-loop pattern (relevant for tail's polling)
+    4. packages/manta-bus/src/state/events.ts — EventsLog.readSince (data source for tail)
+    5. packages/manta-bus/src/state/registry.ts — Registry (data source for inspect)
+    6. packages/manta-bus/src/state/contracts.ts — Contracts (data source for inspect)
+    7. packages/manta-bus/src/state/claims.ts — Claims (data source for inspect)
+    8. packages/manta-orchestrator/src/orchestrator.ts — getStatus (what inspect can delegate to)
+    9. packages/manta-cli/src/runtime.ts — how commands get Runtime
+    10. packages/manta-cli/src/errors.ts — CliError patterns
+
+    Also skim Phase 2c patterns for reference:
+    11. packages/manta-cli/src/commands/promote.ts — argument parsing pattern (castId/cloneId)
+
+    DELIVERABLE: docs/research/phase-2d-tail-inspect-design.md
+    Structure:
+    - ## `/manta inspect <cloneId>` Design
+      - Data sources (registry entry, contract, claims, locks, last N events, budget)
+      - Output format (structured sections, not raw JSON)
+      - Edge cases (clone not found, clone DEAD vs WORKING, no contract yet)
+      - CLI args (--json flag for machine-readable output?)
+    - ## `/manta tail <cloneId> [durationSeconds]` Design
+      - Polling vs streaming (EventsLog.readSince with cursor, not MCP — decision from INDEX.md)
+      - Poll interval, default duration, max duration
+      - Output format (one-line-per-event, filtered by clone_id)
+      - Exit conditions (clone DEAD, duration elapsed, Ctrl+C)
+      - Integration with cast.ts tick-loop (can tail reuse the loop?)
+    - ## Shared Infrastructure Needs
+      - Any new EventsLog methods needed
+      - Any new CLI utilities (formatters, etc.)
+    - ## Test Strategy
+      - What to test (unit for formatters, integration for CLI, no e2e needed for read-only commands)
+
+C:
+  task: |
+    MISSION: Design `/manta replay` (Tier 4) and `/manta audit` (Tier 4) CLI commands, plus an end-to-end forking-realities test strategy.
+
+    CONTEXT: Manta is a self-cloning Claude Code pattern. Phase 2d adds forensic observability.
+    - replay: post-cast journal viewer, scoped to a cast-id, shows timeline of all clones in a cast
+    - audit: action audit log for a single clone, every MCP call + state transition
+    Also: Phase 2d should include an e2e test for forking-realities mode (similar to existing recon-swarm e2e).
+
+    READ THESE FILES (in order):
+    1. docs/superpowers/specs/2026-05-06-manta-pattern-design.md — Sec 11 (tiers), Sec 12 (commands)
+    2. packages/manta-bus/src/state/events.ts — EventsLog (event schema, readSince, readAll)
+    3. packages/manta-bus/src/state/casts.ts — CastsStore, cast manifest (replay needs cast→clones mapping)
+    4. packages/manta-orchestrator/src/post-mortem.ts — PostMortemComposer (replay can extend this)
+    5. packages/manta-orchestrator/src/post-mortem-writer.ts — Writer interface
+    6. packages/manta-cli/src/commands/promote.ts — castId/cloneId arg parsing pattern
+    7. packages/manta-cli/src/commands/status.ts — CLI command pattern
+    8. packages/manta-e2e/src/recon-swarm.e2e.test.ts — existing e2e test pattern
+    9. packages/manta-e2e/src/forensics.ts — forensic timeline writer (bug #12 — currently e2e-only)
+    10. docs/manta-bugs.md — bug #12 (forensic timeline not in production path)
+
+    Also review merge-review for data it produces:
+    11. packages/manta-orchestrator/src/merge-review.ts — merge-review output (replay can show this)
+    12. packages/manta-cli/src/commands/merge-review-collector.ts — metrics data
+
+    DELIVERABLE: docs/research/phase-2d-replay-audit-e2e-design.md
+    Structure:
+    - ## `/manta replay <castId>` Design
+      - Data sources (cast manifest → clone list, events filtered by cast's clones, post-mortems, merge-review)
+      - Timeline reconstruction (interleaved events from all clones, chronological)
+      - Output format (markdown timeline with sections per phase: spawn → working → death → merge-review)
+      - Bug #12 resolution: lift forensics.ts into production path
+    - ## `/manta audit <cloneId>` Design
+      - Data sources (events filtered by clone_id — every MCP call, state transition, heartbeat)
+      - Output format (chronological action log with timestamps, tool name, result summary)
+      - Filtering options (--type heartbeat|broadcast|lock|claim|... , --since, --limit)
+    - ## End-to-End Forking-Realities Test Strategy
+      - Test structure (MANTA_E2E=1 gated, like recon-swarm e2e)
+      - What to assert (2+ clones with different approaches, merge-review runs, promote works)
+      - Task contract for the test (simple enough for haiku, produces diffable output)
+      - Fixture design (what repo/task makes a good forking-realities e2e?)
+    - ## Test Strategy for replay/audit commands
+      - Unit tests (formatters, timeline reconstruction)
+      - Integration tests (CLI with real events.jsonl)
