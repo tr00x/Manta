@@ -35,10 +35,17 @@
 | `2026-05-08-phase-2c-merge-review.md` | **Executed** — Chunk 1 (`baffc88`) + Chunk 2 (current commit). 273 tests green across orchestrator (84), CLI (113), snapshot (49), skill-validator (27); build+lint clean. | Two chunks. Chunk 1: scoring engine (`ScoringConfig` schema + normalize + composite + tie-break + Pareto), `findFinalisedCasts`, `runMergeReview`, `MergeReviewWriter`, bug #14 fix (`atomicMutateJson` reference-identity skip). Chunk 2: real `MetricCollector` (subprocess shells), `cast.ts` post-loop trigger, `/manta promote` command, `moveWorktreeToGraveyard`, agentic rubric pre-pass, self-certainty (`BroadcastEventTypeSchema` widened), cross-candidate ZK harvest, `manta-merge-review` skill, docs. |
 | `2026-05-08-phase-2d-observability.md` | **Executed** — Chunk 1 (`6fb3f5d`) + Chunk 2 (`f15e011` + `e35a01c`). 580+ tests across 91 files workspace-wide green; lint+typecheck+build clean. | 2 chunks, 18 tasks. Chunk 1: sleep extraction + format utils + inspect + tail. Chunk 2: ForensicTimeline writer/reader + orchestrator wiring + event factory + replay module + audit module + CLI commands + ForensicTimeline wiring in cast.ts + forking-realities e2e test. Research-backed: 3-clone recon-swarm cast delivered infra map, command designs, and e2e strategy. Bug #12 (ForensicTimeline in production casts) fixed via PostToolUse heartbeat hook (`704ab40`). |
 
-## Phase 3+ — TBD
+## Phase 3 — Charge System + Multi-Layer Budgets + Cooldowns
+
+Цель: production-grade charge system (frequency limiter), multi-layer budget enforcement (cost limiter), CLI surface. Build by **heavy dogfood** — clones implement both chunks.
+
+| План | Статус | Содержит |
+|---|---|---|
+| `2026-05-26-phase-3-charge-system.md` | **Under review** | 2 chunks, 17 tasks. Chunk 1: ChargeStore + DailySpendLedger + BudgetConfig + schemas + BusContext wiring + CastOutcomeClassifier. Chunk 2: PreSpawnGate + CostEstimator + AutoDowngradeAdvisor + 4 CLI commands (cost, charges, refresh, limit) + --dry-run + post-cast settlement + passive recovery + e2e. Research-backed: 3-clone recon-swarm (cast-1779825540200). |
+
+## Phase 4+ — TBD
 
 Per spec Sec 15.1. Each phase = separate plan file:
-- Phase 3: Charge system + multi-layer budgets + cooldowns (built using forking-realities for impl alternatives)
 - Phase 4: Wave-1 closeout (`refactor-wave`, `bug-hunt`)
 - Phase 5: daemon-mode runtime (Wave-2 prerequisite)
 - Phase 6: Wave-2 modes (`pair-programming`, `test-storm`, `documentation-chase`)
