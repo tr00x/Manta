@@ -5,7 +5,8 @@ export type CliErrorKind =
   | 'register_failed'
   | 'orchestrator_failed'
   | 'recovery_failed'
-  | 'not_found';
+  | 'not_found'
+  | 'budget_gate_failed';
 
 export interface CliErrorOptions {
   kind: CliErrorKind;
