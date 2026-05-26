@@ -1,5 +1,6 @@
 import type { Orchestrator } from '@manta/orchestrator';
 import { CliError } from './errors.js';
+import { sleep } from './util/sleep.js';
 
 export interface RunTickLoopOptions {
   orchestrator: Orchestrator;
@@ -38,19 +39,4 @@ export async function runTickLoop(opts: RunTickLoopOptions): Promise<TickLoopRes
     await sleep(opts.intervalMs, opts.signal);
   }
   return { cycles, aborted };
-}
-
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal?.aborted) return resolve();
-    const onAbort = (): void => {
-      clearTimeout(t);
-      resolve();
-    };
-    const t = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
-    signal?.addEventListener('abort', onAbort, { once: true });
-  });
 }

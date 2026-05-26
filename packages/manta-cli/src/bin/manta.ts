@@ -7,6 +7,8 @@ import { runKillCommand } from '../commands/kill.js';
 import { runAbortCommand } from '../commands/abort.js';
 import { runRecoverCommand } from '../commands/recover.js';
 import { runPromoteCommand } from '../commands/promote.js';
+import { runInspectCommand } from '../commands/inspect.js';
+import { runTailCommand } from '../commands/tail.js';
 import { runClaudeCli } from '../spawner/clone-spawner.js';
 import { parseTasksFile } from '../spawner/tasks-file.js';
 import { createReporter, StderrSink } from '../output/reporter.js';
@@ -182,6 +184,41 @@ async function main(): Promise<void> {
       const cloneId = target.slice(sep + 1);
       await runWithRuntime((rt) =>
         runPromoteCommand(rt, { castId, cloneId, reporter }),
+      );
+    });
+
+  program
+    .command('inspect <cloneId>')
+    .description('Deep-dive into a single clone: registry, contract, locks, events')
+    .option('--json', 'output as JSON', false)
+    .option('--events <n>', 'number of recent events to show', '10')
+    .action(async (cloneId: string, options: { json: boolean; events: string }) => {
+      await runWithRuntime((rt) =>
+        runInspectCommand(rt, {
+          cloneId,
+          json: options.json,
+          eventCount: Math.min(parseInt(options.events, 10) || 10, 100),
+          reporter,
+        }),
+      );
+    });
+
+  program
+    .command('tail <cloneId> [durationSeconds]')
+    .description('Stream events for a clone in real-time')
+    .option('--interval <ms>', 'polling interval in milliseconds', '2000')
+    .option('--raw', 'output raw JSON per line', false)
+    .action(async (cloneId: string, durationSeconds: string | undefined, options: { interval: string; raw: boolean }) => {
+      const durationMs = (durationSeconds != null ? parseInt(durationSeconds, 10) : 300) * 1000;
+      const intervalMs = parseInt(options.interval, 10) || 2000;
+      await runWithRuntime((rt) =>
+        runTailCommand(rt, {
+          cloneId,
+          durationMs: Math.min(Math.max(durationMs, 10_000), 3_600_000),
+          intervalMs: Math.min(Math.max(intervalMs, 500), 10_000),
+          raw: options.raw,
+          reporter,
+        }),
       );
     });
 
