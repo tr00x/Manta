@@ -4,6 +4,8 @@ import type { LocksStore } from '../state/locks';
 import type { ClaimsStore } from '../state/claims';
 import type { ContractsStore } from '../state/contracts';
 import type { CastsStore } from '../state/casts';
+import type { ChargeStore } from '../state/charge-store';
+import type { DailySpendLedger } from '../state/daily-spend';
 import type { EventsLog } from '../state/events';
 import type { BusPaths } from '../state/paths';
 import type { MemoryWriters } from '../memory-writers';
@@ -21,6 +23,8 @@ export interface BusContext {
   claims: ClaimsStore;
   contracts: ContractsStore;
   casts: CastsStore;
+  charges: ChargeStore;
+  dailySpend: DailySpendLedger;
   events: EventsLog;
   memoryWriters: MemoryWriters;
 }

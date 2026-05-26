@@ -11,6 +11,8 @@ import { LocksStore } from './state/locks';
 import { ClaimsStore } from './state/claims';
 import { ContractsStore } from './state/contracts';
 import { CastsStore } from './state/casts';
+import { ChargeStore } from './state/charge-store';
+import { DailySpendLedger } from './state/daily-spend';
 import { EventsLog } from './state/events';
 import { fsMemoryWriters, type MemoryWriters } from './memory-writers';
 import type { BusContext } from './tools/index';
@@ -87,6 +89,8 @@ export async function createBusServer(opts: CreateBusServerOptions): Promise<Bus
   const claims = new ClaimsStore(paths, clock);
   const contracts = new ContractsStore(paths, clock);
   const casts = new CastsStore(paths, clock);
+  const charges = new ChargeStore(paths, clock);
+  const dailySpend = new DailySpendLedger(paths, clock);
   const events = new EventsLog(paths, clock);
   const memoryWriters =
     opts.memoryWriters ?? fsMemoryWriters({ repoRoot: opts.repoRoot, clock });
@@ -98,6 +102,8 @@ export async function createBusServer(opts: CreateBusServerOptions): Promise<Bus
     claims,
     contracts,
     casts,
+    charges,
+    dailySpend,
     events,
     memoryWriters,
   };
