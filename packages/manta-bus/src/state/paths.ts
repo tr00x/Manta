@@ -11,6 +11,11 @@ export interface BusPaths {
   readonly contractsDir: string;
   readonly castsDir: string;
   readonly lockfileDir: string;
+  readonly charges: string;
+  readonly chargesLog: string;
+  readonly dailySpend: string;
+  readonly configDir: string;
+  readonly budgetConfig: string;
   contractFile(cloneId: string): string;
   castFile(castId: string): string;
 }
@@ -20,6 +25,7 @@ export function busPaths(repoRoot: string): BusPaths {
     throw new Error('busPaths: repoRoot must be a non-empty string');
   }
   const stateDir = path.join(repoRoot, '.manta', 'state');
+  const configDir = path.join(repoRoot, '.manta', 'config');
   return {
     repoRoot,
     stateDir,
@@ -30,6 +36,11 @@ export function busPaths(repoRoot: string): BusPaths {
     contractsDir: path.join(stateDir, 'contracts'),
     castsDir: path.join(stateDir, 'casts'),
     lockfileDir: path.join(stateDir, '.locks'),
+    charges: path.join(stateDir, 'charges.json'),
+    chargesLog: path.join(stateDir, 'charges.log'),
+    dailySpend: path.join(stateDir, 'daily-spend.json'),
+    configDir,
+    budgetConfig: path.join(configDir, 'budget.json'),
     contractFile(cloneId: string): string {
       const parsed = CloneIdSchema.safeParse(cloneId);
       if (!parsed.success) {
