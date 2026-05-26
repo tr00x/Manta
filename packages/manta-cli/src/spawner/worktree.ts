@@ -36,6 +36,12 @@ export async function addWorktree(opts: AddWorktreeOptions): Promise<WorktreeRec
     await execa('git', ['worktree', 'prune'], { cwd: opts.repoRoot });
   }
 
+  try {
+    await execa('git', ['branch', '-D', opts.branch], { cwd: opts.repoRoot });
+  } catch {
+    // branch doesn't exist — expected for fresh casts
+  }
+
   await execa('git', ['worktree', 'add', '-b', opts.branch, wtPath, 'HEAD'], {
     cwd: opts.repoRoot,
   });
