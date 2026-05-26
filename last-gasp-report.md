@@ -1,32 +1,40 @@
-# Last Gasp Report — Clone A (cast-1779829023599)
+# Last Gasp Report — Clone B (cast-1779829023599)
 
 ## Task
-Phase 3 Chunk 2 — Core budget modules (tasks 2.0-2.5)
+Phase 3 Chunk 2 — CLI commands (cost, charges, refresh, limit) + integration tests + e2e smoke test.
 
 ## Outcome: COMPLETE
 
-All 7 tasks delivered with 6 atomic commits. 59 tests passing, 0 regressions.
+All 7 tasks delivered. 34 new tests, all green. Full sweep passing (211 CLI tests, 7 e2e tests).
 
-## Deliverables
+## What was done
 
-### New files (7)
-- `packages/manta-cli/src/config/budget-config.ts` — `loadBudgetConfig()` + `ResolvedBudgetConfig`
-- `packages/manta-cli/tests/config/budget-config.test.ts` — 9 tests
-- `packages/manta-cli/src/budget/cost-estimator.ts` — `estimateCost()` pure function
-- `packages/manta-cli/tests/budget/cost-estimator.test.ts` — 7 tests
-- `packages/manta-cli/src/budget/auto-downgrade.ts` — `computeDowngradeOptions()`
-- `packages/manta-cli/tests/budget/auto-downgrade.test.ts` — 7 tests
-- `packages/manta-cli/src/budget/pre-spawn-gate.ts` — `runPreSpawnGate()` seven-step gate
-- `packages/manta-cli/tests/budget/pre-spawn-gate.test.ts` — 9 tests
+1. **[2.0.pre-B] BudgetConfig self-help** — Created `budget-config.ts` with `ResolvedBudgetConfig` type, `loadBudgetConfig()`, deep-merge from snake_case BudgetConfigSchema to camelCase resolved config. 6 unit tests.
 
-### Modified files (2)
-- `packages/manta-cli/src/commands/cast.ts` — PreSpawnGate wiring + post-cast settlement
-- `packages/manta-cli/src/bin/manta.ts` — 4 new CLI flags
+2. **[2.6] manta cost** — Daily/weekly spend summary with progress bar, cast list, remaining budget. Reads DailySpendLedger + ChargeStore.readLog(). 4 tests.
 
-## Key design decisions
-- Step 4 (per-cast budget check) removed from PreSpawnGate — existing L1/L2 gate in cast.ts handles it with correct parameters before gate is called
-- Plan test case for `$4 remaining → recon-swarm × 3 = $4.50` was arithmetically wrong (marked viable at $4.50 > $4.00) — corrected to expect `viable: false`
-- `exactOptionalPropertyTypes` requires explicit `| undefined` in optional interface properties
+3. **[2.7] manta charges** — Charge state display: current/max, state (nominal/overdraft/cooldown), idle recovery timer, per-mode availability with ✓/✗ indicators. 4 tests.
+
+4. **[2.8] manta refresh** — Cooldown reset with double-confirm via readline. Requires interactive TTY. 4 tests.
+
+5. **[2.9] manta limit** — Subcommands `get [key]` and `set <key> <value>`. Supports dotted key paths for nested config. Creates `.manta/config/budget.json` on first write. 7 tests.
+
+6. **[2.10] Integration tests** — 7 scenarios: happy path, charge exhaustion, daily cap enforcement, passive recovery, cooldown flow, settlement fail, settlement neutral.
+
+7. **[2.11] E2e smoke test** — Runs real CLI binary against tmp repo. Verifies charges/cost/limit commands produce correct output end-to-end. 2 tests.
+
+## Commits (8 atomic)
+1. `6eb89e9` feat(cli): BudgetConfig loader
+2. `f94cc31` feat(cli): manta cost command
+3. `2654642` feat(cli): manta charges command
+4. `9666e9c` feat(cli): manta refresh command
+5. `a2cfc04` feat(cli): manta limit command
+6. `8b73d96` feat(cli): register 4 commands in manta.ts
+7. `27dd2d8` test(cli): charge/budget integration tests
+8. `1ad9958` test(e2e): charge-system e2e smoke
 
 ## Surprising insight
-The PreSpawnGate's Step 4 (per-cast budget check) duplicates the existing cumulative budget gate in cast.ts lines 194-203. However, the two checks use different source values: the gate uses BudgetConfig defaults ($15 per cast) while cast.ts uses CLI-specified values (sometimes $5 in tests). This mismatch caused all 4 forking-realities tests to fail. The correct design is: L1/L2 remains in cast.ts (which has the actual CLI values), gate handles only L3 (daily cap) + charge system.
+The self-help pattern for budget-config.ts worked cleanly without Clone A's prerequisite. The deep-merge from snake_case BudgetConfig (on-disk) to camelCase ResolvedBudgetConfig needed careful handling of nested partial objects — each sub-object (auto_downgrade, charges) requires field-by-field merging with defaults, not Object.assign, because individual nested fields can be independently absent.
+
+## Time spent
+~10 minutes from contract ack to final commit.
