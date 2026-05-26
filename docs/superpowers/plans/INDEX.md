@@ -41,7 +41,7 @@
 
 | План | Статус | Содержит |
 |---|---|---|
-| `2026-05-26-phase-3-charge-system.md` | **Under review** | 2 chunks, 17 tasks. Chunk 1: ChargeStore + DailySpendLedger + BudgetConfig + schemas + BusContext wiring + CastOutcomeClassifier. Chunk 2: PreSpawnGate + CostEstimator + AutoDowngradeAdvisor + 4 CLI commands (cost, charges, refresh, limit) + --dry-run + post-cast settlement + passive recovery + e2e. Research-backed: 3-clone recon-swarm (cast-1779825540200). |
+| `2026-05-26-phase-3-charge-system.md` | **Executed** — Chunk 1 (cast by 2 clones, `2d44ad9`) + Chunk 2 (cast-1779829023599, 2 clones forking-realities, merged `f681cbf` + fix `010143b`). 706 tests workspace-wide green; lint+typecheck+build clean. | 2 chunks, 17 tasks. Chunk 1: ChargeStore + DailySpendLedger + BudgetConfig + schemas + BusContext wiring + CastOutcomeClassifier. Chunk 2: PreSpawnGate + CostEstimator + AutoDowngradeAdvisor + 4 CLI commands (cost, charges, refresh, limit) + --dry-run/--force/--no-charge-check/--daily-cap-usd flags + post-cast settlement + integration tests + e2e smoke. Research-backed: 3-clone recon-swarm (cast-1779825540200). |
 
 ## Phase 4+ — TBD
 
