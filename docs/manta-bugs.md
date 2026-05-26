@@ -24,6 +24,17 @@
 
 ## Open bugs
 
+### #15 — Bus handler tests return `undefined` for `event` property (8 tests failing)
+
+**Discovered:** 2026-05-26, during Phase 2c Chunk 2 development. Confirmed pre-existing by reverting all Phase 2c changes and re-running.
+**Severity:** Medium — tests only; production code paths unaffected (handlers still emit events to EventsLog). The test assertions access `result.event.type` but `result.event` is `undefined`.
+**Status:** Open.
+**Reproducer:**
+1. `pnpm --filter @manta/bus test`
+2. 8 tests fail across `contract.test.ts`, `lifecycle.test.ts`, `locks.test.ts`, `work.test.ts` — all with `TypeError: Cannot read properties of undefined (reading 'type')` on `result.event`.
+**Root cause:** Not yet investigated. Likely the handler return shape changed without updating tests, or a dependency upgrade (zod 3.25.76) altered strict-mode object shapes. The 204 passing bus tests confirm the handlers and stores themselves work; only the event-return-from-handler assertions are broken.
+**Recommended next step:** Compare `result` shape in a failing test to determine whether handlers stopped returning `{ event }` or whether the tests are accessing a renamed property.
+
 ### #14 — `auditAppend` callback fires on idempotent no-op `CastsStore.create` calls
 
 **Discovered:** 2026-05-08, code-quality review of Phase 2a Chunk 1 commit `69de728` (cast-manifest infrastructure).
