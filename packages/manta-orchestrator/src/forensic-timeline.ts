@@ -6,9 +6,9 @@ export interface TimelineCloneSnapshot {
   clone_id: string;
   state: CloneState;
   last_heartbeat_at: number;
-  progress?: string;
-  death_reason?: string;
-  died_at?: number;
+  progress?: string | undefined;
+  death_reason?: string | undefined;
+  died_at?: number | undefined;
 }
 
 export interface TimelineSnapshot {
