@@ -56,6 +56,32 @@ describe('Registry', () => {
     ).rejects.toBeInstanceOf(BusConflictError);
   });
 
+  it('re-register overwrites a DEAD clone (name reuse across casts)', async () => {
+    await registry.register({
+      clone_id: 'A',
+      mode: 'recon-swarm',
+      parent_pid: 1234,
+      worktree: '/tmp/w',
+      metadata: { cast_id: 'cast-1' },
+    });
+    await registry.markDead('A', 'done');
+    const dead = await registry.get('A');
+    expect(dead.state).toBe('DEAD');
+
+    clock.advance(1000);
+    const reborn = await registry.register({
+      clone_id: 'A',
+      mode: 'recon-swarm',
+      parent_pid: 5678,
+      worktree: '/tmp/w2',
+      metadata: { cast_id: 'cast-2' },
+    });
+    expect(reborn.state).toBe('STARTING');
+    expect(reborn.parent_pid).toBe(5678);
+    expect(reborn.worktree).toBe('/tmp/w2');
+    expect(reborn.metadata).toEqual({ cast_id: 'cast-2' });
+  });
+
   it('heartbeat updates last_heartbeat_at and state', async () => {
     await registry.register({
       clone_id: 'A',

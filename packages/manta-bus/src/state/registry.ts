@@ -36,7 +36,8 @@ export class Registry {
       this.paths.registry,
       empty,
       (current) => {
-        if (current.clones[input.clone_id]) {
+        const existing = current.clones[input.clone_id];
+        if (existing && existing.state !== 'DEAD') {
           throw new BusConflictError(`clone ${input.clone_id} already registered`);
         }
         const now = this.clock.now();

@@ -24,6 +24,22 @@
 
 ## Open bugs
 
+### #16 — Registry rejects new cast when DEAD clone with same clone_id exists from previous cast
+
+**Discovered:** 2026-05-26, Phase 3 research cast attempt (manual `manta cast recon-swarm`).
+**Severity:** Medium — workaround is manual `registry.json` reset, but breaks `manta cast` → `manta cast` workflow without intervention.
+**Status:** Fixed
+**Reproducer:**
+1. Run `manta cast recon-swarm --clones 3` — cast completes, all clones reach DEAD.
+2. Run `manta cast recon-swarm --clones 3` again — fails with `BusConflictError: clone A already registered`.
+3. `manta recover` does NOT clear DEAD clones from registry.
+**Root cause:** `Registry.register()` in `packages/manta-bus/src/state/registry.ts` rejects if `clone_id` already exists in `clones` map, regardless of state. DEAD clones persist in registry indefinitely. The spawner pre-registers with the same alphabetical names (A, B, C) every cast, so any second cast with overlapping clone names hits this.
+**Fix (proposed):** Two options:
+- (a) `Registry.register()` should allow overwriting a DEAD clone entry (same as re-registration). Check `existing.state === 'DEAD'` → overwrite. Simplest fix, minimal blast radius.
+- (b) `recover` command should evict DEAD clones from registry after archiving their data. More ceremony but cleaner long-term state.
+- **Recommended:** (a) as immediate fix + (b) as follow-up hygiene. The spawner should be able to re-use clone names across casts without manual intervention.
+**Lessons:** Clone names are a fixed alphabet (A-E), not cast-scoped UUIDs. Registry must handle name reuse across casts. This was invisible during Phase 0/1/2 because manual cleanup happened between sessions.
+
 ### #15 — Bus handler tests return `undefined` for `event` property (8 tests failing)
 
 **Discovered:** 2026-05-26, during Phase 2c Chunk 2 development. Confirmed pre-existing by reverting all Phase 2c changes and re-running.
