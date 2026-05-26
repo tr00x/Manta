@@ -9,6 +9,8 @@ import { runRecoverCommand } from '../commands/recover.js';
 import { runPromoteCommand } from '../commands/promote.js';
 import { runInspectCommand } from '../commands/inspect.js';
 import { runTailCommand } from '../commands/tail.js';
+import { runReplayCommand } from '../commands/replay.js';
+import { runAuditCommand } from '../commands/audit.js';
 import { runClaudeCli } from '../spawner/clone-spawner.js';
 import { parseTasksFile } from '../spawner/tasks-file.js';
 import { createReporter, StderrSink } from '../output/reporter.js';
@@ -217,6 +219,48 @@ async function main(): Promise<void> {
           durationMs: Math.min(Math.max(durationMs, 10_000), 3_600_000),
           intervalMs: Math.min(Math.max(intervalMs, 500), 10_000),
           raw: options.raw,
+          reporter,
+        }),
+      );
+    });
+
+  program
+    .command('replay <castId>')
+    .description('Replay the timeline of a cast showing phased events and clone summaries')
+    .option('-f, --format <format>', 'output format: markdown or json', 'markdown')
+    .option('-c, --clone <id>', 'filter to a specific clone (repeatable)', (val: string, prev: string[]) => [...prev, val], [] as string[])
+    .option('--since <timestamp>', 'only show events after this Unix timestamp (ms)')
+    .action(async (castId: string, options: { format: string; clone: string[]; since?: string }) => {
+      await runWithRuntime((rt) =>
+        runReplayCommand(rt, {
+          castId,
+          format: options.format === 'json' ? 'json' : 'markdown',
+          ...(options.clone.length > 0 ? { cloneIds: options.clone } : {}),
+          ...(options.since != null ? { since: parseInt(options.since, 10) } : {}),
+          reporter,
+        }),
+      );
+    });
+
+  program
+    .command('audit <cloneId>')
+    .description('Audit trail for a single clone: events, gaps, and statistics')
+    .option('-f, --format <format>', 'output format: markdown or json', 'markdown')
+    .option('-t, --type <type>', 'filter by event type or group (repeatable)', (val: string, prev: string[]) => [...prev, val], [] as string[])
+    .option('--since <timestamp>', 'only show events after this Unix timestamp (ms)')
+    .option('-l, --limit <n>', 'max events to show (most recent)')
+    .option('--gaps', 'highlight gap anomalies', false)
+    .option('--gap-threshold <seconds>', 'gap anomaly threshold in seconds', '30')
+    .action(async (cloneId: string, options: { format: string; type: string[]; since?: string; limit?: string; gaps: boolean; gapThreshold: string }) => {
+      await runWithRuntime((rt) =>
+        runAuditCommand(rt, {
+          cloneId,
+          format: options.format === 'json' ? 'json' : 'markdown',
+          ...(options.type.length > 0 ? { typeFilter: options.type } : {}),
+          ...(options.since != null ? { since: parseInt(options.since, 10) } : {}),
+          ...(options.limit != null ? { limit: parseInt(options.limit, 10) } : {}),
+          ...(options.gaps ? { gaps: true } : {}),
+          ...(options.gaps ? { gapThreshold: parseInt(options.gapThreshold, 10) } : {}),
           reporter,
         }),
       );

@@ -58,6 +58,7 @@ export async function createRuntime(opts: CreateRuntimeOptions): Promise<Runtime
   await fs.mkdir(path.join(stateDir, 'contracts'), { recursive: true });
   await fs.mkdir(path.join(stateDir, 'casts'), { recursive: true });
   await fs.mkdir(path.join(stateDir, '.locks'), { recursive: true });
+  await fs.mkdir(path.join(stateDir, 'timelines'), { recursive: true });
 
   const thresholds = opts.thresholdOverrides
     ? mergeThresholds(opts.thresholdOverrides)

@@ -14,7 +14,8 @@ import { buildCloneSnapshot } from '../spawner/snapshot-builder.js';
 import { runTickLoop } from '../tick-loop.js';
 import { CliError } from '../errors.js';
 import { verifyMantaBusRegistered } from './mcp-preflight.js';
-import { loadScoringConfig, runMergeReview, type BusContext as MergeReviewBusContext } from '@manta/orchestrator';
+import { loadScoringConfig, runMergeReview, Orchestrator, makeProbe, fsPostMortemWriter, ForensicTimelineWriter, type BusContext as MergeReviewBusContext } from '@manta/orchestrator';
+import { join } from 'node:path';
 import { createMetricCollector } from './merge-review-collector.js';
 import { adjustWeightsFromProject } from './rubric-prepass.js';
 import { listWorktrees } from '../spawner/worktree.js';
@@ -273,12 +274,34 @@ export async function runCastCommand(
       opts.reporter.info('cast.spawn', { cloneId, worktree: wt.path });
     }
 
+    const startedAt = rt.ctx.clock.now();
+    const timelinePath = join(
+      rt.repoRoot,
+      rt.thresholds.timelinesDir,
+      `${opts.castId}.ndjson`,
+    );
+    const timeline = new ForensicTimelineWriter(timelinePath, {
+      cast_id: opts.castId,
+      mode: opts.mode,
+      started_at: startedAt,
+    });
+    const castOrchestrator = new Orchestrator({
+      ctx: rt.ctx,
+      thresholds: rt.thresholds,
+      probe: makeProbe(),
+      writer: fsPostMortemWriter({
+        repoRoot: rt.repoRoot,
+        postMortemDir: rt.thresholds.postMortemDir,
+      }),
+      timeline,
+    });
+
     const ctrl = new AbortController();
     const budgetTimer = setTimeout(() => ctrl.abort(), opts.tickBudgetMs);
     let loopResult;
     try {
       loopResult = await runTickLoop({
-        orchestrator: rt.orchestrator,
+        orchestrator: castOrchestrator,
         intervalMs: opts.cycleIntervalMs,
         signal: ctrl.signal,
         allDone: async () => {
@@ -328,6 +351,8 @@ export async function runCastCommand(
         }
       }),
     );
+    await timeline.seal(rt.ctx.clock.now());
+
     if (opts.mode === 'forking-realities' && !loopResult.aborted) {
       try {
         const config = await loadScoringConfig(rt.repoRoot);
