@@ -9,6 +9,7 @@ export const ThresholdsSchema = z
     cycleIntervalMs: z.number().int().positive(),
     postMortemDir: z.string().min(1),
     mergeReviewDir: z.string().min(1),
+    timelinesDir: z.string().min(1),
   })
   .strict();
 
@@ -38,6 +39,7 @@ export const defaultThresholds: Thresholds = {
   cycleIntervalMs: 5_000,
   postMortemDir: 'docs/post-mortems',
   mergeReviewDir: 'docs/merge-reviews',
+  timelinesDir: '.manta/state/timelines',
 };
 
 export function mergeThresholds(override: Partial<Thresholds>): Thresholds {

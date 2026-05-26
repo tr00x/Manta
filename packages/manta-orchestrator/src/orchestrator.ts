@@ -2,6 +2,7 @@ import type { BusContext, BusEvent, LockLease, WorkClaim } from '@manta/bus';
 import type { Thresholds } from './thresholds';
 import type { PidProbe } from './parent-pid';
 import type { PostMortemWriter } from './post-mortem-writer';
+import type { ForensicTimelineWriter } from './forensic-timeline';
 import { findDeadClones, type DeadCloneFinding } from './death-detector';
 import { reapLocks } from './lock-reaper';
 import { reapClaims } from './claim-reaper';
@@ -14,6 +15,7 @@ export interface OrchestratorOptions {
   thresholds: Thresholds;
   probe: PidProbe;
   writer: PostMortemWriter;
+  timeline?: ForensicTimelineWriter;
 }
 
 export interface CycleResult {
@@ -52,6 +54,20 @@ export class Orchestrator {
         ...claimResult.events,
         ...postMortems.map((p) => p.event),
       ];
+      if (this.opts.timeline) {
+        const allClones = await this.opts.ctx.registry.list();
+        await this.opts.timeline.appendSnapshot({
+          ts: ranAt,
+          clones: allClones.map((c) => ({
+            clone_id: c.clone_id,
+            state: c.state,
+            last_heartbeat_at: c.last_heartbeat_at,
+            progress: c.progress,
+            death_reason: c.death_reason,
+            died_at: c.died_at,
+          })),
+        });
+      }
       return {
         ranAt,
         deadClones,
