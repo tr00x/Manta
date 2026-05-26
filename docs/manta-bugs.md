@@ -28,7 +28,7 @@
 
 **Discovered:** 2026-05-08, code-quality review of Phase 2a Chunk 1 commit `69de728` (cast-manifest infrastructure).
 **Severity:** Medium — observable only when Phase 2c wires a real audit-event callback into `casts.create`. Currently no production caller passes `auditAppend`, so the bug is latent. But `casts.create` is **explicitly designed** to be called idempotently by every clone of a cast (see `clone-spawner.ts` lines 125-129 rationale), so once an audit hook is attached, every cast emits N duplicate audit entries (one per clone) instead of one.
-**Status:** Open — fix scheduled for Phase 2c when the audit hook is actually attached. Logged before Chunk 2 to prevent silent regression.
+**Status:** Fixed — `atomicMutateJson` now gates `auditAppend` on `existing === null || next !== current` (first-write fires, idempotent re-write skips). Regression test in `casts.test.ts`: 3× idempotent create with spy → callback fires exactly once.
 **Reproducer (forward-looking):**
 1. Phase 2c attaches `auditAppend` callback to `casts.create` to record cast-creation events in the events log.
 2. A 3-clone cast spawns: clone-A creates the manifest (mutator returns `next` with new content; audit fires once — correct).

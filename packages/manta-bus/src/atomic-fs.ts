@@ -98,11 +98,7 @@ export async function atomicMutateJson<T>(
     const existing = await readJsonOrNull<T>(filePath);
     const current = existing === null ? defaultFactory() : existing;
     const next = await mutator(current);
-    if (auditAppend) {
-      // Append the audit entry BEFORE committing the state file. Any failure
-      // here aborts the mutex callback and leaves the on-disk state
-      // unchanged. A failure between this point and the rename below leaves
-      // the audit log ahead — orchestrator (Phase 0c) reconciles.
+    if ((existing === null || next !== current) && auditAppend) {
       await auditAppend();
     }
     const tmp = `${filePath}.tmp.${process.pid}.${Date.now()}`;

@@ -381,6 +381,27 @@ describe('CastsStore.create', () => {
       cleanup();
     }
   });
+
+  it('does NOT invoke auditAppend on idempotent re-create (bug #14)', async () => {
+    const { dir, cleanup } = tmpRepo();
+    try {
+      const store = new CastsStore(busPaths(dir), fixedClock(1));
+      const input = {
+        cast_id: 'cast-I',
+        mode: 'recon-swarm' as const,
+        clones: [{ clone_id: 'A', assignment: null }],
+        policy: { peer_messaging: 'allowed' as const, auto_merge_threshold: null },
+      };
+      const calls: string[] = [];
+      const audit = () => { calls.push('audit'); return Promise.resolve(); };
+      await store.create(input, audit);
+      await store.create(input, audit);
+      await store.create(input, audit);
+      expect(calls).toEqual(['audit']);
+    } finally {
+      cleanup();
+    }
+  });
 });
 
 describe('CastsStore.read', () => {
