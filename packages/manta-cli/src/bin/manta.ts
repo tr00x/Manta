@@ -81,6 +81,10 @@ async function main(): Promise<void> {
       '--tasks <path>',
       "path to a YAML/JSON file with per-clone task overlays. Combines with --task: clones present in the file use the file's entry; clones absent fall back to --task. See docs/user/forking-realities.md for the schema.",
     )
+    .option('--dry-run', 'Show cost preview without spawning', false)
+    .option('--daily-cap-usd <amount>', 'Override daily budget cap (default: from config or $50)', parseFloat)
+    .option('--force', 'Force cast even if daily cap would be exceeded', false)
+    .option('--no-charge-check', 'Skip charge system check (testing only)', false)
     .action(
       async (
         mode: string,
@@ -95,6 +99,10 @@ async function main(): Promise<void> {
           maxFilesChanged: string;
           allowedPaths: string;
           forbiddenPaths: string;
+          dryRun: boolean;
+          dailyCapUsd?: number;
+          force: boolean;
+          chargeCheck: boolean;
         },
       ) => {
         const splitCsv = (s: string): string[] =>
@@ -131,8 +139,10 @@ async function main(): Promise<void> {
             castId: `cast-${Date.now()}`,
             runner: runClaudeCli(),
             reporter,
-            // Production: verify manta-bus MCP is registered before spawning
-            // (default true; tests pass false explicitly).
+            dryRun: options.dryRun,
+            force: options.force,
+            noChargeCheck: !options.chargeCheck,
+            ...(options.dailyCapUsd !== undefined ? { dailyCapUsdOverride: options.dailyCapUsd } : {}),
           }),
         );
       },
