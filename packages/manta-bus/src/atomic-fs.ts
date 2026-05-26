@@ -97,8 +97,10 @@ export async function atomicMutateJson<T>(
   try {
     const existing = await readJsonOrNull<T>(filePath);
     const current = existing === null ? defaultFactory() : existing;
+    const snapshot = existing === null ? null : JSON.stringify(current);
     const next = await mutator(current);
-    if ((existing === null || next !== current) && auditAppend) {
+    const changed = existing === null || JSON.stringify(next) !== snapshot;
+    if (changed && auditAppend) {
       await auditAppend();
     }
     const tmp = `${filePath}.tmp.${process.pid}.${Date.now()}`;
