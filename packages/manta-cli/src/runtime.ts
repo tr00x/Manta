@@ -8,6 +8,8 @@ import {
   ClaimsStore,
   ContractsStore,
   CastsStore,
+  ChargeStore,
+  DailySpendLedger,
   EventsLog,
   fsMemoryWriters,
   systemClock,
@@ -74,6 +76,8 @@ export async function createRuntime(opts: CreateRuntimeOptions): Promise<Runtime
     claims: new ClaimsStore(paths, clock),
     contracts: new ContractsStore(paths, clock),
     casts: new CastsStore(paths, clock),
+    charges: new ChargeStore(paths, clock),
+    dailySpend: new DailySpendLedger(paths, clock),
     events: new EventsLog(paths, clock),
     memoryWriters: fsMemoryWriters({ repoRoot, clock }),
   };
