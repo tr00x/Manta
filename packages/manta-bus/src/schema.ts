@@ -269,6 +269,109 @@ export const CreateCastInputSchema = z
   })
   .strict();
 
+// Phase 3 — Charge system schemas
+
+export const MODE_CHARGE_COST: Readonly<Record<Mode, number>> = {
+  'recon-swarm': 1,
+  'pair-programming': 1,
+  'documentation-chase': 1,
+  'forking-realities': 2,
+  'test-storm': 2,
+  'refactor-wave': 2,
+  'bug-hunt': 2,
+  'decoy': 2,
+  'council': 3,
+  'phantom-lance': 3,
+};
+
+export const ChargeStateSchema = z
+  .object({
+    version: z.literal(1),
+    current_charges: z.number().int(),
+    charges_max: z.number().int().positive(),
+    charges_min: z.number().int(),
+    last_idle_recovery_at: z.number().int().nonnegative(),
+    last_cast_ended_at: z.number().int().nonnegative(),
+    cooldown_until: z.number().int().nonnegative().nullable(),
+    total_successes: z.number().int().nonnegative(),
+    total_failures: z.number().int().nonnegative(),
+    total_casts: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const ChargeEventTypeSchema = z.enum([
+  'cast_start',
+  'cast_success',
+  'cast_fail',
+  'cast_neutral',
+  'idle_recovery',
+  'manual_refresh',
+  'cooldown_triggered',
+  'cooldown_cleared',
+]);
+
+export const ChargeEventSchema = z
+  .object({
+    ts: z.number().int().nonnegative(),
+    type: ChargeEventTypeSchema,
+    delta: z.number().int(),
+    cast_id: z.string().nullable(),
+    mode: ModeSchema.nullable(),
+    cost: z.number().int().nonnegative().optional(),
+    prev_charges: z.number().int(),
+    next_charges: z.number().int(),
+    reason: z.string().optional(),
+  })
+  .strict();
+
+export const DailySpendEntrySchema = z
+  .object({
+    cast_id: z.string(),
+    mode: ModeSchema,
+    clone_count: z.number().int().positive(),
+    estimated_cost_usd: z.number().nonnegative(),
+    cost_type: z.enum(['estimate', 'actual']),
+    started_at: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const DailySpendStateSchema = z
+  .object({
+    version: z.literal(1),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    spent_usd: z.number().nonnegative(),
+    entries: z.array(DailySpendEntrySchema),
+  })
+  .strict();
+
+export const BudgetConfigSchema = z
+  .object({
+    per_cast_usd: z.number().positive(),
+    per_clone_usd: z.union([z.number().positive(), z.literal('auto')]),
+    daily_cap_usd: z.number().positive(),
+    cost_estimates: z.record(ModeSchema, z.number().nonnegative()),
+    auto_downgrade: z
+      .object({
+        enabled: z.boolean(),
+        confirm: z.boolean(),
+        min_clones: z.number().int().positive(),
+      })
+      .partial()
+      .strict(),
+    charges: z
+      .object({
+        initial: z.number().int().nonnegative(),
+        max: z.number().int().positive(),
+        min: z.number().int(),
+        idle_recovery_minutes: z.number().int().positive(),
+        cooldown_hours: z.number().int().positive(),
+      })
+      .partial()
+      .strict(),
+  })
+  .partial()
+  .strict();
+
 // Inferred types — exported so handlers and stores can share them.
 export type CloneId = z.infer<typeof CloneIdSchema>;
 export type Mode = z.infer<typeof ModeSchema>;
@@ -295,3 +398,9 @@ export type CloneAssignment = z.infer<typeof CloneAssignmentSchema>;
 export type CastClonesEntry = z.infer<typeof CastClonesEntrySchema>;
 export type CastManifest = z.infer<typeof CastManifestSchema>;
 export type CreateCastInput = z.infer<typeof CreateCastInputSchema>;
+export type ChargeState = z.infer<typeof ChargeStateSchema>;
+export type ChargeEvent = z.infer<typeof ChargeEventSchema>;
+export type ChargeEventType = z.infer<typeof ChargeEventTypeSchema>;
+export type DailySpendEntry = z.infer<typeof DailySpendEntrySchema>;
+export type DailySpendState = z.infer<typeof DailySpendStateSchema>;
+export type BudgetConfig = z.infer<typeof BudgetConfigSchema>;
