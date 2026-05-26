@@ -11,7 +11,7 @@ export interface PreSpawnGateOptions {
   castId: string;
   budgetUsdPerClone: number;
   budgetUsdPerCast: number;
-  dailyCapUsdOverride?: number;
+  dailyCapUsdOverride?: number | undefined;
   force: boolean;
   noChargeCheck: boolean;
   dryRun: boolean;
@@ -98,23 +98,8 @@ export async function runPreSpawnGate(
   }
 
   // Step 3: Cost estimation (already done above)
-
-  // Step 4: Per-cast budget check
-  const totalCloneBudget = costEstimate.perCloneBudgetUsd * opts.cloneCount;
-  if (totalCloneBudget > opts.budgetUsdPerCast) {
-    opts.reporter.warn('gate.per_cast_exceeded', {
-      totalCloneBudget,
-      perCast: opts.budgetUsdPerCast,
-    });
-    return {
-      passed: false,
-      costEstimate,
-      chargesAfterDeduct: opts.noChargeCheck ? 0 : (await opts.charges.read()).current_charges,
-      dailySpentAfter: (await opts.dailySpend.read()).spent_usd,
-      dailyRemaining: await opts.dailySpend.getRemaining(dailyCap),
-      committed: false,
-    };
-  }
+  // Step 4: Per-cast budget check — handled by existing L1/L2 gate in cast.ts
+  // before this function is called; not duplicated here.
 
   // Step 5: Daily cap check
   const dailySpendState = await opts.dailySpend.read();

@@ -19,6 +19,9 @@ import { join } from 'node:path';
 import { createMetricCollector } from './merge-review-collector.js';
 import { adjustWeightsFromProject } from './rubric-prepass.js';
 import { listWorktrees } from '../spawner/worktree.js';
+import { loadBudgetConfig } from '../config/budget-config.js';
+import { runPreSpawnGate } from '../budget/pre-spawn-gate.js';
+import { classifyCastOutcome } from '../budget/cast-outcome.js';
 
 // Phase 2a: forking-realities joins recon-swarm. Spec Sec 2 #2; see
 // docs/research/phase-2-codepath-map.md §1.1 for the per-mode capability
@@ -66,6 +69,14 @@ export interface RunCastOptions {
   reporter: Reporter;
   /** Skip the `claude mcp list` pre-flight. Tests with fake runners pass false. */
   verifyMcp?: boolean;
+  /** Daily cap override (CLI: --daily-cap-usd). If undefined, reads from BudgetConfig. */
+  dailyCapUsdOverride?: number;
+  /** Skip charge system check (CLI: --no-charge-check). Default false. */
+  noChargeCheck?: boolean;
+  /** Force past daily cap (CLI: --force). Default false. */
+  force?: boolean;
+  /** Dry-run mode: print cost preview, do not spawn (CLI: --dry-run). Default false. */
+  dryRun?: boolean;
 }
 
 const DEFAULT_SCOPE: CastScopeOptions = {
@@ -189,6 +200,38 @@ export async function runCastCommand(
         `Reduce per-clone budgets, lower --budget-per-clone-usd, or raise --budget-per-cast-usd.`,
       { kind: 'invalid_input' },
     );
+  }
+
+  // Phase 3: Pre-spawn gate (charge + daily budget + dry-run)
+  const budgetConfig = await loadBudgetConfig(rt.repoRoot);
+  const gateResult = await runPreSpawnGate({
+    mode: opts.mode,
+    cloneCount: opts.cloneCount,
+    castId: opts.castId,
+    budgetUsdPerClone: opts.budgetUsdPerClone,
+    budgetUsdPerCast: opts.budgetUsdPerCast,
+    dailyCapUsdOverride: opts.dailyCapUsdOverride,
+    force: opts.force ?? false,
+    noChargeCheck: opts.noChargeCheck ?? false,
+    dryRun: opts.dryRun ?? false,
+    config: budgetConfig,
+    charges: rt.ctx.charges,
+    dailySpend: rt.ctx.dailySpend,
+    reporter: opts.reporter,
+  });
+
+  if (!gateResult.passed) {
+    throw new CliError(
+      `Pre-spawn gate failed for ${opts.mode} × ${opts.cloneCount}`,
+      { kind: 'budget_gate_failed' },
+    );
+  }
+
+  if (opts.dryRun) {
+    return {
+      exitCode: 0,
+      stdout: `Dry run complete for cast ${opts.castId}. No clones spawned.`,
+    };
   }
 
   // MCP pre-flight unless explicitly skipped (tests with fake runners pass
@@ -352,6 +395,34 @@ export async function runCastCommand(
       }),
     );
     await timeline.seal(rt.ctx.clock.now());
+
+    // Phase 3: Post-cast settlement
+    if (!(opts.noChargeCheck ?? false)) {
+      const allClones = await rt.ctx.registry.list();
+      const castClones = allClones.filter((c) => cloneIds.includes(c.clone_id));
+      const outcome = classifyCastOutcome({
+        clones: castClones,
+        budgetAborted: loopResult.aborted,
+      });
+
+      switch (outcome) {
+        case 'success':
+          await rt.ctx.charges.creditSuccess(opts.castId, opts.mode);
+          break;
+        case 'fail':
+          await rt.ctx.charges.creditFail(opts.castId, opts.mode);
+          break;
+        case 'neutral':
+          await rt.ctx.charges.creditNeutral(opts.castId, opts.mode);
+          break;
+      }
+
+      opts.reporter.info('cast.settlement', {
+        cast: opts.castId,
+        outcome,
+        charges: (await rt.ctx.charges.read()).current_charges,
+      });
+    }
 
     if (opts.mode === 'forking-realities' && !loopResult.aborted) {
       try {
