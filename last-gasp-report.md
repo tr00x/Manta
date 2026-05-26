@@ -1,33 +1,32 @@
-# Last Gasp Report — Clone A (cast-1779826114734)
+# Last Gasp Report — Clone A (cast-1779829023599)
 
 ## Task
-Write Phase 3 implementation plan for charge system + multi-layer budget.
+Phase 3 Chunk 2 — Core budget modules (tasks 2.0-2.5)
 
 ## Outcome: COMPLETE
 
-Delivered `docs/superpowers/plans/2026-05-26-phase-3-charge-system.md` — 1860 lines, 2 chunks, 22 tasks.
+All 7 tasks delivered with 6 atomic commits. 59 tests passing, 0 regressions.
 
-## What was done
-1. Read all 3 research deliverables (Clone A codepath map, Clone B persistence design, Clone C multi-layer architecture)
-2. Read reference plan (Phase 2a forking-spawn) for format
-3. Grepped exact interfaces from codebase: RunCastOptions, BusPaths, BusContext, atomicMutateJson, ModeSchema, death_reason, Reporter, CliError, CastManifest, tick-loop, BudgetSchema, Clock, Orchestrator.runCycle, loadScoringConfig pattern
-4. Read spec Sec 6.4, 9.4, 15 for exact requirements
-5. Wrote full plan with 2 chunks:
-   - Chunk 1 (10 tasks): ChargeStore + DailySpendLedger + BudgetConfig + schemas + BusPaths + BusContext + CastOutcomeClassifier
-   - Chunk 2 (12 tasks): CostEstimator + PreSpawnGate + AutoDowngradeAdvisor + settlement + 4 CLI commands + 4 cast flags + integration + e2e tests
-6. Committed plan to main branch
+## Deliverables
 
-## Key decisions in the plan
-- JSON+lockfile (not SQLite) — Clone B's analysis conclusive
-- ChargeStore in @manta/bus (state layer), BudgetConfig in @manta/cli
-- On-demand passive recovery at pre-spawn (no daemon)
-- CastOutcomeClassifier: success/fail/neutral from death_reason + budgetAborted
-- New CliErrorKind: 'budget_gate_failed'
-- Calendar-day reset for DailySpendLedger using local timezone
-- Cross-chunk field-name reference table to prevent drift
+### New files (7)
+- `packages/manta-cli/src/config/budget-config.ts` — `loadBudgetConfig()` + `ResolvedBudgetConfig`
+- `packages/manta-cli/tests/config/budget-config.test.ts` — 9 tests
+- `packages/manta-cli/src/budget/cost-estimator.ts` — `estimateCost()` pure function
+- `packages/manta-cli/tests/budget/cost-estimator.test.ts` — 7 tests
+- `packages/manta-cli/src/budget/auto-downgrade.ts` — `computeDowngradeOptions()`
+- `packages/manta-cli/tests/budget/auto-downgrade.test.ts` — 7 tests
+- `packages/manta-cli/src/budget/pre-spawn-gate.ts` — `runPreSpawnGate()` seven-step gate
+- `packages/manta-cli/tests/budget/pre-spawn-gate.test.ts` — 9 tests
+
+### Modified files (2)
+- `packages/manta-cli/src/commands/cast.ts` — PreSpawnGate wiring + post-cast settlement
+- `packages/manta-cli/src/bin/manta.ts` — 4 new CLI flags
+
+## Key design decisions
+- Step 4 (per-cast budget check) removed from PreSpawnGate — existing L1/L2 gate in cast.ts handles it with correct parameters before gate is called
+- Plan test case for `$4 remaining → recon-swarm × 3 = $4.50` was arithmetically wrong (marked viable at $4.50 > $4.00) — corrected to expect `viable: false`
+- `exactOptionalPropertyTypes` requires explicit `| undefined` in optional interface properties
 
 ## Surprising insight
-The scoring config pattern (loadScoringConfig in @manta/orchestrator) is the exact template for BudgetConfig — file-not-found → defaults, partial merge, same try/catch ENOENT pattern. This consistency across config loaders is a strong codebase convention worth preserving.
-
-## Time spent
-~8 minutes from contract ack to commit.
+The PreSpawnGate's Step 4 (per-cast budget check) duplicates the existing cumulative budget gate in cast.ts lines 194-203. However, the two checks use different source values: the gate uses BudgetConfig defaults ($15 per cast) while cast.ts uses CLI-specified values (sometimes $5 in tests). This mismatch caused all 4 forking-realities tests to fail. The correct design is: L1/L2 remains in cast.ts (which has the actual CLI values), gate handles only L3 (daily cap) + charge system.
