@@ -14,6 +14,7 @@ import { serializeSnapshot, type Snapshot } from '@manta/snapshot';
 import { CliError } from '../errors.js';
 import { buildInitialPrompt, buildPrimingText } from './priming.js';
 import { installHeartbeatHook } from './heartbeat-hook.js';
+import { installGitLockHook } from './git-lock-hook-installer.js';
 
 export interface CloneRunner {
   run(input: CloneRunnerInput): ExecaChildProcess;
@@ -149,6 +150,11 @@ export async function spawnClone(opts: SpawnCloneOptions): Promise<CloneHandle> 
   }
 
   await installHeartbeatHook(opts.worktree, opts.repoRoot, cloneId);
+
+  if (opts.castMode === 'test-storm') {
+    const locksPath = path.join(opts.repoRoot, '.manta', 'state', 'locks.json');
+    await installGitLockHook(opts.worktree, locksPath, cloneId);
+  }
 
   const proc = opts.runner.run({
     cwd: opts.worktree,

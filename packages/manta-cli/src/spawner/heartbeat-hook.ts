@@ -13,11 +13,15 @@ import * as path from 'node:path';
  * Uses proper-lockfile for safe concurrent access to registry.json (same
  * locking primitive as `atomicMutateJson` in `@manta/bus`).
  */
+const installedWorktrees = new Set<string>();
+
 export async function installHeartbeatHook(
   worktree: string,
   repoRoot: string,
   cloneId: string,
 ): Promise<void> {
+  if (installedWorktrees.has(worktree)) return;
+
   const claudeDir = path.join(worktree, '.claude');
   await fs.mkdir(claudeDir, { recursive: true });
 
@@ -40,18 +44,27 @@ export async function installHeartbeatHook(
     ],
   };
 
-  const settings = {
-    hooks: {
-      PreToolUse: [hookEntry],
-      PostToolUse: [hookEntry],
-    },
-  };
+  const settingsPath = path.join(claudeDir, 'settings.local.json');
+  let settings: Record<string, unknown> = {};
+  try {
+    const raw = await fs.readFile(settingsPath, 'utf8');
+    settings = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    // No existing settings — start fresh
+  }
 
-  await fs.writeFile(
-    path.join(claudeDir, 'settings.local.json'),
-    JSON.stringify(settings, null, 2),
-    'utf8',
-  );
+  const hooks = (settings.hooks ?? {}) as Record<string, unknown[]>;
+  hooks.PreToolUse = [hookEntry];
+  hooks.PostToolUse = [hookEntry];
+  settings.hooks = hooks;
+
+  await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+
+  installedWorktrees.add(worktree);
+}
+
+export function _resetInstalledWorktrees(): void {
+  installedWorktrees.clear();
 }
 
 function buildTouchScript(
@@ -66,7 +79,7 @@ const path = require('path');
 
 const REGISTRY = ${JSON.stringify(registryPath)};
 const LOCK_DIR = ${JSON.stringify(lockDir)};
-const CLONE_ID = ${JSON.stringify(cloneId)};
+const CLONE_ID = process.env.MANTA_CLONE_ID || ${JSON.stringify(cloneId)};
 const LOCK_FILE = path.join(LOCK_DIR, 'registry.json.lock');
 
 // Minimal lock: mkdir-based (same as proper-lockfile's stale check).
