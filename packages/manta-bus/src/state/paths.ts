@@ -16,6 +16,7 @@ export interface BusPaths {
   readonly dailySpend: string;
   readonly configDir: string;
   readonly budgetConfig: string;
+  readonly workQueue: string;
   contractFile(cloneId: string): string;
   castFile(castId: string): string;
 }
@@ -41,6 +42,7 @@ export function busPaths(repoRoot: string): BusPaths {
     dailySpend: path.join(stateDir, 'daily-spend.json'),
     configDir,
     budgetConfig: path.join(configDir, 'budget.json'),
+    workQueue: path.join(stateDir, 'work-queue.json'),
     contractFile(cloneId: string): string {
       const parsed = CloneIdSchema.safeParse(cloneId);
       if (!parsed.success) {

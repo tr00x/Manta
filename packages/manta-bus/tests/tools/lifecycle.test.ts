@@ -115,4 +115,144 @@ describe('lifecycle handlers', () => {
       handlers.reportDeath({ clone_id: 'GHOST', last_gasp_report_path: '/tmp/x.json' }),
     ).rejects.toThrow(/GHOST/);
   });
+
+  describe('retask handler', () => {
+    it('validates input and calls registry.retask', async () => {
+      await handlers.register({
+        clone_id: 'D',
+        mode: 'recon-swarm',
+        parent_pid: 1,
+        worktree: '/w',
+        metadata: {},
+      });
+      await handlers.heartbeat({ clone_id: 'D', state: 'WORKING' });
+      await handlers.heartbeat({ clone_id: 'D', state: 'IDLE' });
+
+      const result = await handlers.retask({
+        clone_id: 'D',
+        new_task: 'implement feature X',
+      });
+      expect(result.clone.state).toBe('WORKING');
+      expect(result.clone.progress).toContain('retasked');
+      expect(result.event.type).toBe('retask');
+    });
+
+    it('rejects invalid clone state', async () => {
+      await handlers.register({
+        clone_id: 'E',
+        mode: 'recon-swarm',
+        parent_pid: 1,
+        worktree: '/w',
+        metadata: {},
+      });
+      await handlers.heartbeat({ clone_id: 'E', state: 'WORKING' });
+
+      await expect(
+        handlers.retask({ clone_id: 'E', new_task: 'cannot retask WORKING' }),
+      ).rejects.toThrow(/WORKING/);
+    });
+
+    it('appends retask event with payload', async () => {
+      await handlers.register({
+        clone_id: 'F',
+        mode: 'recon-swarm',
+        parent_pid: 1,
+        worktree: '/w',
+        metadata: {},
+      });
+      await handlers.heartbeat({ clone_id: 'F', state: 'WORKING' });
+      await handlers.heartbeat({ clone_id: 'F', state: 'IDLE' });
+
+      const result = await handlers.retask({
+        clone_id: 'F',
+        new_task: 'new task text',
+        new_approach_hint: 'start with tests',
+      });
+      expect(result.event.payload).toMatchObject({
+        new_task: 'new task text',
+        new_approach_hint: 'start with tests',
+        new_scope: null,
+        new_deadline_ms: null,
+      });
+    });
+
+    it('rejects retask for unknown clone', async () => {
+      await expect(
+        handlers.retask({ clone_id: 'GHOST', new_task: 'nothing' }),
+      ).rejects.toThrow(/GHOST/);
+    });
+  });
+
+  describe('pause handler', () => {
+    it('transitions to IDLE and appends pause event', async () => {
+      await handlers.register({
+        clone_id: 'P',
+        mode: 'recon-swarm',
+        parent_pid: 1,
+        worktree: '/w',
+        metadata: {},
+      });
+      await handlers.heartbeat({ clone_id: 'P', state: 'WORKING' });
+      clock.advance(1_000);
+
+      const result = await handlers.pause({ clone_id: 'P', reason: 'waiting for review' });
+      expect(result.clone.state).toBe('IDLE');
+      expect(result.event.type).toBe('pause');
+      expect(result.event.payload).toMatchObject({ reason: 'waiting for review' });
+    });
+  });
+
+  describe('resume handler', () => {
+    it('transitions to WORKING and appends resume event', async () => {
+      await handlers.register({
+        clone_id: 'R',
+        mode: 'recon-swarm',
+        parent_pid: 1,
+        worktree: '/w',
+        metadata: {},
+      });
+      await handlers.heartbeat({ clone_id: 'R', state: 'WORKING' });
+      await handlers.heartbeat({ clone_id: 'R', state: 'IDLE' });
+      clock.advance(1_000);
+
+      const result = await handlers.resume({ clone_id: 'R' });
+      expect(result.clone.state).toBe('WORKING');
+      expect(result.event.type).toBe('resume');
+    });
+  });
+
+  describe('requestTask handler', () => {
+    it('transitions to WAITING_FOR_TASK and appends request_task event', async () => {
+      await handlers.register({
+        clone_id: 'W',
+        mode: 'recon-swarm',
+        parent_pid: 1,
+        worktree: '/w',
+        metadata: {},
+      });
+      await handlers.heartbeat({ clone_id: 'W', state: 'WORKING' });
+      clock.advance(1_000);
+
+      const result = await handlers.requestTask({ clone_id: 'W' });
+      expect(result.clone.state).toBe('WAITING_FOR_TASK');
+      expect(result.event.type).toBe('request_task');
+    });
+
+    it('returns both clone record and event', async () => {
+      await handlers.register({
+        clone_id: 'X',
+        mode: 'recon-swarm',
+        parent_pid: 1,
+        worktree: '/w',
+        metadata: {},
+      });
+      await handlers.heartbeat({ clone_id: 'X', state: 'WORKING' });
+
+      const result = await handlers.requestTask({ clone_id: 'X' });
+      expect(result.clone).toBeDefined();
+      expect(result.clone.clone_id).toBe('X');
+      expect(result.event).toBeDefined();
+      expect(result.event.clone_id).toBe('X');
+    });
+  });
 });

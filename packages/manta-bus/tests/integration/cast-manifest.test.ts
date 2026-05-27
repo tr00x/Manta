@@ -16,7 +16,7 @@ describe('cast-manifest integration', () => {
           { clone_id: 'A', assignment: null },
           { clone_id: 'B', assignment: null },
         ],
-        policy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+        policy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' as const },
       });
       // Simulate process exit + new handle pointing at the same dir.
       const h2 = await createBusServer({ repoRoot: dir, clock: systemClock });
@@ -36,7 +36,7 @@ describe('cast-manifest integration', () => {
         cast_id: 'cast-int-2',
         mode: 'recon-swarm' as const,
         clones: [{ clone_id: 'A', assignment: null }],
-        policy: { peer_messaging: 'allowed' as const, auto_merge_threshold: null },
+        policy: { peer_messaging: 'allowed' as const, auto_merge_threshold: null, session_mode: 'batch' as const },
       };
       const [a, b] = await Promise.all([
         h.context.casts.create(input),
@@ -61,7 +61,7 @@ describe('cast-manifest integration', () => {
         cast_id: 'cast-list-1',
         mode: 'recon-swarm',
         clones: [{ clone_id: 'A', assignment: null }],
-        policy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+        policy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' as const },
       });
       await h1.context.casts.create({
         cast_id: 'cast-list-2',
@@ -70,7 +70,7 @@ describe('cast-manifest integration', () => {
           { clone_id: 'A', assignment: { task: 'one' } },
           { clone_id: 'B', assignment: { task: 'two' } },
         ],
-        policy: { peer_messaging: 'denied', auto_merge_threshold: null },
+        policy: { peer_messaging: 'denied', auto_merge_threshold: null, session_mode: 'batch' as const },
       });
       const h2 = await createBusServer({ repoRoot: dir, clock: systemClock });
       const all = await h2.context.casts.list();

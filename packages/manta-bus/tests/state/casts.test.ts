@@ -19,7 +19,7 @@ describe('CastPolicySchema', () => {
         peer_messaging: 'allowed',
         auto_merge_threshold: null,
       }),
-    ).toEqual({ peer_messaging: 'allowed', auto_merge_threshold: null });
+    ).toEqual({ peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' });
   });
 
   it('accepts a forking-realities-style policy with a finite threshold', () => {
@@ -86,7 +86,7 @@ describe('CastManifestSchema', () => {
         { clone_id: 'A', assignment: null },
         { clone_id: 'B', assignment: null },
       ],
-      policy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      policy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' as const },
       created_at: 1700000000000,
     });
     expect(parsed.clones).toHaveLength(2);
@@ -102,7 +102,7 @@ describe('CastManifestSchema', () => {
         { clone_id: 'B', assignment: { task: 'index-based approach' } },
         { clone_id: 'C', assignment: { task: 'denormalize approach' } },
       ],
-      policy: { peer_messaging: 'denied', auto_merge_threshold: null },
+      policy: { peer_messaging: 'denied', auto_merge_threshold: null, session_mode: 'batch' as const },
       created_at: 1700000000001,
     });
     expect(parsed.policy.peer_messaging).toBe('denied');
@@ -115,7 +115,7 @@ describe('CastManifestSchema', () => {
         cast_id: 'cast-x',
         mode: 'recon-swarm',
         clones: [],
-        policy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+        policy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' as const },
         created_at: 1,
       }),
     ).toThrow();
@@ -128,7 +128,7 @@ describe('CastManifestSchema', () => {
         cast_id: 'cast/../escape',
         mode: 'recon-swarm',
         clones: [{ clone_id: 'A', assignment: null }],
-        policy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+        policy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' as const },
         created_at: 1,
       }),
     ).toThrow();
@@ -144,7 +144,7 @@ describe('CastManifestSchema', () => {
           { clone_id: 'A', assignment: null },
           { clone_id: 'A', assignment: null },
         ],
-        policy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+        policy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' as const },
         created_at: 1,
       }),
     ).toThrow();
@@ -157,7 +157,7 @@ describe('CastManifestSchema', () => {
         cast_id: 'cast-1',
         mode: 'recon-swarm',
         clones: [{ clone_id: 'A/B', assignment: null }],
-        policy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+        policy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' as const },
         created_at: 1,
       }),
     ).toThrow();
@@ -173,7 +173,7 @@ describe('CreateCastInputSchema', () => {
         { clone_id: 'A', assignment: null },
         { clone_id: 'B', assignment: null },
       ],
-      policy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      policy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' as const },
     });
     expect(parsed.mode).toBe('recon-swarm');
   });
@@ -184,7 +184,7 @@ describe('CreateCastInputSchema', () => {
         cast_id: 'cast-1',
         mode: 'recon-swarm',
         clones: [{ clone_id: 'A', assignment: null }],
-        policy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+        policy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' as const },
         unknown_field: 'should not survive',
       }),
     ).toThrow();
@@ -213,7 +213,7 @@ describe('CastsStore.create', () => {
           { clone_id: 'A', assignment: null },
           { clone_id: 'B', assignment: null },
         ],
-        policy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+        policy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' as const },
       });
       expect(manifest.created_at).toBe(1700000000000);
       expect(manifest.clones).toHaveLength(2);
@@ -233,7 +233,7 @@ describe('CastsStore.create', () => {
         cast_id: 'cast-B',
         mode: 'recon-swarm' as const,
         clones: [{ clone_id: 'A', assignment: null }],
-        policy: { peer_messaging: 'allowed' as const, auto_merge_threshold: null },
+        policy: { peer_messaging: 'allowed' as const, auto_merge_threshold: null, session_mode: 'batch' as const },
       };
       const a = await store.create(input);
       const b = await store.create(input);
@@ -251,7 +251,7 @@ describe('CastsStore.create', () => {
         cast_id: 'cast-C',
         mode: 'recon-swarm',
         clones: [{ clone_id: 'A', assignment: null }],
-        policy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+        policy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' as const },
       });
       await expect(
         store.create({
@@ -261,7 +261,7 @@ describe('CastsStore.create', () => {
             { clone_id: 'A', assignment: null },
             { clone_id: 'B', assignment: null },
           ],
-          policy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+          policy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' as const },
         }),
       ).rejects.toMatchObject({ name: 'BusConflictError' });
     } finally {
@@ -277,14 +277,14 @@ describe('CastsStore.create', () => {
         cast_id: 'cast-D',
         mode: 'recon-swarm',
         clones: [{ clone_id: 'A', assignment: null }],
-        policy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+        policy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' as const },
       });
       await expect(
         store.create({
           cast_id: 'cast-D',
           mode: 'forking-realities',
           clones: [{ clone_id: 'A', assignment: null }],
-          policy: { peer_messaging: 'denied', auto_merge_threshold: null },
+          policy: { peer_messaging: 'denied', auto_merge_threshold: null, session_mode: 'batch' as const },
         }),
       ).rejects.toMatchObject({ name: 'BusConflictError' });
     } finally {
@@ -300,14 +300,14 @@ describe('CastsStore.create', () => {
         cast_id: 'cast-E',
         mode: 'recon-swarm',
         clones: [{ clone_id: 'A', assignment: null }],
-        policy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+        policy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' as const },
       });
       await expect(
         store.create({
           cast_id: 'cast-E',
           mode: 'recon-swarm',
           clones: [{ clone_id: 'A', assignment: null }],
-          policy: { peer_messaging: 'denied', auto_merge_threshold: null },
+          policy: { peer_messaging: 'denied', auto_merge_threshold: null, session_mode: 'batch' as const },
         }),
       ).rejects.toMatchObject({ name: 'BusConflictError' });
     } finally {
@@ -324,7 +324,7 @@ describe('CastsStore.create', () => {
         cast_id: 'cast-F',
         mode: 'recon-swarm' as const,
         clones: [{ clone_id: 'A', assignment: null }],
-        policy: { peer_messaging: 'allowed' as const, auto_merge_threshold: null },
+        policy: { peer_messaging: 'allowed' as const, auto_merge_threshold: null, session_mode: 'batch' as const },
       };
       const a = await store.create(input);
       t += 5_000;
@@ -343,7 +343,7 @@ describe('CastsStore.create', () => {
         cast_id: 'cast-G',
         mode: 'forking-realities',
         clones: [{ clone_id: 'A', assignment: { task: 't', budget_usd: 5 } }],
-        policy: { peer_messaging: 'denied', auto_merge_threshold: null },
+        policy: { peer_messaging: 'denied', auto_merge_threshold: null, session_mode: 'batch' as const },
       });
       // Same content, different key insertion order — must NOT be a conflict.
       await expect(
@@ -351,7 +351,7 @@ describe('CastsStore.create', () => {
           cast_id: 'cast-G',
           mode: 'forking-realities',
           clones: [{ clone_id: 'A', assignment: { budget_usd: 5, task: 't' } }],
-          policy: { peer_messaging: 'denied', auto_merge_threshold: null },
+          policy: { peer_messaging: 'denied', auto_merge_threshold: null, session_mode: 'batch' as const },
         }),
       ).resolves.toBeDefined();
     } finally {
@@ -369,7 +369,7 @@ describe('CastsStore.create', () => {
           cast_id: 'cast-H',
           mode: 'recon-swarm',
           clones: [{ clone_id: 'A', assignment: null }],
-          policy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+          policy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' as const },
         },
         () => {
           calls.push('audit');
@@ -390,7 +390,7 @@ describe('CastsStore.create', () => {
         cast_id: 'cast-I',
         mode: 'recon-swarm' as const,
         clones: [{ clone_id: 'A', assignment: null }],
-        policy: { peer_messaging: 'allowed' as const, auto_merge_threshold: null },
+        policy: { peer_messaging: 'allowed' as const, auto_merge_threshold: null, session_mode: 'batch' as const },
       };
       const calls: string[] = [];
       const audit = () => { calls.push('audit'); return Promise.resolve(); };
@@ -435,7 +435,7 @@ describe('CastsStore.list', () => {
         cast_id: 'cast-1',
         mode: 'recon-swarm',
         clones: [{ clone_id: 'A', assignment: null }],
-        policy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+        policy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' as const },
       });
       await store.create({
         cast_id: 'cast-2',
@@ -444,7 +444,7 @@ describe('CastsStore.list', () => {
           { clone_id: 'A', assignment: { task: 'one' } },
           { clone_id: 'B', assignment: { task: 'two' } },
         ],
-        policy: { peer_messaging: 'denied', auto_merge_threshold: null },
+        policy: { peer_messaging: 'denied', auto_merge_threshold: null, session_mode: 'batch' as const },
       });
       const all = await store.list();
       expect(all.map((m) => m.cast_id).sort()).toEqual(['cast-1', 'cast-2']);

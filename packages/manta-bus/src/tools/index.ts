@@ -9,6 +9,7 @@ import type { DailySpendLedger } from '../state/daily-spend';
 import type { EventsLog } from '../state/events';
 import type { BusPaths } from '../state/paths';
 import type { MemoryWriters } from '../memory-writers';
+import type { WorkQueueStore } from '../state/work-queue';
 
 /**
  * The shared context every tool handler family receives. Each handler factory
@@ -27,6 +28,7 @@ export interface BusContext {
   dailySpend: DailySpendLedger;
   events: EventsLog;
   memoryWriters: MemoryWriters;
+  workQueue?: WorkQueueStore;
 }
 
 export type SubsetContext<K extends keyof BusContext> = Pick<BusContext, K>;

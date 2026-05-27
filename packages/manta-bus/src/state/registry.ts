@@ -16,6 +16,10 @@ export interface CloneRecord {
   progress?: string;
   death_reason?: string;
   died_at?: number;
+  idle_since?: number;
+  tasks_completed?: number;
+  last_task_completed_at?: number;
+  session_mode?: 'batch' | 'daemon';
 }
 
 interface RegistryFile {
@@ -85,6 +89,19 @@ export class Registry {
             `cannot heartbeat a DEAD clone ${input.clone_id}; death is terminal`,
           );
         }
+        if (input.state === 'IDLE' && r.state === 'BLOCKED') {
+          throw new BusConflictError(
+            `cannot transition from BLOCKED to IDLE; unblock to WORKING first`,
+          );
+        }
+        if (input.state === 'IDLE') {
+          r.idle_since = this.clock.now();
+          r.tasks_completed = (r.tasks_completed ?? 0) + 1;
+          r.last_task_completed_at = this.clock.now();
+        }
+        if (r.state === 'IDLE' && input.state === 'WORKING') {
+          delete r.idle_since;
+        }
         r.last_heartbeat_at = this.clock.now();
         r.state = input.state;
         if (input.progress !== undefined) r.progress = input.progress;
@@ -144,6 +161,32 @@ export class Registry {
         r.state = 'DEAD';
         r.death_reason = reason;
         r.died_at = this.clock.now();
+        return current;
+      },
+      auditAppend,
+    ).then((next) => next.clones[cloneId]!);
+  }
+
+  async retask(
+    cloneId: string,
+    taskSummary: string,
+    auditAppend?: () => Promise<void>,
+  ): Promise<CloneRecord> {
+    return atomicMutateJson<RegistryFile>(
+      this.paths.registry,
+      empty,
+      (current) => {
+        const r = current.clones[cloneId];
+        if (!r) throw new BusNotFoundError('clone', cloneId);
+        if (r.state !== 'IDLE' && r.state !== 'WAITING_FOR_TASK') {
+          throw new BusConflictError(
+            `cannot retask clone ${cloneId} in state ${r.state}; must be IDLE or WAITING_FOR_TASK`,
+          );
+        }
+        r.state = 'WORKING';
+        delete r.idle_since;
+        r.last_heartbeat_at = this.clock.now();
+        r.progress = `retasked: ${taskSummary.slice(0, 200)}`;
         return current;
       },
       auditAppend,
