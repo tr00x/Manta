@@ -14,3 +14,5 @@ export * from './merge-review';
 export * from './forensic-timeline';
 export * from './replay';
 export * from './audit';
+export * from './merge-all';
+export * from './merge-all-writer';
