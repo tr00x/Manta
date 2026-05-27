@@ -1,4 +1,4 @@
-import type { Orchestrator } from '@manta/orchestrator';
+import type { Orchestrator, CycleResult } from '@manta/orchestrator';
 import { CliError } from './errors.js';
 import { sleep } from './util/sleep.js';
 
@@ -8,6 +8,7 @@ export interface RunTickLoopOptions {
   allDone: () => Promise<boolean>;
   signal?: AbortSignal;
   daemonMode?: boolean;
+  onCycleComplete?: ((result: CycleResult) => Promise<void>) | undefined;
 }
 
 export interface TickLoopResult {
@@ -24,8 +25,9 @@ export async function runTickLoop(opts: RunTickLoopOptions): Promise<TickLoopRes
       aborted = true;
       break;
     }
+    let cycleResult: CycleResult;
     try {
-      await opts.orchestrator.runCycle();
+      cycleResult = await opts.orchestrator.runCycle();
     } catch (err) {
       // CliErrorOptions.cause is `unknown` (errors.ts:11) so we forward `err`
       // verbatim — OrchestratorError or otherwise, it lands on `Error.cause`.
@@ -35,6 +37,9 @@ export async function runTickLoop(opts: RunTickLoopOptions): Promise<TickLoopRes
         kind: 'orchestrator_failed',
         cause: err,
       });
+    }
+    if (opts.onCycleComplete) {
+      await opts.onCycleComplete(cycleResult);
     }
     cycles += 1;
     if (await opts.allDone()) break;

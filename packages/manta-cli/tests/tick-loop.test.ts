@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { runTickLoop } from '../src/tick-loop.js';
 import {
   Orchestrator,
@@ -162,6 +162,28 @@ describe('runTickLoop', () => {
     });
     expect(result.cycles).toBe(1);
     expect(result.aborted).toBe(false);
+  });
+
+  it('calls onCycleComplete after each orchestrator cycle', async () => {
+    const orch = new Orchestrator({
+      ctx,
+      thresholds: defaultThresholds,
+      probe: makeProbe({ alive: () => true }),
+      writer: inMemoryPostMortemWriter(),
+    });
+    let cycleCount = 0;
+    const onCycleComplete = vi.fn();
+    const result = await runTickLoop({
+      orchestrator: orch,
+      intervalMs: 5,
+      onCycleComplete,
+      allDone: () => {
+        cycleCount += 1;
+        return Promise.resolve(cycleCount >= 2);
+      },
+    });
+    expect(onCycleComplete).toHaveBeenCalledTimes(2);
+    expect(onCycleComplete).toHaveBeenCalledWith(expect.objectContaining({ ranAt: expect.any(Number) }));
   });
 
   it('wraps orchestrator failures via CliError without breaking the loop contract', async () => {
