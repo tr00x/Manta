@@ -150,7 +150,7 @@ describe('enqueue handler', () => {
         prompt: 'test',
         priority: 'normal',
       }),
-    ).rejects.toThrow(/workQueue not configured/);
+    ).rejects.toThrow(/WorkQueueStore not initialized/);
   });
 
   it('enqueued items appear in work queue pending', async () => {

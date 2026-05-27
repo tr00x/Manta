@@ -265,8 +265,8 @@ export async function runCastCommand(
   // peer_messaging at the bus surface.
   const castPolicy: CastPolicy =
     (opts.mode === 'forking-realities' || opts.mode === 'refactor-wave')
-      ? { peer_messaging: 'denied', auto_merge_threshold: null }
-      : { peer_messaging: 'allowed', auto_merge_threshold: null };
+      ? { peer_messaging: 'denied', auto_merge_threshold: null, session_mode: 'batch' as const }
+      : { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' as const };
 
   // Roster carries the per-clone CloneAssignment if one exists (forking-
   // realities) or null otherwise (recon-swarm). Phase 2c merge-review reads
