@@ -1,40 +1,34 @@
-# Last Gasp Report — Clone B (cast-1779891646065)
+# Last Gasp Report — Clone A (cast-1779892719760)
 
 ## Task
-Phase 4 Chunk 1 — Bug-hunt tests + docs (tasks 1.5–1.10)
+Phase 4 Chunk 2 — Refactor-wave orchestrator layer (tasks 2.1, 2.2, 2.3, 2.9-merge-all)
 
 ## Outcome: COMPLETE
 
-All 6 tasks delivered with atomic commits. Charge test verified green independently. Remaining test failures are expected — they depend on Clone A's implementation (SUPPORTED_MODES, BUG_HUNT_BLOCK, post-cast pipeline).
+All 4 tasks delivered in a single atomic commit. 127/127 tests green, build clean.
 
 ## What was done
 
-1. **[1.5] Unit tests for bug-hunt cast dispatch** — 5 tests in cast.test.ts: valid mode, max 2 clones, peer_messaging=allowed, no merge-review, investigation report event.
+1. **[2.1] merge-all.ts orchestrator** — `runMergeAll()` with seam-based DI (`runQualityGate`, `gitMerge`, `gitMergeAbort` injected). Clones sorted by `exitTime` (earliest first). Quality gate: hasDiff + tscOk + testsOk. Verdicts: `all_merged`, `partial_merge`, `no_merges`, `conflict_escalation`. On conflict: abort merge, continue with remaining clones.
 
-2. **[1.6] Unit tests for bug-hunt priming** — 3 tests in priming.test.ts: BUG_HUNT_BLOCK inclusion, no self_certainty, approach_hint passthrough.
+2. **[2.2] merge-all-writer.ts** — `fsMergeAllWriter` (atomic write with tmp+rename, path traversal defense via SAFE_FILENAME + assertContained), `inMemoryMergeAllWriter` (for tests), `renderMergeAllMarkdown` (verdict header, quality gate table, merged/skipped/conflicted sections, post-merge instructions).
 
-3. **[1.7] Integration test for bug-hunt lifecycle** — New file bug-hunt-spawn.test.ts. Full lifecycle with fake runner: 2 clones with layer assignments, manifest mode=bug-hunt, registry cast_mode, per-clone contracts, no merge-review event.
+3. **[2.3] Orchestrator exports** — Re-exports from index.ts: `runMergeAll`, `MergeAllOptions`, `MergeAllResult`, `QualityGateResult`, `MergeAllVerdict`, `CloneGateEntry`, `DeadCloneEntry`, `MergeAllWriter`, `MergeAllDocument`, `fsMergeAllWriter`, `inMemoryMergeAllWriter`, `renderMergeAllMarkdown`.
 
-4. **[1.8] E2E smoke test** — New file bug-hunt.e2e.test.ts. 2-clone bug-hunt with real claude (opt-in MANTA_E2E=1). Asserts: both DEAD, post-mortems, NO merge-review, forensic timeline, charges.
-
-5. **[1.9] Charge integration test** — 1 test added to charge-budget.test.ts: bug-hunt costs 2 charges, deduct 3→1, creditSuccess +1→2.
-
-6. **[1.10] User docs** — docs/user/bug-hunt.md with sections: When to use, How it works, CLI examples, Investigation report format, Tips.
+4. **[2.9-merge-all] 8 unit tests** — all_merged, skip-on-gate-fail (partial_merge), conflict-escalation, no_merges, empty-diff-skip, sort-by-exit-time, gateResults per-clone, report-writing scenario.
 
 ## Test Results
-- charge-budget.test.ts: 8/8 PASS (including new bug-hunt scenario)
-- All pre-existing tests: 241/241 PASS
-- Bug-hunt-specific tests: 7 FAIL (expected — Clone A implementation not yet merged)
+- merge-all.test.ts: 8/8 PASS
+- All orchestrator tests: 127/127 PASS (18 test files)
+- Build: CJS + ESM + DTS clean
 
-## Commits (6 atomic)
-1. `45418a4` test: unit tests for bug-hunt cast dispatch and priming (tasks 1.5, 1.6)
-2. `715b845` test: integration test for bug-hunt lifecycle (task 1.7)
-3. `d034022` test: e2e smoke test for bug-hunt mode (task 1.8)
-4. `fe56b0e` test: charge system integration test for bug-hunt (task 1.9)
-5. `1b9cefd` docs: user documentation for bug-hunt mode (task 1.10)
-6. `bfd86f4` fix(test): correct charge assertion — creditSuccess is +1, not full refund
+## Commit
+`fd3709b` — `feat(orchestrator): add merge-all orchestrator + writer + tests` — 4 files, 370 insertions
+
+## Notes for Clone B / Merger
+Clone B implements CLI-layer tasks (cast.ts dispatch, priming block, partition validator, tests, docs). Their `cast.ts` post-loop wiring imports `{ runMergeAll }` from `@manta/orchestrator` — resolves after merge. `MergeAllWriter` interface available for integration tests.
 
 ## Surprising insight
-creditSuccess() adds exactly +1 charge regardless of mode cost. For bug-hunt (cost=2), deduct 3→1, then credit 1→2 — not back to 3. The charge system is designed for partial recovery on success, not full refund. Initially wrote the wrong assertion, caught it during test verification, fixed before final commit.
+The merge-all algorithm is fundamentally different from merge-review: merge-review picks ONE winner via scoring, merge-all merges ALL passing clones sequentially. This means conflict detection is cumulative — clone C might conflict not because its own code is bad, but because clone B's already-merged changes conflict with C. The sort-by-exitTime ordering makes this deterministic but the merger should be aware that merge order affects which clone gets "conflicted" status.
 
-## Confidence: 8/10
+## Confidence: 9/10
