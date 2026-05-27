@@ -623,3 +623,147 @@ describe('toBusContract — snapshot ↔ bus approach_hint translation drift', (
     expect(bus.approach_hint).toBe('denormalize');
   });
 });
+
+describe('cast command — bug-hunt mode', () => {
+  let fx: RepoFixture | undefined;
+  afterEach(async () => {
+    await fx?.cleanup();
+    fx = undefined;
+  });
+
+  it('accepts bug-hunt as valid mode', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: {
+        heartbeatTimeoutMs: 100,
+        startupGraceMs: 100,
+        parentPidCheckEnabled: false,
+      },
+    });
+    const result = await runCastCommand(rt, {
+      mode: 'bug-hunt' as unknown as 'recon-swarm',
+      task: 'investigate auth timeout in src/auth.ts',
+      cloneCount: 2,
+      cycleIntervalMs: 50,
+      tickBudgetMs: 15_000,
+      castId: 'cast-bh-valid-1',
+      budgetUsdPerClone: 5,
+      budgetUsdPerCast: 15,
+      runner: runFakeCloneScript({ scriptPath: fixturePath }),
+      reporter: createReporter({ sink: new MemorySink() }),
+      verifyMcp: false,
+    });
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('rejects bug-hunt with cloneCount > 2', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({ repoRoot: fx.root });
+    await expect(
+      runCastCommand(rt, {
+        mode: 'bug-hunt' as unknown as 'recon-swarm',
+        task: 'investigate leak',
+        cloneCount: 3,
+        cycleIntervalMs: 50,
+        tickBudgetMs: 5_000,
+        castId: 'cast-bh-reject-3',
+        budgetUsdPerClone: 5,
+        budgetUsdPerCast: 15,
+        runner: runFakeCloneScript({ scriptPath: fixturePath }),
+        reporter: createReporter({ sink: new MemorySink() }),
+        verifyMcp: false,
+      }),
+    ).rejects.toMatchObject({ name: 'CliError', kind: 'invalid_input' });
+  });
+
+  it('sets peer_messaging = allowed', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: {
+        heartbeatTimeoutMs: 100,
+        startupGraceMs: 100,
+        parentPidCheckEnabled: false,
+      },
+    });
+    await runCastCommand(rt, {
+      mode: 'bug-hunt' as unknown as 'recon-swarm',
+      task: 'investigate NPE',
+      cloneCount: 2,
+      cycleIntervalMs: 50,
+      tickBudgetMs: 15_000,
+      castId: 'cast-bh-policy-1',
+      budgetUsdPerClone: 5,
+      budgetUsdPerCast: 15,
+      runner: runFakeCloneScript({ scriptPath: fixturePath }),
+      reporter: createReporter({ sink: new MemorySink() }),
+      verifyMcp: false,
+    });
+    const manifestPath = path.join(fx.root, '.manta', 'state', 'casts', 'cast-bh-policy-1.json');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8')) as {
+      mode: string;
+      policy: { peer_messaging: string };
+    };
+    expect(manifest.policy.peer_messaging).toBe('allowed');
+  });
+
+  it('does not trigger merge-review after cast', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: {
+        heartbeatTimeoutMs: 100,
+        startupGraceMs: 100,
+        parentPidCheckEnabled: false,
+      },
+    });
+    const sink = new MemorySink();
+    await runCastCommand(rt, {
+      mode: 'bug-hunt' as unknown as 'recon-swarm',
+      task: 'investigate timeout',
+      cloneCount: 1,
+      cycleIntervalMs: 50,
+      tickBudgetMs: 15_000,
+      castId: 'cast-bh-nomerge-1',
+      budgetUsdPerClone: 5,
+      budgetUsdPerCast: 15,
+      runner: runFakeCloneScript({ scriptPath: fixturePath }),
+      reporter: createReporter({ sink }),
+      verifyMcp: false,
+    });
+    const events = sink.lines.map((l) => l.event);
+    expect(events).not.toContain('cast.merge_review');
+    expect(events).not.toContain('cast.merge_review_failed');
+  });
+
+  it('reports investigation report paths', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: {
+        heartbeatTimeoutMs: 100,
+        startupGraceMs: 100,
+        parentPidCheckEnabled: false,
+      },
+    });
+    const sink = new MemorySink();
+    await runCastCommand(rt, {
+      mode: 'bug-hunt' as unknown as 'recon-swarm',
+      task: 'investigate OOM',
+      cloneCount: 2,
+      cycleIntervalMs: 50,
+      tickBudgetMs: 15_000,
+      castId: 'cast-bh-report-1',
+      budgetUsdPerClone: 5,
+      budgetUsdPerCast: 15,
+      runner: runFakeCloneScript({ scriptPath: fixturePath }),
+      reporter: createReporter({ sink }),
+      verifyMcp: false,
+    });
+    const events = sink.lines.map((l) => l.event);
+    expect(events).toContain('cast.bug-hunt-complete');
+    const bhEvent = sink.lines.find((l) => l.event === 'cast.bug-hunt-complete');
+    expect(bhEvent?.data).toHaveProperty('cast', 'cast-bh-report-1');
+  });
+});
