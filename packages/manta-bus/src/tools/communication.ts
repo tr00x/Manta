@@ -71,13 +71,14 @@ export function createCommunicationHandlers(
 
     async readBroadcasts(input) {
       const parsed = parse(ReadBroadcastsInputSchema, input, 'read_broadcasts');
+      await ctx.registry.get(parsed.clone_id);
       const all = await ctx.events.readAll();
-      const broadcasts = all.filter((e, idx) => {
+      const broadcasts = all.filter((e) => {
         if (e.type !== 'broadcast') return false;
         if (e.clone_id === parsed.clone_id) return false;
         const payload = e.payload as Record<string, unknown> | null;
         if (payload?.cast_id !== parsed.cast_id) return false;
-        if (parsed.since_index != null && idx < parsed.since_index) return false;
+        if (parsed.since_ts != null && e.ts <= parsed.since_ts) return false;
         return true;
       });
       return { events: broadcasts };

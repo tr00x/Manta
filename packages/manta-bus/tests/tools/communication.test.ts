@@ -156,16 +156,16 @@ describe('readBroadcasts handler', () => {
     expect(result.events).toHaveLength(0);
   });
 
-  it('respects since_index filter', async () => {
+  it('respects since_ts filter', async () => {
     await handlers.broadcast({ clone_id: 'B', event_type: 'blocker', payload: { issue: 'first' } });
     clock.advance(100);
     const allBefore = await handlers.readBroadcasts({ clone_id: 'A', cast_id: 'cast-100' });
-    const firstIndex = allBefore.events.length;
+    const cutoff = (allBefore.events[0] as BusEvent).ts;
 
     await handlers.broadcast({ clone_id: 'B', event_type: 'breakthrough', payload: { msg: 'second' } });
     clock.advance(100);
 
-    const result = await handlers.readBroadcasts({ clone_id: 'A', cast_id: 'cast-100', since_index: firstIndex });
+    const result = await handlers.readBroadcasts({ clone_id: 'A', cast_id: 'cast-100', since_ts: cutoff });
     expect(result.events).toHaveLength(1);
     expect(((result.events[0] as BusEvent).payload as Record<string, unknown>).event_type).toBe('breakthrough');
   });

@@ -206,7 +206,7 @@ export const ReadBroadcastsInputSchema = z
   .object({
     clone_id: CloneIdSchema,
     cast_id: CastIdSchema,
-    since_index: z.number().int().nonnegative().optional(),
+    since_ts: z.number().int().nonnegative().optional(),
   })
   .strict();
 

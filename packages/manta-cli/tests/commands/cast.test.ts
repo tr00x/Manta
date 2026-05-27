@@ -764,6 +764,6 @@ describe('cast command — bug-hunt mode', () => {
     const events = sink.lines.map((l) => l.event);
     expect(events).toContain('cast.bug-hunt-complete');
     const bhEvent = sink.lines.find((l) => l.event === 'cast.bug-hunt-complete');
-    expect(bhEvent?.data).toHaveProperty('cast', 'cast-bh-report-1');
+    expect(bhEvent?.payload).toHaveProperty('cast', 'cast-bh-report-1');
   });
 });
