@@ -63,3 +63,9 @@ Forced kill (`/manta kill A`) or orchestrator marked you DEAD due to heartbeat s
 2. The kill is a signal, not a gag order — finish the deliverable, then graceful-die.
 3. **Still run all Required steps in order**, including the final commit. `manta.zk_write`, `manta.suicide_intent`, and `manta.report_death` may return `conflict` against a DEAD record; that's fine — call them anyway so the audit trail records intent.
 4. Release locks/claims and exit.
+
+## Daemon Mode: Task-End vs Session-End
+
+- **Task-end (daemon):** Commit deliverables, broadcast task_complete, heartbeat IDLE. Do NOT call suicide_intent or report_death.
+- **Session-end (daemon):** Full sequence: last-gasp-report, commit, zk_write, unlock/release, suicide_intent, report_death. Same as batch.
+- **Batch mode:** Always full sequence (no change from current behavior).

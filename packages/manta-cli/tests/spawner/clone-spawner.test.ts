@@ -6,6 +6,7 @@ import {
   spawnClone,
   runFakeCloneScript,
   runClaudeCli,
+  runClaudeResume,
   type CastsCreator,
 } from '../../src/spawner/clone-spawner.js';
 import type { CastManifest, CreateCastInput } from '@manta/bus';
@@ -357,5 +358,63 @@ describe('clone-spawner', () => {
       cast_id: 'cast-spawn-3',
       cast_mode: 'forking-realities',
     });
+  });
+
+  it('runClaudeCli passes --session-id when provided in input', async () => {
+    const runner = runClaudeCli({ claudeBin: '/usr/bin/echo' });
+    const proc = runner.run({
+      cwd: '/tmp',
+      env: {},
+      appendSystemPrompt: 'test-prompt',
+      prompt: 'hello',
+      sessionId: 'sess-123',
+    });
+    expect(proc.spawnargs).toContain('--session-id');
+    expect(proc.spawnargs).toContain('sess-123');
+    await proc;
+  });
+
+  it('runClaudeCli omits --session-id when not provided', async () => {
+    const runner = runClaudeCli({ claudeBin: '/usr/bin/echo' });
+    const proc = runner.run({
+      cwd: '/tmp',
+      env: {},
+      appendSystemPrompt: 'test-prompt',
+      prompt: 'hello',
+    });
+    expect(proc.spawnargs).not.toContain('--session-id');
+    await proc;
+  });
+
+  it('runClaudeResume passes --resume with session-id', async () => {
+    const runner = runClaudeResume({ claudeBin: '/usr/bin/echo', sessionId: 'sess-456' });
+    const proc = runner.run({
+      cwd: '/tmp',
+      env: {},
+      appendSystemPrompt: 'test-prompt',
+      prompt: 'new-task',
+    });
+    expect(proc.spawnargs).toContain('--resume');
+    expect(proc.spawnargs).toContain('sess-456');
+    expect(proc.spawnargs).toContain('--print');
+    await proc;
+  });
+
+  it('CloneHandle.isDaemon is false for batch snapshots', async () => {
+    fx = await makeRepoFixture();
+    const handle = await spawnClone({
+      repoRoot: fx.root,
+      snapshot: makeSnapshotFor({ cloneId: 'A', castId: 'cast-batch' }),
+      worktree: fx.root,
+      runner: runFakeCloneScript({ scriptPath: fixturePath }),
+      registry: makeRegistryFake(),
+      casts: makeFakeCasts().creator,
+      castMode: 'recon-swarm',
+      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      castRoster: [{ clone_id: 'A', assignment: null }],
+    });
+    expect(handle.isDaemon).toBe(false);
+    expect(handle.sessionId).toBeUndefined();
+    await handle.exit;
   });
 });

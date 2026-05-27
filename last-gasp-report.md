@@ -1,30 +1,39 @@
-# Last Gasp Report — Clone A (cast-1779896354228)
+# Last Gasp Report — Clone A (cast-1779899160449)
 
 ## Task
-Phase 5 Chunk 1 — Schema expansion + Registry daemon methods + Server wiring + Health monitor
+Phase 5 Chunk 2 — Spawner daemon support + daemon-loop + priming + skills + E2E test
 
 ## Outcome: COMPLETE
 
-All 4 tasks delivered. 454/455 tests passing (1 pre-existing flaky test).
+All 5 assigned tasks delivered. All new tests passing.
 
 ## What was done
 
-1. **[1.1] Schema expansion** — CloneStateSchema +2 states (IDLE, WAITING_FOR_TASK), 6 new input schemas, BroadcastEventTypeSchema +3 types, CastPolicySchema +session_mode with default 'batch', all type exports, .strict() propagation in tests.
+1. **[2.1] clone-spawner.ts** — `sessionId` on `CloneRunnerInput`, `sessionId`/`isDaemon` on `CloneHandle`, `--session-id` flag in `runClaudeCli`, new `runClaudeResume()` for `--resume` sessions. Fixed `exactOptionalPropertyTypes` mismatch with conditional spread.
 
-2. **[1.2] Registry daemon methods** — CloneRecord +4 fields, heartbeat() IDLE transitions with idle_since tracking, retask() method for IDLE/WAITING_FOR_TASK→WORKING, staleSince() IDLE-aware with optional idleThresholdMs.
+2. **[2.2] daemon-loop.ts** — New file. Orchestrator-side poll-resume cycle: dequeue from WorkQueueStore, resume via `runClaudeResume`, track failures, exit on max_failures/no_work/aborted. Added `runner?: CloneRunner` DI seam for testability.
 
-3. **[1.5] Server wiring** — 6 new MCP tools (25 total), extended all 3 handler interfaces (lifecycle/communication/work) with implementations, created WorkQueueStore (new file), BusContext.workQueue, BusPaths.workQueue, index.ts re-exports.
+3. **[2.6] priming.ts** — `DAEMON_MODE_BLOCK` (IDLE protocol, task-end vs session-end) and `PAIR_PROTOCOL_BLOCK` (writer/reviewer coordination). Injected based on `sessionMode` and mode. `{CLONE_ID}` substitution verified.
 
-4. **[1.6] Health monitor** — ThresholdsSchema +3 fields with defaults, death-detector.ts IDLE-aware branching (extended timeout for IDLE/WAITING_FOR_TASK, maxIdleTimeMs auto-termination, daemon session lifetime), CycleResult.idleClones.
+4. **[2.8] Skills** — Created `manta-daemon-idle/SKILL.md` (idle protocol between tasks) and `manta-pair-protocol/SKILL.md` (writer/reviewer pair coordination). Updated `manta-as-clone/SKILL.md` (+daemon mode section) and `manta-graceful-death/SKILL.md` (+task-end vs session-end).
+
+5. **[2.10] E2E test** — `daemon-lifecycle.test.ts`: 5 integration tests covering spawn+work queue, daemon-loop max_failures, empty queue no_work, abort signal, and successful resume cycle with onCycleComplete.
 
 ## Test Results
-- 454/455 PASS (48 test files, 1 pre-existing flaky cross-process test)
-- Build clean for @manta/bus and @manta/orchestrator
+- 16/16 clone-spawner tests (4 new)
+- 6/6 daemon-loop unit tests
+- 5/5 daemon-lifecycle E2E tests
+- 5/5 daemon-mode priming tests
+- Build clean (DTS + ESM + CJS)
 
-## Overlap with Clone B scope
-I implemented lifecycle handlers (retask/pause/resume/requestTask), communication handler (feedback), work handler (enqueue), and WorkQueueStore — technically assigned to Clone B (Tasks 1.3/1.4). This was necessary for build-green compliance: server.ts wiring (Task 1.5) references these handlers, and TypeScript requires them to exist. Merge will need to resolve the duplication.
+## Notes
+- daemon-loop.ts accepts optional `runner` DI seam — original plan used `claudeBin` only but ENOENT on non-existent cwd made tests unreliable. The DI seam is strictly additive.
+- `exactOptionalPropertyTypes` is active in tsconfig — `sessionId?: string` on `CloneHandle` requires conditional spread instead of `undefined` assignment.
 
-## Commit
-- `db8335e` on branch `manta/cast-1779896354228/A`
+## Files Changed (11)
+Production: clone-spawner.ts, daemon-loop.ts (new), priming.ts
+Tests: clone-spawner.test.ts, daemon-loop.test.ts (new), priming.test.ts, daemon-lifecycle.test.ts (new)
+Skills: manta-daemon-idle/SKILL.md (new), manta-pair-protocol/SKILL.md (new), manta-as-clone/SKILL.md, manta-graceful-death/SKILL.md
 
 ## Confidence: 9/10
+All tests pass, build clean, no TODOs or skips. Minor deviation: added DI seam to daemon-loop (not in plan).
