@@ -137,6 +137,32 @@ describe('charge/budget integration', () => {
     expect(afterFail.total_failures).toBe(1);
   });
 
+  it('scenario 7a: bug-hunt mode costs 2 charges — deduction and settlement', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({ repoRoot: fx.root });
+
+    const stateBefore = await rt.ctx.charges.read();
+    expect(stateBefore.current_charges).toBe(3);
+
+    await rt.ctx.charges.deductForCast('cast-bh-charge-1', 'bug-hunt');
+
+    const afterDeduct = await rt.ctx.charges.read();
+    expect(afterDeduct.current_charges).toBe(1);
+    expect(afterDeduct.total_casts).toBe(1);
+
+    const clones: CloneRecord[] = [
+      { clone_id: 'A', mode: 'bug-hunt', parent_pid: 1, worktree: '/tmp', metadata: {}, registered_at: 0, last_heartbeat_at: 0, state: 'DEAD', death_reason: 'graceful exit' },
+      { clone_id: 'B', mode: 'bug-hunt', parent_pid: 1, worktree: '/tmp', metadata: {}, registered_at: 0, last_heartbeat_at: 0, state: 'DEAD', death_reason: 'graceful exit' },
+    ];
+    const outcome = classifyCastOutcome({ clones, budgetAborted: false });
+    expect(outcome).toBe('success');
+
+    await rt.ctx.charges.creditSuccess('cast-bh-charge-1', 'bug-hunt');
+    const afterSettle = await rt.ctx.charges.read();
+    expect(afterSettle.current_charges).toBe(3);
+    expect(afterSettle.total_successes).toBe(1);
+  });
+
   it('scenario 7: settlement neutral — all clones manually killed', async () => {
     fx = await makeRepoFixture();
     const rt = await createRuntime({ repoRoot: fx.root });
