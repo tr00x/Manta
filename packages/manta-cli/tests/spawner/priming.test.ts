@@ -108,6 +108,33 @@ describe('buildPrimingText — self-certainty (Phase 2c)', () => {
   });
 });
 
+describe('buildPrimingText — bug-hunt mode (Phase 4)', () => {
+  it('includes BUG_HUNT_BLOCK when mode is bug-hunt', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', mode: 'bug-hunt' as 'recon-swarm' });
+    const text = buildPrimingText(snap);
+    expect(text).toContain('Investigation Protocol');
+    expect(text).toContain('manta.read_broadcasts');
+    expect(text).toContain('REPORT SECTIONS');
+  });
+
+  it('does not include SELF_CERTAINTY_BLOCK for bug-hunt', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', mode: 'bug-hunt' as 'recon-swarm' });
+    const text = buildPrimingText(snap);
+    expect(text).not.toContain('self_certainty');
+    expect(text).not.toContain('{SELF_CERTAINTY_BLOCK}');
+  });
+
+  it('includes approach_hint when provided', () => {
+    const snap = makeSnapshotFor({
+      cloneId: 'B',
+      mode: 'bug-hunt' as 'recon-swarm',
+      approachHint: 'focus on the database layer',
+    });
+    const text = buildPrimingText(snap);
+    expect(text).toContain('Approach hint: focus on the database layer');
+  });
+});
+
 describe('buildInitialPrompt', () => {
   const snap = makeSnapshotFor({ cloneId: 'clone-A', task: 'map auth/* and billing/*' });
 
