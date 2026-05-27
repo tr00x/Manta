@@ -108,6 +108,41 @@ describe('buildPrimingText — self-certainty (Phase 2c)', () => {
   });
 });
 
+describe('buildPrimingText — bug-hunt mode (Phase 4)', () => {
+  it('includes BUG_HUNT_BLOCK when mode is bug-hunt', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', mode: 'bug-hunt' });
+    const text = buildPrimingText(snap);
+    expect(text).toContain('Investigation Protocol');
+    expect(text).toContain('manta.read_broadcasts');
+    expect(text).toContain('REPORT SECTIONS');
+  });
+
+  it('does not include SELF_CERTAINTY_BLOCK for bug-hunt', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', mode: 'bug-hunt' });
+    const text = buildPrimingText(snap);
+    expect(text).not.toContain('self_certainty');
+  });
+
+  it('includes approach_hint when provided', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', mode: 'bug-hunt', approachHint: 'check auth layer' });
+    const text = buildPrimingText(snap);
+    expect(text).toContain('Approach hint: check auth layer');
+    expect(text).toContain('Investigation Protocol');
+  });
+
+  it('does not include BUG_HUNT_BLOCK for recon-swarm', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', mode: 'recon-swarm' });
+    const text = buildPrimingText(snap);
+    expect(text).not.toContain('Investigation Protocol');
+  });
+
+  it('does not include BUG_HUNT_BLOCK for forking-realities', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', mode: 'forking-realities' });
+    const text = buildPrimingText(snap);
+    expect(text).not.toContain('Investigation Protocol');
+  });
+});
+
 describe('buildInitialPrompt', () => {
   const snap = makeSnapshotFor({ cloneId: 'clone-A', task: 'map auth/* and billing/*' });
 
