@@ -57,7 +57,7 @@
 
 | План | Статус | Содержит |
 |---|---|---|
-| `2026-05-27-phase-5-daemon-mode.md` | **Approved** — reviewer-approved with 6 must-fix + 4 should-fix applied. Ready for execution. | 2 chunks, ~1,300 LOC. Chunk 1: bus schema expansion (IDLE/WAITING_FOR_TASK), registry daemon methods, WorkQueueStore, 6 new MCP tools, health monitor IDLE-awareness. Chunk 2: clone-spawner --session-id/--resume, daemon-loop.ts, tick-loop daemon mode, cast.ts Wave-2 dispatch, new commands (daemon/retask/feedback), skills (manta-daemon-idle/manta-pair-protocol), E2E. Research-backed: 3-clone recon-swarm (cast-1779894176321). |
+| `2026-05-27-phase-5-daemon-mode.md` | **Executed** — Chunk 1 (cast-1779896354228, 2 clones, merged + 3 post-merge fixes) + Chunk 2 (cast-1779899160449, 2 clones, merged + 4 post-merge fixes). 865 tests workspace-wide green; build+lint clean. | 2 chunks, ~1,300 LOC. Chunk 1: bus schema expansion (IDLE/WAITING_FOR_TASK), registry daemon methods, WorkQueueStore, 6 new MCP tools, health monitor IDLE-awareness. Chunk 2: clone-spawner --session-id/--resume, daemon-loop.ts, tick-loop daemon mode, cast.ts Wave-2 dispatch, new commands, skills (manta-daemon-idle/manta-pair-protocol), E2E. Research-backed: 3-clone recon-swarm (cast-1779894176321). |
 
 ## Phase 6+ — TBD
 
