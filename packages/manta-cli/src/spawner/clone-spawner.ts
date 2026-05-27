@@ -26,6 +26,8 @@ export interface CloneRunnerInput {
   appendSystemPrompt: string;
   /** Initial user prompt — the one-shot task description (Sec 9 point 1). */
   prompt: string;
+  /** Session ID for daemon mode (enables --resume across invocations). */
+  sessionId?: string;
 }
 
 /**
@@ -77,6 +79,10 @@ export interface CloneHandle {
    * `gracefulMs` is 5_000.
    */
   terminate: (opts?: { gracefulMs?: number }) => Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
+  /** Session ID for daemon resume. Only set when session_mode === 'daemon'. */
+  sessionId?: string;
+  /** Whether this handle is a daemon (supports resume). */
+  isDaemon: boolean;
 }
 
 const SAFE_KEY = /^[A-Za-z0-9._-]+$/;
@@ -234,6 +240,10 @@ export async function spawnClone(opts: SpawnCloneOptions): Promise<CloneHandle> 
       proc.kill(signal);
     },
     terminate,
+    ...((opts.snapshot as { sessionId?: string }).sessionId != null
+      ? { sessionId: (opts.snapshot as { sessionId?: string }).sessionId }
+      : {}),
+    isDaemon: (opts.snapshot as { sessionMode?: string }).sessionMode === 'daemon',
   };
 }
 
@@ -266,17 +276,42 @@ export function runClaudeCli(opts: RunClaudeCliOptions = {}): CloneRunner {
   const bin = opts.claudeBin ?? 'claude';
   return {
     run(input) {
-      // Reason: --permission-mode bypassPermissions is the only non-interactive
-      // permission mode that lets a `claude --print` session use the full tool
-      // surface. `auto` would block on classifier-uncertain tools waiting for
-      // a human y/n. See Phase-1 lockdown plan for context.
-      // We do NOT pass `--strict-mcp-config`: that would cut off the user-scope
-      // `manta-bus` MCP, breaking heartbeat/lock/etc. (See clone-spawner.test
-      // negative assertion for the regression guard.)
+      const sessionArgs: string[] = input.sessionId
+        ? ['--session-id', input.sessionId]
+        : [];
       return execa(
         bin,
         [
           '--print',
+          ...sessionArgs,
+          ...(opts.extraArgs ?? []),
+          '--append-system-prompt',
+          input.appendSystemPrompt,
+          '--permission-mode',
+          'bypassPermissions',
+          input.prompt,
+        ],
+        { cwd: input.cwd, env: { ...process.env, ...input.env }, reject: false },
+      );
+    },
+  };
+}
+
+export interface ResumeOptions {
+  claudeBin?: string;
+  sessionId: string;
+  extraArgs?: string[];
+}
+
+export function runClaudeResume(opts: ResumeOptions): CloneRunner {
+  const bin = opts.claudeBin ?? 'claude';
+  return {
+    run(input) {
+      return execa(
+        bin,
+        [
+          '--print',
+          '--resume', opts.sessionId,
           ...(opts.extraArgs ?? []),
           '--append-system-prompt',
           input.appendSystemPrompt,

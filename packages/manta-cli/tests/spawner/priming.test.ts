@@ -171,6 +171,46 @@ describe('buildPrimingText — refactor-wave mode (Phase 4)', () => {
   });
 });
 
+describe('buildPrimingText — daemon mode (Phase 5)', () => {
+  it('includes DAEMON_MODE_BLOCK when sessionMode is daemon', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', mode: 'pair-programming' });
+    (snap as { sessionMode?: string }).sessionMode = 'daemon';
+    const text = buildPrimingText(snap);
+    expect(text).toContain('Daemon Mode (Persistent Clone)');
+    expect(text).toContain('manta.heartbeat({ clone_id: "A", state: "IDLE" })');
+    expect(text).toContain('manta.request_task({ clone_id: "A" })');
+  });
+
+  it('does not include DAEMON_MODE_BLOCK for batch mode', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', mode: 'recon-swarm' });
+    const text = buildPrimingText(snap);
+    expect(text).not.toContain('Daemon Mode (Persistent Clone)');
+  });
+
+  it('includes PAIR_PROTOCOL_BLOCK for pair-programming mode', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', mode: 'pair-programming' });
+    const text = buildPrimingText(snap);
+    expect(text).toContain('Pair-Programming Protocol');
+    expect(text).toContain('WRITER');
+    expect(text).toContain('REVIEWER');
+  });
+
+  it('does not include PAIR_PROTOCOL_BLOCK for non-pair modes', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', mode: 'recon-swarm' });
+    const text = buildPrimingText(snap);
+    expect(text).not.toContain('Pair-Programming Protocol');
+  });
+
+  it('daemon block contains correct clone_id substitution', () => {
+    const snap = makeSnapshotFor({ cloneId: 'XYZ', mode: 'documentation-chase' });
+    (snap as { sessionMode?: string }).sessionMode = 'daemon';
+    const text = buildPrimingText(snap);
+    expect(text).toContain('clone_id: "XYZ", state: "IDLE"');
+    expect(text).toContain('clone_id: "XYZ"');
+    expect(text).not.toContain('{CLONE_ID}');
+  });
+});
+
 describe('buildInitialPrompt', () => {
   const snap = makeSnapshotFor({ cloneId: 'clone-A', task: 'map auth/* and billing/*' });
 

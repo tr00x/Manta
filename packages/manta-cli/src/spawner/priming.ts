@@ -43,6 +43,34 @@ RULES:
 4. Run tests for your module before completing: ensure your changes compile and pass
 `;
 
+const DAEMON_MODE_BLOCK = `
+## Daemon Mode (Persistent Clone)
+You are a daemon clone. Your lifecycle differs from batch clones:
+
+AFTER COMPLETING A TASK:
+1. Write deliverables and commit to your branch (same as batch)
+2. Call manta.heartbeat({ clone_id: "{CLONE_ID}", state: "IDLE" }) — do NOT call manta-graceful-death
+3. Call manta.request_task({ clone_id: "{CLONE_ID}" }) to signal you are ready for new work
+4. The orchestrator will resume your session with the next work item via manta.retask
+
+SESSION END (only when explicitly told to stop or budget exhausted):
+1. Follow the normal manta-graceful-death sequence (last-gasp report, commit, zk_write, suicide_intent, report_death)
+
+CRITICAL DIFFERENCE FROM BATCH: Do NOT call manta-graceful-death after each task. Only at session end.
+
+CHECK FOR FEEDBACK: Between tasks, read manta.read_broadcasts for feedback from main or sibling clones.
+`;
+
+const PAIR_PROTOCOL_BLOCK = `
+## Pair-Programming Protocol
+You are in a pair-programming cast with a sibling clone. One of you is the writer, the other the reviewer.
+Your role is specified in your task contract.
+
+WRITER: Implement the task, commit, then broadcast task_complete. Transition to IDLE and wait for reviewer feedback.
+REVIEWER: Wait for writer broadcast, review the diff, broadcast feedback. Writer applies feedback and re-commits.
+Iterate until convergence (reviewer approves) or iteration budget exhausted.
+`;
+
 export function buildPrimingText(snapshot: Snapshot): string {
   const hint = snapshot.taskContract.approachHint;
   // The block is one paragraph + a leading blank line so it reads as its own
@@ -52,6 +80,14 @@ export function buildPrimingText(snapshot: Snapshot): string {
   // step 5 and the heartbeat paragraph.
   const approachBlock =
     hint != null && hint.length > 0 ? `\nApproach hint: ${hint}\n` : '';
+  const daemonBlock =
+    (snapshot as { sessionMode?: string }).sessionMode === 'daemon'
+      ? `\n${DAEMON_MODE_BLOCK.replaceAll('{CLONE_ID}', snapshot.taskContract.cloneId)}`
+      : '';
+  const pairBlock =
+    snapshot.taskContract.mode === 'pair-programming'
+      ? `\n${PAIR_PROTOCOL_BLOCK}`
+      : '';
   const modeSpecificBlock =
     snapshot.taskContract.mode === 'bug-hunt'
       ? `\n${BUG_HUNT_BLOCK}`
@@ -67,7 +103,7 @@ export function buildPrimingText(snapshot: Snapshot): string {
     .replaceAll('{CAST_ID}', snapshot.castId)
     .replaceAll('{MODE}', snapshot.taskContract.mode)
     .replaceAll('{APPROACH_HINT_BLOCK}', approachBlock)
-    .replaceAll('{MODE_SPECIFIC_BLOCK}', modeSpecificBlock)
+    .replaceAll('{MODE_SPECIFIC_BLOCK}', modeSpecificBlock + daemonBlock + pairBlock)
     .replaceAll('{SELF_CERTAINTY_BLOCK}', selfCertaintyBlock);
 }
 

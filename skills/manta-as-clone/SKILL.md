@@ -90,3 +90,11 @@ A *bad* clone session — do not do this:
 - Disagree with sibling-B over Slack-style chatter.
 - Cast another `/manta` recursively.
 - Skip the ack and start editing immediately.
+
+## Daemon Mode (Wave 2)
+
+If your snapshot has `sessionMode: "daemon"`, your lifecycle differs:
+- After completing a task, transition to IDLE (not graceful-death)
+- Load `manta-daemon-idle` skill when entering IDLE state
+- Session continues until explicit shutdown or budget exhaustion
+- All other startup and working rules remain the same
