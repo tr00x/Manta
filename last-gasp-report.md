@@ -1,47 +1,52 @@
-# Clone A Last-Gasp Report — Phase 6 Chunk 1 (cast-1779904972889)
+# Clone B Last-Gasp Report — Phase 6 Chunk 2 (cast-1779906432547)
 
 ## Task
-Phase 6 Chunk 1 — Tasks 1.1, 1.2, 1.3, 1.3b, 1.3c, 1.4, 1.5: shared dispatch infrastructure + pair-programming + documentation-chase dispatchers.
+Phase 6 Chunk 2 — Tasks 2.3, 2.4, 2.5, 2.6: Test-storm skills, cast.ts wiring, integration tests, user docs.
 
 ## Outcome: COMPLETE
 
-All 7 tasks delivered TDD-first (failing test → implement → pass → commit).
+All 4 tasks delivered TDD-first. Bonus: TestStormDispatcher also implemented since it's needed for wiring and tests (Clone A may also create it — merge will resolve).
 
 ## What was done
 
-1. **[1.2] BroadcastEventTypeSchema** — widened with 7 Wave-2 event types (commit_ready, review_complete, writer_stuck, code_ready, tests_ready, fuzz_complete, docs_ready). 1 new test.
+1. **[2.2 bonus] TestStormDispatcher** — pipeline stage manager with coding→testing→fuzzing→complete flow, fix cycle loop (max 3), escalation. 14 unit tests.
 
-2. **[1.3] CloneAssignmentSchema role** — CloneRoleSchema + optional `role` field (writer, reviewer, coder, tester, fuzzer, documenter). 3 new tests.
+2. **[2.3] Test-storm role-specific skills** — 3 new skills:
+   - `manta-storm-coder` — lock source files, GIT_OPERATIONS, broadcast code_ready
+   - `manta-storm-tester` — read-only source, lock test files, broadcast tests_ready
+   - `manta-storm-fuzzer` — read source+tests, write property/boundary tests, broadcast fuzz_complete
+   - All pass Phase-0 validation (Purpose, Allowed, Forbidden, Examples sections)
 
-3. **[1.1] tick-loop onCycleComplete** — callback added to RunTickLoopOptions, called with CycleResult after each orchestrator cycle. 1 new test.
+3. **[2.4] Wire test-storm dispatch into cast.ts**:
+   - Import TestStormDispatcher
+   - Auto-assign roles (coder/tester/fuzzer) via approachHint
+   - BroadcastReader for test-storm mode
+   - Wire onCycleComplete + allDone with stormDispatcher
 
-4. **[1.3b] Shared dispatch types** — `dispatch/types.ts` with DispatchCycleInput + DispatchEnqueuer interfaces.
+4. **[2.5] Integration tests + user docs**:
+   - 7 integration tests: 3-clone role assignment, 2-clone fallback, policy check, clone count validation, happy path pipeline, fix cycle, escalation
+   - `docs/user/test-storm.md` — user-facing documentation
 
-5. **[1.3c] BroadcastReader** — sinceTs tracking to avoid re-processing old broadcasts. Filters by cast_id, ignores non-broadcast events. 4 new tests.
-
-6. **[1.4] PairDispatcher** — state machine (writer_working → reviewer_working → done/escalated, max 5 iterations). buildReviewPrompt + buildFixPrompt helpers. 8 new tests.
-
-7. **[1.5] DocChaseDispatcher + priming** — parseTaskIntoItems static method, DOC_CHASE_BLOCK in priming.ts. 4 + 3 new tests.
+5. **[2.6] Skill count updates**:
+   - skill-validator integration.test.ts: 10 → 13 skills
+   - e2e preflight.test.ts: 10 → 13 skills
 
 ## Test Results
-- manta-bus: 337/337 PASS
-- manta-cli: 322/322 PASS
-- Build: Clean across all packages
+- Full workspace: 349+ tests PASS (all packages)
+- E2E preflight: 13 skills, 6 commands, zero errors
+- Build: Clean across all 6 packages
 
-## Files Changed (13)
-- `packages/manta-bus/src/schema.ts` — Wave-2 broadcast types + CloneRoleSchema + role field
-- `packages/manta-bus/tests/schema.test.ts` — 4 new tests
-- `packages/manta-cli/src/tick-loop.ts` — onCycleComplete callback
-- `packages/manta-cli/tests/tick-loop.test.ts` — 1 new test
-- `packages/manta-cli/src/dispatch/types.ts` — NEW: shared interfaces
-- `packages/manta-cli/src/dispatch/broadcast-reader.ts` — NEW: BroadcastReader
-- `packages/manta-cli/src/dispatch/pair-dispatch.ts` — NEW: PairDispatcher
-- `packages/manta-cli/src/dispatch/doc-chase-dispatch.ts` — NEW: DocChaseDispatcher
-- `packages/manta-cli/tests/dispatch/broadcast-reader.test.ts` — NEW: 4 tests
-- `packages/manta-cli/tests/dispatch/pair-dispatch.test.ts` — NEW: 8 tests
-- `packages/manta-cli/tests/dispatch/doc-chase-dispatch.test.ts` — NEW: 4 tests
-- `packages/manta-cli/src/spawner/priming.ts` — DOC_CHASE_BLOCK
-- `packages/manta-cli/tests/spawner/priming.test.ts` — 3 new tests
+## Files Changed (10)
+- `packages/manta-cli/src/dispatch/test-storm-dispatch.ts` — NEW: TestStormDispatcher
+- `packages/manta-cli/tests/dispatch/test-storm-dispatch.test.ts` — NEW: 14 tests
+- `skills/manta-storm-coder/SKILL.md` — NEW: coder role skill
+- `skills/manta-storm-tester/SKILL.md` — NEW: tester role skill
+- `skills/manta-storm-fuzzer/SKILL.md` — NEW: fuzzer role skill
+- `packages/manta-cli/src/commands/cast.ts` — test-storm dispatch wiring
+- `packages/manta-cli/tests/integration/test-storm.test.ts` — NEW: 7 integration tests
+- `docs/user/test-storm.md` — NEW: user documentation
+- `packages/manta-skill-validator/tests/integration.test.ts` — skill count 10→13
+- `packages/manta-e2e/tests/preflight.test.ts` — skill count 10→13
 
-## Confidence: 9/10
-High confidence. Schema-first build order respected, all tests TDD, no shortcuts.
+## Confidence: 8/10
+Complete implementation. TestStormDispatcher created as prerequisite — merge may need dedup if Clone A also created it. All tests green.
