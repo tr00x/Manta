@@ -8,25 +8,39 @@ related: [manta-as-clone, manta-daemon-idle, manta-graceful-death]
 
 # manta-pair-protocol
 
-## Pair-Programming Mode Protocol
+## Purpose
 
-You are in a pair-programming cast. Two clones work together: one writes code, one reviews it.
+Coordination protocol for pair-programming mode. Two daemon clones collaborate: one writes code, the other reviews each commit. The orchestrator mediates via sequential resume cycles with broadcast-based signaling.
 
-### Writer Role
-1. Read your task contract — it specifies what to implement
-2. Write the code, run tests, commit to your branch
-3. Broadcast completion: `manta.broadcast({ clone_id: "<your-id>", event_type: "task_complete", payload: { commit_ref: "<sha>", summary: "<one-line>" } })`
-4. Transition to IDLE: `manta.heartbeat({ clone_id: "<your-id>", state: "IDLE" })`
-5. Wait for reviewer feedback via the next resume cycle
-6. Apply feedback, re-commit, broadcast again
-7. Repeat until reviewer approves or iteration budget exhausted
+## Allowed
 
-### Reviewer Role
-1. Wait for the writer's `task_complete` broadcast (delivered in your resume prompt)
-2. Review the diff: `git diff main...<writer-branch>`
-3. Broadcast review: `manta.broadcast({ clone_id: "<your-id>", event_type: "feedback_received", payload: { verdict: "approved" | "changes_requested", comments: [...] } })`
-4. If changes_requested: transition to IDLE and wait for writer's next iteration
-5. If approved: both clones proceed to graceful death
+- Writer: implement code, run tests, commit, broadcast `task_complete`, transition to IDLE
+- Reviewer: review diffs, broadcast `feedback_received` with verdict, transition to IDLE
+- Both: call `manta.heartbeat` for state transitions, `manta.broadcast` for coordination
+- Both: read sibling broadcasts via `manta.read_broadcasts` for cross-clone signals
+- Both: up to 5 review iterations per task before escalating to main
 
-### Iteration Budget
-Maximum 5 review iterations per task. After 5, escalate to main regardless of state.
+## Forbidden
+
+- Writer must NOT push to remote — main pulls from worktree branch
+- Reviewer must NOT modify code files — review only, feedback via broadcast
+- Neither clone calls `manta-graceful-death` between iterations — only at session end
+- Neither clone starts the next iteration without the other's signal
+
+## Examples
+
+```
+# Writer completes implementation:
+manta.broadcast({ clone_id: "A", event_type: "task_complete",
+  payload: { commit_ref: "abc123", summary: "implement query builder cache" } })
+manta.heartbeat({ clone_id: "A", state: "IDLE" })
+
+# Reviewer reviews and responds:
+manta.broadcast({ clone_id: "B", event_type: "feedback_received",
+  payload: { verdict: "changes_requested", comments: ["missing edge case for empty input"] } })
+manta.heartbeat({ clone_id: "B", state: "IDLE" })
+
+# Orchestrator delivers feedback to writer via next resume cycle.
+# Writer applies feedback, re-commits, broadcasts again.
+# After approval: both clones proceed to graceful death.
+```
