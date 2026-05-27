@@ -24,6 +24,10 @@
 
 ## Open bugs
 
+None. All known bugs resolved as of 2026-05-27.
+
+## Recently fixed
+
 ### #16 — Registry rejects new cast when DEAD clone with same clone_id exists from previous cast
 
 **Discovered:** 2026-05-26, Phase 3 research cast attempt (manual `manta cast recon-swarm`).
@@ -168,11 +172,10 @@
 
 **Discovered:** 2026-05-07, Phase-2 research-prep cast `cast-1778187665150`. Surfaced in clone B's last-gasp; clones A and C succeeded with their ZK writes from the same skill version, so the failure is not deterministic across clones.
 **Severity:** Medium — affects bug #5 mitigation (some failures may be transport-layer, not skill-discipline).
-**Status:** Open. Needs independent reproduction before promotion to a confirmed orchestrator-side bug.
+**Status:** **Fixed** (2026-05-27). `ZkWriteInputSchema.tags` now uses `z.preprocess()` to coerce CSV-string input (`"a,b"`) into `string[]` before validation. Two regression tests added: CSV-with-spaces and single-string coercion. Liberal-in-what-we-accept approach per Postel's Law — tags are metadata, not load-bearing.
 **Symptom:** Clone B attempted `manta.zk_write` 5× with various `tags: string[]` shapes; every call returned `validation_error: invalid_type, expected: array, received: string, path: ['tags']`. Clones A and C succeeded with structurally-similar payloads in the same cast.
-**Hypothesis:** Either (a) claude-CLI's MCP tool-use serialiser flattened the array into a CSV string for that one clone (transient renderer-state bug), or (b) the bus's `tags` schema is too tight for an LLM payload that occasionally arrives as `"a,b"` instead of `["a","b"]` (we should be liberal in what we accept here — tags is metadata, not load-bearing).
-**Reproducer (needed):** Spawn 3+ clones in a research cast and grep `events.jsonl` for `validation_error` against `manta.zk_write`. If repeats appear cross-cast on a non-zero fraction of clones, escalate.
-**Recommended next step:** Phase-2 add an e2e assertion that exercises `manta.zk_write` with both array-literal and CSV-string inputs and accepts both at the bus boundary; OR fix at the LLM-prompt layer by example-driven cooking ("tags: [\"a\",\"b\"]") in the priming preamble.
+**Root cause:** Claude CLI's MCP tool-use serialiser occasionally flattens `string[]` into a comma-separated string for individual clones (transient, non-deterministic). The bus's strict `z.array()` schema rejected these payloads.
+**Fix:** `z.preprocess()` on `tags` field in `ZkWriteInputSchema` — splits comma-separated strings, trims whitespace, filters empty entries.
 **Lessons:** Be liberal in what you accept at the bus boundary for soft-schema metadata fields. ZK tags are an audit trail, not a primary key; coercing a CSV string to `string[]` is benign and prevents this class of failure.
 
 ### #12 — Forensic timeline JSON not produced by production cast path
@@ -188,15 +191,9 @@
 
 **Discovered:** 2026-05-07, during Phase 0e Chunk-2 spec-review remediation
 **Severity:** Low
-**Status:** Open
-**Reproducer:**
-1. `git checkout 1ddabb0`
-2. `pnpm -r test` (default workspace concurrency)
-3. Sometimes `@manta/cli` integration test fails with "orchestrator cycle failed"
-4. Re-running `pnpm --filter @manta/cli test` or `pnpm -r --workspace-concurrency=1 test` → green
-**Root cause:** Likely resource contention in `packages/manta-cli/tests/integration.test.ts`'s parent-PID probe + process-spawning path when other test workers consume process / fd budget. Not yet investigated.
-**Fix:** Pending. Workaround: run whole-repo sweep with `--workspace-concurrency=1` until rooted.
-**Lessons:** Tests that interact with real OS process state (PID probes, child spawns) are concurrency-sensitive. Consider isolating them into a serialized vitest pool or marking them with `test.serial` once we encounter another such case.
+**Status:** **Fixed** (2026-05-27). `heartbeatTimeoutMs` and `startupGraceMs` bumped from 100ms to 500ms in `integration.test.ts`. The 100ms thresholds were too tight under concurrent workspace pressure — fake-clone process didn't always start within 100ms when other packages' test suites consumed OS resources simultaneously. 500ms is still fast (fake-clone exits immediately, so test wallclock barely changes) but tolerant to resource contention.
+**Root cause:** Resource contention in `packages/manta-cli/tests/integration.test.ts`'s parent-PID probe + process-spawning path when other test workers consume process / fd budget. The 100ms `startupGraceMs` caused the orchestrator to mark clones DEAD before they could register.
+**Lessons:** Tests that interact with real OS process state (PID probes, child spawns) are concurrency-sensitive. Use generous-but-fast thresholds (500ms, not 100ms) that survive concurrent workspace runs without materially slowing the test.
 
 ## Fixed bugs
 

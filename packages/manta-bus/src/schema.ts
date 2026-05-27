@@ -179,7 +179,12 @@ export const ZkWriteInputSchema = z
     clone_id: CloneIdSchema,
     title: z.string().min(1).max(256),
     content: z.string().min(1),
-    tags: z.array(z.string().min(1)).default([]),
+    tags: z
+      .preprocess(
+        (v) => (typeof v === 'string' ? v.split(',').map((s: string) => s.trim()).filter(Boolean) : v),
+        z.array(z.string().min(1)),
+      )
+      .default([]),
   })
   .strict();
 

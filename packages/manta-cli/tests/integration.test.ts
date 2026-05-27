@@ -32,8 +32,8 @@ describe('cli end-to-end (recon-swarm with fake clones)', () => {
     const rt = await createRuntime({
       repoRoot: fx.root,
       thresholdOverrides: {
-        heartbeatTimeoutMs: 100,
-        startupGraceMs: 100,
+        heartbeatTimeoutMs: 500,
+        startupGraceMs: 500,
         parentPidCheckEnabled: false,
       },
     });

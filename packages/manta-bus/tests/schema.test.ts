@@ -110,6 +110,32 @@ describe('schema', () => {
     expect(ZkWriteInputSchema.safeParse({ clone_id: 'A', title: '', content: 'body', tags: [] }).success).toBe(false);
   });
 
+  it('ZkWriteInputSchema coerces CSV-string tags to array (bug #11)', () => {
+    const result = ZkWriteInputSchema.safeParse({
+      clone_id: 'A',
+      title: 'note',
+      content: 'body',
+      tags: 'phase-5, daemon, architecture',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.tags).toEqual(['phase-5', 'daemon', 'architecture']);
+    }
+  });
+
+  it('ZkWriteInputSchema coerces single-string tag to array (bug #11)', () => {
+    const result = ZkWriteInputSchema.safeParse({
+      clone_id: 'A',
+      title: 'note',
+      content: 'body',
+      tags: 'solo-tag',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.tags).toEqual(['solo-tag']);
+    }
+  });
+
   it('ParaAppendInputSchema validates category enum', () => {
     expect(
       ParaAppendInputSchema.safeParse({ clone_id: 'A', category: 'projects', fact: 'X happened' }).success,
