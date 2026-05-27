@@ -8,7 +8,7 @@ export interface RunTickLoopOptions {
   allDone: () => Promise<boolean>;
   signal?: AbortSignal;
   daemonMode?: boolean;
-  onCycleComplete?: (result: CycleResult) => Promise<void>;
+  onCycleComplete?: ((result: CycleResult) => Promise<void>) | undefined;
 }
 
 export interface TickLoopResult {
