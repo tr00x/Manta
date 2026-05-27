@@ -6,6 +6,7 @@ import { Registry } from '../../src/state/registry';
 import { makeTmpRoot } from '../helpers/tmpRoot';
 import { createCommunicationHandlers } from '../../src/tools/communication';
 import { BusNotFoundError, BusValidationError } from '../../src/errors';
+import type { BusEvent } from '../../src/state/events';
 
 describe('communication handlers', () => {
   let root: string;
@@ -86,5 +87,93 @@ describe('communication handlers', () => {
     const r = await handlers.driftReport({ clone_id: 'A', score: 0.4, evidence: 'wandering' });
     expect(r.event.type).toBe('drift_report');
     expect(r.event.payload).toMatchObject({ score: 0.4 });
+  });
+});
+
+describe('readBroadcasts handler', () => {
+  let root: string;
+  let cleanup: () => Promise<void>;
+  let clock: FakeClock;
+  let events: EventsLog;
+  let handlers: ReturnType<typeof createCommunicationHandlers>;
+
+  beforeEach(async () => {
+    ({ root, cleanup } = await makeTmpRoot());
+    clock = new FakeClock(1_000_000);
+    const paths = busPaths(root);
+    const registry = new Registry(paths, clock);
+    await registry.register({
+      clone_id: 'A',
+      mode: 'bug-hunt',
+      parent_pid: 1,
+      worktree: '/w',
+      metadata: { cast_id: 'cast-100', cast_mode: 'bug-hunt' },
+    });
+    await registry.register({
+      clone_id: 'B',
+      mode: 'bug-hunt',
+      parent_pid: 2,
+      worktree: '/w2',
+      metadata: { cast_id: 'cast-100', cast_mode: 'bug-hunt' },
+    });
+    await registry.register({
+      clone_id: 'C',
+      mode: 'recon-swarm',
+      parent_pid: 3,
+      worktree: '/w3',
+      metadata: { cast_id: 'cast-other', cast_mode: 'recon-swarm' },
+    });
+    events = new EventsLog(paths, clock);
+    handlers = createCommunicationHandlers({ events, registry });
+  });
+  afterEach(async () => {
+    await cleanup();
+  });
+
+  it('returns sibling broadcasts from same cast', async () => {
+    await handlers.broadcast({ clone_id: 'B', event_type: 'breakthrough', payload: { msg: 'found it' } });
+    clock.advance(100);
+    const result = await handlers.readBroadcasts({ clone_id: 'A', cast_id: 'cast-100' });
+    expect(result.events).toHaveLength(1);
+    expect((result.events[0] as BusEvent).clone_id).toBe('B');
+    expect(((result.events[0] as BusEvent).payload as Record<string, unknown>).event_type).toBe('breakthrough');
+  });
+
+  it('excludes own broadcasts', async () => {
+    await handlers.broadcast({ clone_id: 'A', event_type: 'blocker', payload: { issue: 'stuck' } });
+    clock.advance(50);
+    await handlers.broadcast({ clone_id: 'B', event_type: 'breakthrough', payload: { msg: 'ok' } });
+    clock.advance(50);
+    const result = await handlers.readBroadcasts({ clone_id: 'A', cast_id: 'cast-100' });
+    expect(result.events).toHaveLength(1);
+    expect((result.events[0] as BusEvent).clone_id).toBe('B');
+  });
+
+  it('returns empty for different cast_id', async () => {
+    await handlers.broadcast({ clone_id: 'B', event_type: 'breakthrough', payload: { msg: 'x' } });
+    clock.advance(100);
+    const result = await handlers.readBroadcasts({ clone_id: 'A', cast_id: 'cast-nonexistent' });
+    expect(result.events).toHaveLength(0);
+  });
+
+  it('respects since_index filter', async () => {
+    await handlers.broadcast({ clone_id: 'B', event_type: 'blocker', payload: { issue: 'first' } });
+    clock.advance(100);
+    const allBefore = await handlers.readBroadcasts({ clone_id: 'A', cast_id: 'cast-100' });
+    const firstIndex = allBefore.events.length;
+
+    await handlers.broadcast({ clone_id: 'B', event_type: 'breakthrough', payload: { msg: 'second' } });
+    clock.advance(100);
+
+    const result = await handlers.readBroadcasts({ clone_id: 'A', cast_id: 'cast-100', since_index: firstIndex });
+    expect(result.events).toHaveLength(1);
+    expect(((result.events[0] as BusEvent).payload as Record<string, unknown>).event_type).toBe('breakthrough');
+  });
+
+  it('works regardless of peer_messaging policy (reads always allowed)', async () => {
+    await handlers.broadcast({ clone_id: 'C', event_type: 'dependency', payload: { need: 'data' } });
+    clock.advance(100);
+    const result = await handlers.readBroadcasts({ clone_id: 'A', cast_id: 'cast-other' });
+    expect(result.events).toHaveLength(1);
   });
 });
