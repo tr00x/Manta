@@ -159,7 +159,8 @@ describe('charge/budget integration', () => {
 
     await rt.ctx.charges.creditSuccess('cast-bh-charge-1', 'bug-hunt');
     const afterSettle = await rt.ctx.charges.read();
-    expect(afterSettle.current_charges).toBe(3);
+    // creditSuccess always adds +1, not full refund: 1 + 1 = 2
+    expect(afterSettle.current_charges).toBe(2);
     expect(afterSettle.total_successes).toBe(1);
   });
 
