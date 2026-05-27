@@ -43,10 +43,17 @@
 |---|---|---|
 | `2026-05-26-phase-3-charge-system.md` | **Executed** — Chunk 1 (cast by 2 clones, `2d44ad9`) + Chunk 2 (cast-1779829023599, 2 clones forking-realities, merged `f681cbf` + fix `010143b`). 706 tests workspace-wide green; lint+typecheck+build clean. | 2 chunks, 17 tasks. Chunk 1: ChargeStore + DailySpendLedger + BudgetConfig + schemas + BusContext wiring + CastOutcomeClassifier. Chunk 2: PreSpawnGate + CostEstimator + AutoDowngradeAdvisor + 4 CLI commands (cost, charges, refresh, limit) + --dry-run/--force/--no-charge-check/--daily-cap-usd flags + post-cast settlement + integration tests + e2e smoke. Research-backed: 3-clone recon-swarm (cast-1779825540200). |
 
-## Phase 4+ — TBD
+## Phase 4 — Wave-1 Closeout: `bug-hunt` + `refactor-wave`
+
+Цель: добавить оставшиеся два Wave-1 batch-spawn mode'а. Build by **heavy dogfood** — forking-realities casts с 2 клонами на чанк.
+
+| План | Статус | Содержит |
+|---|---|---|
+| `2026-05-27-phase-4-wave1-closeout.md` | **In progress** — Chunk 1 cast launched. Research-backed: 3-clone recon-swarm (cast-1779890518943, 73k chars research). Plan reviewer-approved (2 must-fix + 6 should-fix applied). | 2 chunks, 22 tasks. Chunk 1: bug-hunt mode (SUPPORTED_MODES + cast.ts dispatch + read_broadcasts MCP tool + priming + tests + e2e + docs). Chunk 2: refactor-wave mode (merge-all.ts orchestrator + partition validator + priming + cast.ts wiring + tests + e2e + docs). |
+
+## Phase 5+ — TBD
 
 Per spec Sec 15.1. Each phase = separate plan file:
-- Phase 4: Wave-1 closeout (`refactor-wave`, `bug-hunt`)
 - Phase 5: daemon-mode runtime (Wave-2 prerequisite)
 - Phase 6: Wave-2 modes (`pair-programming`, `test-storm`, `documentation-chase`)
 - Phase 7: Manta Library + auto-cast triggers + community
