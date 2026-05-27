@@ -51,10 +51,17 @@
 |---|---|---|
 | `2026-05-27-phase-4-wave1-closeout.md` | **Executed** — Chunk 1 (cast-1779891646065, 2 clones, merged + 3 review fixes `093e4dd`) + Chunk 2 (cast-1779892719760, 2 clones, merged + 4 review fixes `2520528`). 746 tests workspace-wide green; lint+typecheck+build clean. | 2 chunks, 22 tasks. Chunk 1: bug-hunt mode (SUPPORTED_MODES + cast.ts dispatch + read_broadcasts MCP tool + priming + tests + e2e + docs). Chunk 2: refactor-wave mode (merge-all.ts orchestrator + partition validator + priming + cast.ts wiring + tests + e2e + docs). Research-backed: 3-clone recon-swarm (cast-1779890518943). |
 
-## Phase 5+ — TBD
+## Phase 5 — Daemon-Mode Runtime (Wave-2 Prerequisite)
+
+Цель: infrastructure layer for persistent long-running clones. Sequential Resume Pattern: orchestrator-side poll-resume loop with `--session-id` / `--resume`. Enables Wave-2 modes without implementing their iteration protocols.
+
+| План | Статус | Содержит |
+|---|---|---|
+| `2026-05-27-phase-5-daemon-mode.md` | **Approved** — reviewer-approved with 6 must-fix + 4 should-fix applied. Ready for execution. | 2 chunks, ~1,300 LOC. Chunk 1: bus schema expansion (IDLE/WAITING_FOR_TASK), registry daemon methods, WorkQueueStore, 6 new MCP tools, health monitor IDLE-awareness. Chunk 2: clone-spawner --session-id/--resume, daemon-loop.ts, tick-loop daemon mode, cast.ts Wave-2 dispatch, new commands (daemon/retask/feedback), skills (manta-daemon-idle/manta-pair-protocol), E2E. Research-backed: 3-clone recon-swarm (cast-1779894176321). |
+
+## Phase 6+ — TBD
 
 Per spec Sec 15.1. Each phase = separate plan file:
-- Phase 5: daemon-mode runtime (Wave-2 prerequisite)
 - Phase 6: Wave-2 modes (`pair-programming`, `test-storm`, `documentation-chase`)
 - Phase 7: Manta Library + auto-cast triggers + community
 - Phase 8: Aghs-locked modes (`council`, `phantom-lance`, `decoy`)
