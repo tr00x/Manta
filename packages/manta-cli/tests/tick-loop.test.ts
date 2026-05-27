@@ -125,6 +125,45 @@ describe('runTickLoop', () => {
     expect(listenerCount).toBeLessThanOrEqual(1);
   });
 
+  it('daemon mode: loop survives when clones are IDLE (allDone returns false)', async () => {
+    const orch = new Orchestrator({
+      ctx,
+      thresholds: defaultThresholds,
+      probe: makeProbe({ alive: () => true }),
+      writer: inMemoryPostMortemWriter(),
+    });
+    let ticks = 0;
+    const result = await runTickLoop({
+      orchestrator: orch,
+      intervalMs: 5,
+      daemonMode: true,
+      allDone: () => {
+        ticks += 1;
+        // Simulate: first 3 ticks clones are IDLE (not done), then done
+        return Promise.resolve(ticks >= 4);
+      },
+    });
+    expect(result.cycles).toBeGreaterThanOrEqual(4);
+    expect(result.aborted).toBe(false);
+  });
+
+  it('daemon mode: loop exits when allDone returns true (all DEAD)', async () => {
+    const orch = new Orchestrator({
+      ctx,
+      thresholds: defaultThresholds,
+      probe: makeProbe({ alive: () => true }),
+      writer: inMemoryPostMortemWriter(),
+    });
+    const result = await runTickLoop({
+      orchestrator: orch,
+      intervalMs: 5,
+      daemonMode: true,
+      allDone: () => Promise.resolve(true),
+    });
+    expect(result.cycles).toBe(1);
+    expect(result.aborted).toBe(false);
+  });
+
   it('wraps orchestrator failures via CliError without breaking the loop contract', async () => {
     const orch = new Orchestrator({
       ctx,

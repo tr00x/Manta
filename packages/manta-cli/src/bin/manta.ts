@@ -15,6 +15,9 @@ import { runCostCommand } from '../commands/cost.js';
 import { runChargesCommand } from '../commands/charges.js';
 import { runRefreshCommand } from '../commands/refresh.js';
 import { runLimitCommand } from '../commands/limit.js';
+import { runDaemonStatusCommand, runDaemonStopCommand } from '../commands/daemon.js';
+import { runRetaskCommand } from '../commands/retask.js';
+import { runFeedbackCommand } from '../commands/feedback.js';
 import { runClaudeCli } from '../spawner/clone-spawner.js';
 import { parseTasksFile } from '../spawner/tasks-file.js';
 import { createReporter, StderrSink } from '../output/reporter.js';
@@ -321,6 +324,51 @@ async function main(): Promise<void> {
     .action(async (key: string, value: string) => {
       await runWithRuntime((rt) =>
         runLimitCommand(rt, { subcommand: 'set', key, value, reporter }),
+      );
+    });
+
+  const daemonCmd = program
+    .command('daemon')
+    .description('Manage daemon (persistent) clones');
+
+  daemonCmd
+    .command('status')
+    .description('Show active daemon clones')
+    .action(async () => {
+      await runWithRuntime((rt) => runDaemonStatusCommand(rt, { reporter }));
+    });
+
+  daemonCmd
+    .command('stop')
+    .description('Stop all daemon clones')
+    .option('-r, --reason <reason>', 'stop reason', 'manual stop')
+    .action(async (options: { reason: string }) => {
+      await runWithRuntime((rt) => runDaemonStopCommand(rt, { reason: options.reason, reporter }));
+    });
+
+  program
+    .command('retask <cloneId>')
+    .description('Re-task an idle daemon clone with new work')
+    .requiredOption('-t, --task <task>', 'new task description')
+    .action(async (cloneId: string, options: { task: string }) => {
+      await runWithRuntime((rt) =>
+        runRetaskCommand(rt, { cloneId, task: options.task, reporter }),
+      );
+    });
+
+  program
+    .command('feedback <cloneId>')
+    .description('Send directed feedback to a clone')
+    .requiredOption('-m, --message <msg>', 'feedback message')
+    .option('-s, --severity <level>', 'info|correction|blocker', 'info')
+    .action(async (cloneId: string, options: { message: string; severity: string }) => {
+      const severity = (['info', 'correction', 'blocker'] as const).includes(
+        options.severity as 'info' | 'correction' | 'blocker',
+      )
+        ? (options.severity as 'info' | 'correction' | 'blocker')
+        : 'info';
+      await runWithRuntime((rt) =>
+        runFeedbackCommand(rt, { cloneId, message: options.message, severity, reporter }),
       );
     });
 

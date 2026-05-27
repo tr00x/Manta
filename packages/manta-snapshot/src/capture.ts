@@ -21,16 +21,22 @@ export interface CaptureInput {
   budget: Budget;
   ttlSeconds: number;
   siblingCloneIds: string[];
+  sessionMode?: 'batch' | 'daemon' | undefined;
+  sessionId?: string | undefined;
 }
 
 export function captureState(input: CaptureInput): Snapshot {
+  const sessionMode = input.sessionMode ?? 'batch';
   return {
     version: CURRENT_SCHEMA_VERSION,
     castId: input.castId,
     parentSessionId: input.parentSessionId,
     parentPid: input.parentPid,
     createdAt: new Date().toISOString(),
-    taskContract: input.taskContract,
+    taskContract: {
+      ...input.taskContract,
+      sessionMode: input.taskContract.sessionMode ?? sessionMode,
+    },
     recentMessages: input.recentMessages,
     activeTodos: input.activeTodos,
     openFiles: input.openFiles,
@@ -40,5 +46,7 @@ export function captureState(input: CaptureInput): Snapshot {
     budget: input.budget,
     ttlSeconds: input.ttlSeconds,
     siblingCloneIds: input.siblingCloneIds,
+    sessionMode,
+    ...(input.sessionId != null ? { sessionId: input.sessionId } : {}),
   };
 }

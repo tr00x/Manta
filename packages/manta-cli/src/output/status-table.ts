@@ -6,10 +6,10 @@ export function renderStatusTable(status: OrchestratorStatus): string {
   }
   const lines: string[] = [];
   lines.push(
-    'Clone | Mode         | State        | Heartbeat age | Locks                | Claims',
+    'Clone | Mode         | State           | Heartbeat age | Locks                | Claims',
   );
   lines.push(
-    '------+--------------+--------------+---------------+----------------------+----------------------',
+    '------+--------------+-----------------+---------------+----------------------+----------------------',
   );
   for (const c of status.clones) {
     const ageMs = status.now - c.last_heartbeat_at;
@@ -24,8 +24,13 @@ export function renderStatusTable(status: OrchestratorStatus): string {
         .filter((cl) => cl.owner_clone_id === c.clone_id)
         .map((cl) => cl.item)
         .join(', ') || '-';
+    const isDaemon = c.session_mode === 'daemon';
+    const stateStr = isDaemon ? `${c.state} [daemon]` : c.state;
+    const stateDisplay = c.tasks_completed != null && c.tasks_completed > 0
+      ? `${stateStr} (${c.tasks_completed})`
+      : stateStr;
     lines.push(
-      `${pad(c.clone_id, 5)} | ${pad(c.mode, 12)} | ${pad(c.state, 12)} | ${pad(ageStr, 13)} | ${pad(locks, 20)} | ${pad(claims, 20)}`,
+      `${pad(c.clone_id, 5)} | ${pad(c.mode, 12)} | ${pad(stateDisplay, 15)} | ${pad(ageStr, 13)} | ${pad(locks, 20)} | ${pad(claims, 20)}`,
     );
   }
   return lines.join('\n');

@@ -7,11 +7,13 @@ export interface RunTickLoopOptions {
   intervalMs: number;
   allDone: () => Promise<boolean>;
   signal?: AbortSignal;
+  daemonMode?: boolean;
 }
 
 export interface TickLoopResult {
   cycles: number;
   aborted: boolean;
+  daemonResumeCycles?: number;
 }
 
 export async function runTickLoop(opts: RunTickLoopOptions): Promise<TickLoopResult> {
