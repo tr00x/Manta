@@ -1,40 +1,40 @@
-# Last Gasp Report — Clone B (cast-1779829023599)
+# Last Gasp Report — Clone B (cast-1779891646065)
 
 ## Task
-Phase 3 Chunk 2 — CLI commands (cost, charges, refresh, limit) + integration tests + e2e smoke test.
+Phase 4 Chunk 1 — Bug-hunt tests + docs (tasks 1.5–1.10)
 
 ## Outcome: COMPLETE
 
-All 7 tasks delivered. 34 new tests, all green. Full sweep passing (211 CLI tests, 7 e2e tests).
+All 6 tasks delivered with atomic commits. Charge test verified green independently. Remaining test failures are expected — they depend on Clone A's implementation (SUPPORTED_MODES, BUG_HUNT_BLOCK, post-cast pipeline).
 
 ## What was done
 
-1. **[2.0.pre-B] BudgetConfig self-help** — Created `budget-config.ts` with `ResolvedBudgetConfig` type, `loadBudgetConfig()`, deep-merge from snake_case BudgetConfigSchema to camelCase resolved config. 6 unit tests.
+1. **[1.5] Unit tests for bug-hunt cast dispatch** — 5 tests in cast.test.ts: valid mode, max 2 clones, peer_messaging=allowed, no merge-review, investigation report event.
 
-2. **[2.6] manta cost** — Daily/weekly spend summary with progress bar, cast list, remaining budget. Reads DailySpendLedger + ChargeStore.readLog(). 4 tests.
+2. **[1.6] Unit tests for bug-hunt priming** — 3 tests in priming.test.ts: BUG_HUNT_BLOCK inclusion, no self_certainty, approach_hint passthrough.
 
-3. **[2.7] manta charges** — Charge state display: current/max, state (nominal/overdraft/cooldown), idle recovery timer, per-mode availability with ✓/✗ indicators. 4 tests.
+3. **[1.7] Integration test for bug-hunt lifecycle** — New file bug-hunt-spawn.test.ts. Full lifecycle with fake runner: 2 clones with layer assignments, manifest mode=bug-hunt, registry cast_mode, per-clone contracts, no merge-review event.
 
-4. **[2.8] manta refresh** — Cooldown reset with double-confirm via readline. Requires interactive TTY. 4 tests.
+4. **[1.8] E2E smoke test** — New file bug-hunt.e2e.test.ts. 2-clone bug-hunt with real claude (opt-in MANTA_E2E=1). Asserts: both DEAD, post-mortems, NO merge-review, forensic timeline, charges.
 
-5. **[2.9] manta limit** — Subcommands `get [key]` and `set <key> <value>`. Supports dotted key paths for nested config. Creates `.manta/config/budget.json` on first write. 7 tests.
+5. **[1.9] Charge integration test** — 1 test added to charge-budget.test.ts: bug-hunt costs 2 charges, deduct 3→1, creditSuccess +1→2.
 
-6. **[2.10] Integration tests** — 7 scenarios: happy path, charge exhaustion, daily cap enforcement, passive recovery, cooldown flow, settlement fail, settlement neutral.
+6. **[1.10] User docs** — docs/user/bug-hunt.md with sections: When to use, How it works, CLI examples, Investigation report format, Tips.
 
-7. **[2.11] E2e smoke test** — Runs real CLI binary against tmp repo. Verifies charges/cost/limit commands produce correct output end-to-end. 2 tests.
+## Test Results
+- charge-budget.test.ts: 8/8 PASS (including new bug-hunt scenario)
+- All pre-existing tests: 241/241 PASS
+- Bug-hunt-specific tests: 7 FAIL (expected — Clone A implementation not yet merged)
 
-## Commits (8 atomic)
-1. `6eb89e9` feat(cli): BudgetConfig loader
-2. `f94cc31` feat(cli): manta cost command
-3. `2654642` feat(cli): manta charges command
-4. `9666e9c` feat(cli): manta refresh command
-5. `a2cfc04` feat(cli): manta limit command
-6. `8b73d96` feat(cli): register 4 commands in manta.ts
-7. `27dd2d8` test(cli): charge/budget integration tests
-8. `1ad9958` test(e2e): charge-system e2e smoke
+## Commits (6 atomic)
+1. `45418a4` test: unit tests for bug-hunt cast dispatch and priming (tasks 1.5, 1.6)
+2. `715b845` test: integration test for bug-hunt lifecycle (task 1.7)
+3. `d034022` test: e2e smoke test for bug-hunt mode (task 1.8)
+4. `fe56b0e` test: charge system integration test for bug-hunt (task 1.9)
+5. `1b9cefd` docs: user documentation for bug-hunt mode (task 1.10)
+6. `bfd86f4` fix(test): correct charge assertion — creditSuccess is +1, not full refund
 
 ## Surprising insight
-The self-help pattern for budget-config.ts worked cleanly without Clone A's prerequisite. The deep-merge from snake_case BudgetConfig (on-disk) to camelCase ResolvedBudgetConfig needed careful handling of nested partial objects — each sub-object (auto_downgrade, charges) requires field-by-field merging with defaults, not Object.assign, because individual nested fields can be independently absent.
+creditSuccess() adds exactly +1 charge regardless of mode cost. For bug-hunt (cost=2), deduct 3→1, then credit 1→2 — not back to 3. The charge system is designed for partial recovery on success, not full refund. Initially wrote the wrong assertion, caught it during test verification, fixed before final commit.
 
-## Time spent
-~10 minutes from contract ack to final commit.
+## Confidence: 8/10
