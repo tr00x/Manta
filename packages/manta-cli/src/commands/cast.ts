@@ -26,6 +26,7 @@ import { classifyCastOutcome } from '../budget/cast-outcome.js';
 import type { DispatchEnqueuer } from '../dispatch/types.js';
 import { PairDispatcher } from '../dispatch/pair-dispatch.js';
 import { DocChaseDispatcher } from '../dispatch/doc-chase-dispatch.js';
+import { TestStormDispatcher } from '../dispatch/test-storm-dispatch.js';
 import { BroadcastReader } from '../dispatch/broadcast-reader.js';
 
 // Phase 2a: forking-realities joins recon-swarm. Spec Sec 2 #2; see
@@ -312,6 +313,13 @@ export async function runCastCommand(
   if (opts.mode === 'documentation-chase') {
     effective[cloneIds[0]!]!.approachHint = effective[cloneIds[0]!]!.approachHint ?? 'documenter';
   }
+  if (opts.mode === 'test-storm') {
+    effective[cloneIds[0]!]!.approachHint = effective[cloneIds[0]!]!.approachHint ?? 'coder';
+    effective[cloneIds[1]!]!.approachHint = effective[cloneIds[1]!]!.approachHint ?? 'tester';
+    if (cloneIds.length > 2) {
+      effective[cloneIds[2]!]!.approachHint = effective[cloneIds[2]!]!.approachHint ?? 'fuzzer';
+    }
+  }
 
   try {
     for (const cloneId of cloneIds) {
@@ -382,6 +390,18 @@ export async function runCastCommand(
       });
     }
 
+    let stormDispatcher: TestStormDispatcher | null = null;
+    if (opts.mode === 'test-storm') {
+      const fuzzerClone = cloneIds.length > 2 ? cloneIds[2]! : cloneIds[1]!;
+      stormDispatcher = new TestStormDispatcher({
+        coderCloneId: cloneIds[0]!,
+        testerCloneId: cloneIds[1]!,
+        fuzzerCloneId: fuzzerClone,
+        castId: opts.castId,
+        maxFixCycles: 3,
+      });
+    }
+
     // Wave-2: documentation-chase pre-populates work queue at cast start
     if (opts.mode === 'documentation-chase' && rt.ctx.workQueue) {
       const docCloneId = cloneIds[0]!;
@@ -397,7 +417,7 @@ export async function runCastCommand(
     }
 
     // Wave-2: BroadcastReader + enqueuer for dispatch callbacks
-    const broadcastReader = (opts.mode === 'pair-programming')
+    const broadcastReader = (opts.mode === 'pair-programming' || opts.mode === 'test-storm')
       ? new BroadcastReader(opts.castId, rt.ctx.events)
       : null;
     const dispatchEnqueuer: DispatchEnqueuer | null = (rt.ctx.workQueue)
@@ -444,17 +464,21 @@ export async function runCastCommand(
         intervalMs: opts.cycleIntervalMs,
         signal: ctrl.signal,
         daemonMode: sessionMode === 'daemon',
-        onCycleComplete: (pairDispatcher && broadcastReader && dispatchEnqueuer)
+        onCycleComplete: (broadcastReader && dispatchEnqueuer && (pairDispatcher || stormDispatcher))
           ? async (result) => {
               const broadcasts = await broadcastReader!.readNew();
-              await pairDispatcher!.onCycleComplete(
-                { idleClones: result.idleClones, broadcasts },
-                dispatchEnqueuer!,
-              );
+              const input = { idleClones: result.idleClones, broadcasts };
+              if (pairDispatcher) {
+                await pairDispatcher.onCycleComplete(input, dispatchEnqueuer!);
+              }
+              if (stormDispatcher) {
+                await stormDispatcher.onCycleComplete(input, dispatchEnqueuer!);
+              }
             }
           : undefined,
         allDone: async () => {
           if (pairDispatcher?.isDone) return true;
+          if (stormDispatcher?.isDone) return true;
           const all = await rt.ctx.registry.list();
           const ours = all.filter((c) => cloneIds.includes(c.clone_id));
           if (ours.length < cloneIds.length) return false;

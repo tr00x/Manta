@@ -12,12 +12,12 @@ describe('Phase-0 pre-flight (cheap, always runs)', () => {
     expect(r.exitCode, r.stderr || r.stdout).toBe(0);
   });
 
-  it('skill-validator finds 10 skills and 6 commands, zero errors', async () => {
+  it('skill-validator finds 13 skills and 6 commands, zero errors', async () => {
     const result = await validateAll(repoRoot);
     expect(result.errorCount).toBe(0);
     const skills = result.reports.filter((r) => r.path.startsWith('skills/'));
     const commands = result.reports.filter((r) => r.path.startsWith('commands/'));
-    expect(skills).toHaveLength(10);
+    expect(skills).toHaveLength(13);
     expect(commands).toHaveLength(6);
   });
 
