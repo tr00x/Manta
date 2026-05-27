@@ -111,7 +111,7 @@ describe('createBusServer', () => {
     await cleanup();
   });
 
-  it('lists every Manta Bus tool', async () => {
+  it('lists every Manta Bus tool (25 total)', async () => {
     const result = await client.listTools();
     const names = result.tools.map((t) => t.name).sort();
     expect(names).toEqual(
@@ -121,15 +121,21 @@ describe('createBusServer', () => {
         'manta.claim_work',
         'manta.contract_refresh',
         'manta.drift_report',
+        'manta.enqueue_work',
+        'manta.feedback',
         'manta.heartbeat',
         'manta.lock',
         'manta.message',
         'manta.para_append',
+        'manta.pause',
         'manta.read_broadcasts',
         'manta.register',
         'manta.release_work',
         'manta.renew_lock',
         'manta.report_death',
+        'manta.request_task',
+        'manta.resume',
+        'manta.retask',
         'manta.suicide_intent',
         'manta.task_contract.read',
         'manta.task_contract.write',
@@ -395,5 +401,116 @@ describe('createBusServer — auto-touch on every successful MCP call (bug #9)',
       await server.close();
       await clean();
     }
+  });
+});
+
+describe('createBusServer — Phase 5 daemon tool dispatch', () => {
+  let root: string;
+  let cleanup: () => Promise<void>;
+  let client: Client;
+  let serverClose: () => Promise<void>;
+
+  beforeEach(async () => {
+    ({ root, cleanup } = await makeTmpRoot());
+    const clock = new FakeClock(1_000_000);
+    const { server } = await createBusServer({ repoRoot: root, clock });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    client = new Client({ name: 'manta-bus-daemon', version: '0.0.0' }, { capabilities: {} });
+    await client.connect(clientTransport);
+    serverClose = async () => {
+      await client.close();
+      await server.close();
+    };
+  });
+  afterEach(async () => {
+    await serverClose();
+    await cleanup();
+  });
+
+  async function registerAndWork(cloneId: string): Promise<void> {
+    await client.callTool({
+      name: 'manta.register',
+      arguments: { clone_id: cloneId, mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} },
+    });
+    await client.callTool({
+      name: 'manta.heartbeat',
+      arguments: { clone_id: cloneId, state: 'WORKING' },
+    });
+  }
+
+  it('dispatches manta.retask to lifecycle handler', async () => {
+    await registerAndWork('A');
+    await client.callTool({
+      name: 'manta.heartbeat',
+      arguments: { clone_id: 'A', state: 'IDLE' },
+    });
+    const r = await client.callTool({
+      name: 'manta.retask',
+      arguments: { clone_id: 'A', new_task: 'fix the bug in query.ts' },
+    });
+    expect(r.isError).toBeFalsy();
+    const parsed = JSON.parse(readText(r.content)) as { clone: { state: string } };
+    expect(parsed.clone.state).toBe('WORKING');
+  });
+
+  it('dispatches manta.pause to lifecycle handler', async () => {
+    await registerAndWork('A');
+    const r = await client.callTool({
+      name: 'manta.pause',
+      arguments: { clone_id: 'A', reason: 'waiting for review' },
+    });
+    expect(r.isError).toBeFalsy();
+    const parsed = JSON.parse(readText(r.content)) as { clone: { state: string } };
+    expect(parsed.clone.state).toBe('IDLE');
+  });
+
+  it('dispatches manta.resume to lifecycle handler', async () => {
+    await registerAndWork('A');
+    await client.callTool({
+      name: 'manta.heartbeat',
+      arguments: { clone_id: 'A', state: 'IDLE' },
+    });
+    const r = await client.callTool({
+      name: 'manta.resume',
+      arguments: { clone_id: 'A' },
+    });
+    expect(r.isError).toBeFalsy();
+    const parsed = JSON.parse(readText(r.content)) as { clone: { state: string } };
+    expect(parsed.clone.state).toBe('WORKING');
+  });
+
+  it('dispatches manta.request_task to lifecycle handler', async () => {
+    await registerAndWork('A');
+    const r = await client.callTool({
+      name: 'manta.request_task',
+      arguments: { clone_id: 'A' },
+    });
+    expect(r.isError).toBeFalsy();
+    const parsed = JSON.parse(readText(r.content)) as { clone: { state: string } };
+    expect(parsed.clone.state).toBe('WAITING_FOR_TASK');
+  });
+
+  it('dispatches manta.feedback to communication handler', async () => {
+    await registerAndWork('A');
+    const r = await client.callTool({
+      name: 'manta.feedback',
+      arguments: { clone_id: 'A', from: 'main', feedback: 'good work on the schema', severity: 'info' },
+    });
+    expect(r.isError).toBeFalsy();
+    const parsed = JSON.parse(readText(r.content)) as { event: { type: string } };
+    expect(parsed.event.type).toBe('feedback');
+  });
+
+  it('dispatches manta.enqueue_work to work handler', async () => {
+    await registerAndWork('A');
+    const r = await client.callTool({
+      name: 'manta.enqueue_work',
+      arguments: { cast_id: 'cast-123', target_clone_id: 'A', prompt: 'write tests for feature X' },
+    });
+    expect(r.isError).toBeFalsy();
+    const parsed = JSON.parse(readText(r.content)) as { item: { prompt: string }; event: { type: string } };
+    expect(parsed.item.prompt).toBe('write tests for feature X');
+    expect(parsed.event.type).toBe('enqueue_work');
   });
 });

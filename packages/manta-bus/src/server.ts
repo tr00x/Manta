@@ -14,6 +14,7 @@ import { CastsStore } from './state/casts';
 import { ChargeStore } from './state/charge-store';
 import { DailySpendLedger } from './state/daily-spend';
 import { EventsLog } from './state/events';
+import { WorkQueueStore } from './state/work-queue';
 import { fsMemoryWriters, type MemoryWriters } from './memory-writers';
 import type { BusContext } from './tools/index';
 import { createLifecycleHandlers } from './tools/lifecycle';
@@ -92,6 +93,7 @@ export async function createBusServer(opts: CreateBusServerOptions): Promise<Bus
   const charges = new ChargeStore(paths, clock);
   const dailySpend = new DailySpendLedger(paths, clock);
   const events = new EventsLog(paths, clock);
+  const workQueue = new WorkQueueStore(paths, clock);
   const memoryWriters =
     opts.memoryWriters ?? fsMemoryWriters({ repoRoot: opts.repoRoot, clock });
   const context: BusContext = {
@@ -106,6 +108,7 @@ export async function createBusServer(opts: CreateBusServerOptions): Promise<Bus
     dailySpend,
     events,
     memoryWriters,
+    workQueue,
   };
 
   const lifecycle = createLifecycleHandlers(context);
@@ -115,13 +118,7 @@ export async function createBusServer(opts: CreateBusServerOptions): Promise<Bus
   const comm = createCommunicationHandlers(context);
   const memory = createMemoryHandlers(context);
 
-  // Tool table: 18 entries spanning the 6 families. `manta.task_contract`'s
-  // sub-commands from spec Sec 4 are encoded with a dot (`task_contract.read`,
-  // `task_contract.write`) since MCP tool names cannot contain spaces.
-  //
-  // Each `handle` is an arrow-function adapter — not a direct method reference —
-  // so the call site never depends on the handler object's `this` binding.
-  // (eslint's `unbound-method` rule otherwise fires on each entry.)
+  // Tool table: 25 entries spanning the 6 families + Phase 5 daemon tools.
   const tools: ToolEntry[] = [
     {
       name: 'manta.register',
@@ -236,6 +233,42 @@ export async function createBusServer(opts: CreateBusServerOptions): Promise<Bus
       description: 'Append fact to a PARA category',
       inputSchema: jsonSchema(),
       handle: (args) => memory.paraAppend(args),
+    },
+    {
+      name: 'manta.retask',
+      description: 'Re-task an IDLE/WAITING daemon clone with new work',
+      inputSchema: jsonSchema(),
+      handle: (args) => lifecycle.retask(args),
+    },
+    {
+      name: 'manta.pause',
+      description: 'Pause a working daemon clone (transitions to IDLE)',
+      inputSchema: jsonSchema(),
+      handle: (args) => lifecycle.pause(args),
+    },
+    {
+      name: 'manta.resume',
+      description: 'Resume a paused daemon clone (transitions to WORKING)',
+      inputSchema: jsonSchema(),
+      handle: (args) => lifecycle.resume(args),
+    },
+    {
+      name: 'manta.request_task',
+      description: 'Clone signals it is idle and waiting for new work',
+      inputSchema: jsonSchema(),
+      handle: (args) => lifecycle.requestTask(args),
+    },
+    {
+      name: 'manta.feedback',
+      description: 'Send directed feedback to a working or idle clone',
+      inputSchema: jsonSchema(),
+      handle: (args) => comm.feedback(args),
+    },
+    {
+      name: 'manta.enqueue_work',
+      description: 'Enqueue a work item for a daemon clone',
+      inputSchema: jsonSchema(),
+      handle: (args) => work.enqueue(args),
     },
   ];
   const toolMap = new Map(tools.map((t) => [t.name, t]));

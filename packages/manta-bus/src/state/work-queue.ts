@@ -21,10 +21,7 @@ interface WorkQueueFile {
 const empty = (): WorkQueueFile => ({ version: 1, items: [] });
 
 export class WorkQueueStore {
-  constructor(
-    private readonly paths: BusPaths,
-    private readonly clock: Clock,
-  ) {}
+  constructor(private readonly paths: BusPaths, private readonly clock: Clock) {}
 
   async enqueue(input: {
     cast_id: string;
@@ -59,17 +56,20 @@ export class WorkQueueStore {
       this.paths.workQueue,
       empty,
       (current) => {
-        const pending = current.items
-          .map((item, idx) => ({ item, idx }))
-          .filter((e) => e.item.target_clone_id === targetCloneId && !e.item.claimed_at);
-
-        if (pending.length === 0) return current;
-
-        const highPriority = pending.find((e) => e.item.priority === 'high');
-        const pick = highPriority ?? pending[0]!;
-
-        current.items[pick.idx]!.claimed_at = this.clock.now();
-        found = { ...current.items[pick.idx]! };
+        const idx = current.items.findIndex(
+          (i) => i.target_clone_id === targetCloneId && !i.claimed_at,
+        );
+        const highIdx = current.items.findIndex(
+          (i) =>
+            i.target_clone_id === targetCloneId &&
+            !i.claimed_at &&
+            i.priority === 'high',
+        );
+        const pick = highIdx !== -1 ? highIdx : idx;
+        if (pick !== -1) {
+          current.items[pick]!.claimed_at = this.clock.now();
+          found = { ...current.items[pick]! };
+        }
         return current;
       },
     );

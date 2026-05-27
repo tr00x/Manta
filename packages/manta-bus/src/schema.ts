@@ -221,6 +221,8 @@ export const ReadBroadcastsInputSchema = z
   })
   .strict();
 
+// Phase 5 — Daemon-mode input schemas
+
 export const RetaskInputSchema = z
   .object({
     clone_id: CloneIdSchema,

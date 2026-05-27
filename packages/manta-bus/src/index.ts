@@ -15,6 +15,8 @@ export type { ChargeStoreConfig } from './state/charge-store';
 export { DailySpendLedger } from './state/daily-spend';
 export { EventsLog } from './state/events';
 export type { CloneRecord } from './state/registry';
+export type { WorkItem } from './state/work-queue';
+export { WorkQueueStore } from './state/work-queue';
 export type { LockLease } from './state/locks';
 export type { WorkClaim } from './state/claims';
 export type { StoredContract, ContractAck } from './state/contracts';

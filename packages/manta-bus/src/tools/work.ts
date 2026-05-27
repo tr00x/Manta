@@ -59,10 +59,10 @@ export function createWorkHandlers(
     },
 
     async enqueue(input) {
-      if (!ctx.workQueue) {
-        throw new Error('workQueue not configured; enqueue_work requires daemon mode wiring');
-      }
       const parsed = parse(EnqueueWorkInputSchema, input, 'enqueue_work');
+      if (!ctx.workQueue) {
+        throw new Error('WorkQueueStore not initialized');
+      }
       const item = await ctx.workQueue.enqueue({
         cast_id: parsed.cast_id,
         target_clone_id: parsed.target_clone_id,

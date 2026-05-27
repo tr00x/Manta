@@ -85,8 +85,6 @@ export function createLifecycleHandlers(
 
     async reportDeath(input) {
       const parsed = parse(ReportDeathInputSchema, input, 'report_death');
-      // markDead is the *only* legitimate path to the DEAD state — the
-      // registry rejects DEAD via heartbeat (see registry.ts comments).
       let event!: BusEvent;
       const clone = await ctx.registry.markDead(
         parsed.clone_id,

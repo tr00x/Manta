@@ -89,12 +89,12 @@ export class Registry {
             `cannot heartbeat a DEAD clone ${input.clone_id}; death is terminal`,
           );
         }
-        if (input.state === 'IDLE' && r.state === 'BLOCKED') {
-          throw new BusConflictError(
-            `cannot transition from BLOCKED to IDLE; unblock to WORKING first`,
-          );
-        }
         if (input.state === 'IDLE') {
+          if (r.state === 'BLOCKED') {
+            throw new BusConflictError(
+              `cannot transition from BLOCKED to IDLE; unblock to WORKING first`,
+            );
+          }
           r.idle_since = this.clock.now();
           r.tasks_completed = (r.tasks_completed ?? 0) + 1;
           r.last_task_completed_at = this.clock.now();
@@ -167,6 +167,18 @@ export class Registry {
     ).then((next) => next.clones[cloneId]!);
   }
 
+  async get(cloneId: string): Promise<CloneRecord> {
+    const file = await atomicReadJson<RegistryFile>(this.paths.registry, empty);
+    const r = file.clones[cloneId];
+    if (!r) throw new BusNotFoundError('clone', cloneId);
+    return r;
+  }
+
+  async list(): Promise<CloneRecord[]> {
+    const file = await atomicReadJson<RegistryFile>(this.paths.registry, empty);
+    return Object.values(file.clones);
+  }
+
   async retask(
     cloneId: string,
     taskSummary: string,
@@ -193,23 +205,16 @@ export class Registry {
     ).then((next) => next.clones[cloneId]!);
   }
 
-  async get(cloneId: string): Promise<CloneRecord> {
-    const file = await atomicReadJson<RegistryFile>(this.paths.registry, empty);
-    const r = file.clones[cloneId];
-    if (!r) throw new BusNotFoundError('clone', cloneId);
-    return r;
-  }
-
-  async list(): Promise<CloneRecord[]> {
-    const file = await atomicReadJson<RegistryFile>(this.paths.registry, empty);
-    return Object.values(file.clones);
-  }
-
-  async staleSince(thresholdMs: number): Promise<CloneRecord[]> {
+  async staleSince(thresholdMs: number, idleThresholdMs?: number): Promise<CloneRecord[]> {
     const now = this.clock.now();
     const file = await atomicReadJson<RegistryFile>(this.paths.registry, empty);
-    return Object.values(file.clones).filter(
-      (r) => r.state !== 'DEAD' && now - r.last_heartbeat_at > thresholdMs,
-    );
+    return Object.values(file.clones).filter((r) => {
+      if (r.state === 'DEAD') return false;
+      if (r.state === 'IDLE' || r.state === 'WAITING_FOR_TASK') {
+        const effectiveThreshold = idleThresholdMs ?? thresholdMs;
+        return now - r.last_heartbeat_at > effectiveThreshold;
+      }
+      return now - r.last_heartbeat_at > thresholdMs;
+    });
   }
 }

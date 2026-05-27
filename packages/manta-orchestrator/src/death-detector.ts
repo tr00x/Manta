@@ -23,16 +23,28 @@ export async function findDeadClones(
   for (const r of all) {
     if (r.state === 'DEAD') continue;
     const reasons: string[] = [];
-    // STARTING clones haven't sent a real heartbeat yet (last_heartbeat_at == registered_at,
-    // stamped by the spawner's pre-register call). Apply startupGraceMs against registered_at
-    // instead — gives cold-start `claude --print` + priming + skill load + snapshot read time
-    // to reach first MCP call (bug #7, Phase-2 dogfood: claude haiku cold start ≈ 30–60 s).
+
     if (r.state === 'STARTING') {
       const sinceRegistered = now - r.registered_at;
       if (sinceRegistered > options.thresholds.startupGraceMs) {
         reasons.push(
           `startup grace ${sinceRegistered}ms > ${options.thresholds.startupGraceMs}ms (no first heartbeat)`,
         );
+      }
+    } else if (r.state === 'IDLE' || r.state === 'WAITING_FOR_TASK') {
+      const sinceHeartbeat = now - r.last_heartbeat_at;
+      if (sinceHeartbeat > options.thresholds.idleHeartbeatTimeoutMs) {
+        reasons.push(
+          `idle heartbeat ${sinceHeartbeat}ms ago > ${options.thresholds.idleHeartbeatTimeoutMs}ms`,
+        );
+      }
+      if (r.idle_since != null) {
+        const idleDuration = now - r.idle_since;
+        if (idleDuration > options.thresholds.maxIdleTimeMs) {
+          reasons.push(
+            `idle for ${idleDuration}ms > maxIdleTimeMs ${options.thresholds.maxIdleTimeMs}ms`,
+          );
+        }
       }
     } else {
       const sinceHeartbeat = now - r.last_heartbeat_at;
@@ -42,6 +54,16 @@ export async function findDeadClones(
         );
       }
     }
+
+    if (r.session_mode === 'daemon') {
+      const sessionAge = now - r.registered_at;
+      if (sessionAge > options.thresholds.daemonMaxLifetimeMs) {
+        reasons.push(
+          `daemon session ${sessionAge}ms > daemonMaxLifetimeMs ${options.thresholds.daemonMaxLifetimeMs}ms`,
+        );
+      }
+    }
+
     if (options.thresholds.parentPidCheckEnabled && !options.probe.alive(r.parent_pid)) {
       reasons.push(`parent pid ${r.parent_pid} not alive`);
     }
