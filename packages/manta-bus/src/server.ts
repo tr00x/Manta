@@ -220,6 +220,12 @@ export async function createBusServer(opts: CreateBusServerOptions): Promise<Bus
       handle: (args) => comm.driftReport(args),
     },
     {
+      name: 'manta.read_broadcasts',
+      description: 'Read broadcast events from siblings in the same cast',
+      inputSchema: jsonSchema(),
+      handle: (args) => comm.readBroadcasts(args),
+    },
+    {
       name: 'manta.zk_write',
       description: 'Atomic ZK note write',
       inputSchema: jsonSchema(),

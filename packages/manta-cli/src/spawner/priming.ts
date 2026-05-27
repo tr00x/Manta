@@ -15,7 +15,21 @@ Heartbeat is implicit (bus auto-touch). Every successful \`manta.*\` MCP call yo
 When done — even on failure — invoke the \`manta-graceful-death\` skill and exit. Required shutdown ordering (skipping or reordering any step is drift): (a) write last-gasp-report.md to worktree root; (b) \`git add\` your deliverables + last-gasp-report.md and commit on the worktree branch with message \`manta-clone-{CLONE_ID}: <one-line summary>\` — never push, the main pulls; (c) at least one \`manta.zk_write\` call with one paragraph of the most surprising thing you learned, tagged \`["clone-{CLONE_ID}", "cast-{CAST_ID}"]\`; (d) \`manta.unlock\` / \`manta.release_work\` for held resources; (e) \`manta.suicide_intent\`; (f) \`manta.report_death\`. Do not print the final report directly; the post-mortem path is your output channel.
 
 Forbidden in this phase: recursive \`/manta cast\`, edits outside scope, direct user contact, quiet writes to \`.manta/state/*\`.
-{SELF_CERTAINTY_BLOCK}\
+{MODE_SPECIFIC_BLOCK}{SELF_CERTAINTY_BLOCK}\
+`;
+
+const BUG_HUNT_BLOCK = `
+## Investigation Protocol
+You are investigating a bug as part of a bug-hunt cast. Your assigned layer is specified in your task contract.
+
+INVESTIGATION WORKFLOW:
+1. Read the bug description and reproduction steps from your task contract
+2. Investigate your assigned layer systematically — read relevant source, trace data flow, check error handling
+3. Broadcast intermediate findings via manta.broadcast so sibling clones in other layers can cross-reference
+4. Read sibling findings via manta.read_broadcasts({ clone_id: "<your-id>", cast_id: "<your-cast-id>" }) to check for cross-layer correlations
+5. Write your investigation report as a markdown file committed to your branch
+
+REPORT SECTIONS: Symptom | Findings | Root Cause Hypothesis | Proposed Fix | Cross-Layer Dependencies
 `;
 
 export function buildPrimingText(snapshot: Snapshot): string {
@@ -27,6 +41,10 @@ export function buildPrimingText(snapshot: Snapshot): string {
   // step 5 and the heartbeat paragraph.
   const approachBlock =
     hint != null && hint.length > 0 ? `\nApproach hint: ${hint}\n` : '';
+  const modeSpecificBlock =
+    snapshot.taskContract.mode === 'bug-hunt'
+      ? `\n${BUG_HUNT_BLOCK}`
+      : '';
   const selfCertaintyBlock =
     snapshot.taskContract.mode === 'forking-realities'
       ? `\nBefore your final commit, broadcast your confidence in the solution:\nmanta.broadcast({ clone_id: "{CLONE_ID}", event_type: "self_certainty", payload: { score: <1-10>, rationale: "<one sentence>" } })\nThis is used as a tertiary tie-breaker when composite scores are within noise tolerance.\n`
@@ -36,6 +54,7 @@ export function buildPrimingText(snapshot: Snapshot): string {
     .replaceAll('{CAST_ID}', snapshot.castId)
     .replaceAll('{MODE}', snapshot.taskContract.mode)
     .replaceAll('{APPROACH_HINT_BLOCK}', approachBlock)
+    .replaceAll('{MODE_SPECIFIC_BLOCK}', modeSpecificBlock)
     .replaceAll('{SELF_CERTAINTY_BLOCK}', selfCertaintyBlock);
 }
 

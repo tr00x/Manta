@@ -1,4 +1,4 @@
-import { BroadcastInputSchema, DriftReportInputSchema, MessageInputSchema } from '../schema';
+import { BroadcastInputSchema, DriftReportInputSchema, MessageInputSchema, ReadBroadcastsInputSchema } from '../schema';
 import type { BusContext } from './index';
 import { parse } from './parse';
 import { siblingsInSameForkingCast } from './forking-isolation';
@@ -9,6 +9,7 @@ export interface CommunicationHandlers {
   broadcast(input: unknown): Promise<{ event: BusEvent }>;
   message(input: unknown): Promise<{ event: BusEvent }>;
   driftReport(input: unknown): Promise<{ event: BusEvent }>;
+  readBroadcasts(input: unknown): Promise<{ events: BusEvent[] }>;
 }
 
 export function createCommunicationHandlers(
@@ -66,6 +67,20 @@ export function createCommunicationHandlers(
         payload: { score: parsed.score, evidence: parsed.evidence },
       });
       return { event };
+    },
+
+    async readBroadcasts(input) {
+      const parsed = parse(ReadBroadcastsInputSchema, input, 'read_broadcasts');
+      const all = await ctx.events.readAll();
+      const broadcasts = all.filter((e, idx) => {
+        if (e.type !== 'broadcast') return false;
+        if (e.clone_id === parsed.clone_id) return false;
+        const payload = e.payload as Record<string, unknown> | null;
+        if (payload?.cast_id !== parsed.cast_id) return false;
+        if (parsed.since_index != null && idx < parsed.since_index) return false;
+        return true;
+      });
+      return { events: broadcasts };
     },
   };
 }

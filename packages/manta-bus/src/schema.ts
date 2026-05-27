@@ -202,6 +202,14 @@ export const CastIdSchema = z
   .max(96)
   .regex(/^[A-Za-z0-9_.-]+$/, 'cast_id must match /^[A-Za-z0-9_.-]+$/');
 
+export const ReadBroadcastsInputSchema = z
+  .object({
+    clone_id: CloneIdSchema,
+    cast_id: CastIdSchema,
+    since_index: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+
 export const CastPolicySchema = z
   .object({
     // Phase 2: 'allowed' (recon-swarm and friends) | 'denied' (forking-realities).
@@ -390,6 +398,7 @@ export type BroadcastEventType = z.infer<typeof BroadcastEventTypeSchema>;
 export type BroadcastInput = z.infer<typeof BroadcastInputSchema>;
 export type MessageInput = z.infer<typeof MessageInputSchema>;
 export type DriftReportInput = z.infer<typeof DriftReportInputSchema>;
+export type ReadBroadcastsInput = z.infer<typeof ReadBroadcastsInputSchema>;
 export type ZkWriteInput = z.infer<typeof ZkWriteInputSchema>;
 export type ParaAppendInput = z.infer<typeof ParaAppendInputSchema>;
 export type CastId = z.infer<typeof CastIdSchema>;
