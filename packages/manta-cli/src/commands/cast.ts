@@ -29,6 +29,7 @@ import { classifyCastOutcome } from '../budget/cast-outcome.js';
 const SUPPORTED_MODES: ReadonlySet<Mode> = new Set<Mode>([
   'recon-swarm',
   'forking-realities',
+  'bug-hunt',
 ]);
 const CLONE_NAMES: readonly string[] = ['A', 'B', 'C', 'D', 'E']; // Phase 0 ceiling = 5
 const DEFAULT_DEADLINE_MS = 1_200_000; // 20 min per spec Sec 6.2
@@ -125,6 +126,12 @@ export async function runCastCommand(
   ) {
     throw new CliError(
       `cloneCount must be an integer in 1..5; got ${opts.cloneCount}`,
+      { kind: 'invalid_input' },
+    );
+  }
+  if (opts.mode === 'bug-hunt' && opts.cloneCount > 2) {
+    throw new CliError(
+      'bug-hunt mode supports at most 2 clones (spec Sec 2)',
       { kind: 'invalid_input' },
     );
   }
@@ -424,7 +431,12 @@ export async function runCastCommand(
       });
     }
 
-    if (opts.mode === 'forking-realities' && !loopResult.aborted) {
+    if (opts.mode === 'bug-hunt' && !loopResult.aborted) {
+      opts.reporter.info('cast.bug-hunt-complete', {
+        cast: opts.castId,
+        hint: 'Use manta inspect <cloneId> to review investigation reports',
+      });
+    } else if (opts.mode === 'forking-realities' && !loopResult.aborted) {
       try {
         const config = await loadScoringConfig(rt.repoRoot);
         const { config: adjustedConfig, adjustments } = await adjustWeightsFromProject(rt.repoRoot, config);
