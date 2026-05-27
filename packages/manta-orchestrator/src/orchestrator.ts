@@ -25,6 +25,7 @@ export interface CycleResult {
   reapedClaims: WorkClaim[];
   postMortems: RunPostMortemResult[];
   events: BusEvent[];
+  idleClones: Array<{ clone_id: string; idle_since: number }>;
 }
 
 export class Orchestrator {
@@ -54,8 +55,12 @@ export class Orchestrator {
         ...claimResult.events,
         ...postMortems.map((p) => p.event),
       ];
+      const allClones = await this.opts.ctx.registry.list();
+      const idleClones = allClones
+        .filter((c) => c.state === 'IDLE' || c.state === 'WAITING_FOR_TASK')
+        .map((c) => ({ clone_id: c.clone_id, idle_since: c.idle_since ?? c.last_heartbeat_at }));
+
       if (this.opts.timeline) {
-        const allClones = await this.opts.ctx.registry.list();
         await this.opts.timeline.appendSnapshot({
           ts: ranAt,
           clones: allClones.map((c) => ({
@@ -75,6 +80,7 @@ export class Orchestrator {
         reapedClaims: claimResult.reaped,
         postMortems,
         events,
+        idleClones,
       };
     } catch (err) {
       throw new OrchestratorError('cycle failed', { kind: 'cycle_failed', cause: err });

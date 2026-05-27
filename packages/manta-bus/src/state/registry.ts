@@ -16,6 +16,10 @@ export interface CloneRecord {
   progress?: string;
   death_reason?: string;
   died_at?: number;
+  idle_since?: number;
+  tasks_completed?: number;
+  last_task_completed_at?: number;
+  session_mode?: 'batch' | 'daemon';
 }
 
 interface RegistryFile {
@@ -84,6 +88,19 @@ export class Registry {
           throw new BusConflictError(
             `cannot heartbeat a DEAD clone ${input.clone_id}; death is terminal`,
           );
+        }
+        if (input.state === 'IDLE') {
+          if (r.state === 'BLOCKED') {
+            throw new BusConflictError(
+              `cannot transition from BLOCKED to IDLE; unblock to WORKING first`,
+            );
+          }
+          r.idle_since = this.clock.now();
+          r.tasks_completed = (r.tasks_completed ?? 0) + 1;
+          r.last_task_completed_at = this.clock.now();
+        }
+        if (r.state === 'IDLE' && input.state === 'WORKING') {
+          delete r.idle_since;
         }
         r.last_heartbeat_at = this.clock.now();
         r.state = input.state;
@@ -162,11 +179,42 @@ export class Registry {
     return Object.values(file.clones);
   }
 
-  async staleSince(thresholdMs: number): Promise<CloneRecord[]> {
+  async retask(
+    cloneId: string,
+    taskSummary: string,
+    auditAppend?: () => Promise<void>,
+  ): Promise<CloneRecord> {
+    return atomicMutateJson<RegistryFile>(
+      this.paths.registry,
+      empty,
+      (current) => {
+        const r = current.clones[cloneId];
+        if (!r) throw new BusNotFoundError('clone', cloneId);
+        if (r.state !== 'IDLE' && r.state !== 'WAITING_FOR_TASK') {
+          throw new BusConflictError(
+            `cannot retask clone ${cloneId} in state ${r.state}; must be IDLE or WAITING_FOR_TASK`,
+          );
+        }
+        r.state = 'WORKING';
+        delete r.idle_since;
+        r.last_heartbeat_at = this.clock.now();
+        r.progress = `retasked: ${taskSummary.slice(0, 200)}`;
+        return current;
+      },
+      auditAppend,
+    ).then((next) => next.clones[cloneId]!);
+  }
+
+  async staleSince(thresholdMs: number, idleThresholdMs?: number): Promise<CloneRecord[]> {
     const now = this.clock.now();
     const file = await atomicReadJson<RegistryFile>(this.paths.registry, empty);
-    return Object.values(file.clones).filter(
-      (r) => r.state !== 'DEAD' && now - r.last_heartbeat_at > thresholdMs,
-    );
+    return Object.values(file.clones).filter((r) => {
+      if (r.state === 'DEAD') return false;
+      if (r.state === 'IDLE' || r.state === 'WAITING_FOR_TASK') {
+        const effectiveThreshold = idleThresholdMs ?? thresholdMs;
+        return now - r.last_heartbeat_at > effectiveThreshold;
+      }
+      return now - r.last_heartbeat_at > thresholdMs;
+    });
   }
 }

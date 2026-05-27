@@ -104,4 +104,89 @@ describe('death-detector', () => {
     });
     expect(result).toEqual([]);
   });
+
+  it('IDLE clone NOT killed within maxIdleTimeMs and idleHeartbeatTimeoutMs', async () => {
+    await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    ctx.clock.advance(1_000);
+    await ctx.registry.heartbeat({ clone_id: 'A', state: 'IDLE' });
+    ctx.clock.advance(defaultThresholds.maxIdleTimeMs - 1_000);
+    const result = await findDeadClones(ctx, {
+      thresholds: defaultThresholds,
+      probe: makeProbe({ alive: () => true }),
+    });
+    expect(result).toEqual([]);
+  });
+
+  it('IDLE clone killed when heartbeat exceeds idleHeartbeatTimeoutMs', async () => {
+    await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    ctx.clock.advance(1_000);
+    await ctx.registry.heartbeat({ clone_id: 'A', state: 'IDLE' });
+    ctx.clock.advance(defaultThresholds.idleHeartbeatTimeoutMs + 1_000);
+    const result = await findDeadClones(ctx, {
+      thresholds: defaultThresholds,
+      probe: makeProbe({ alive: () => true }),
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0]!.reason).toMatch(/idle heartbeat/);
+  });
+
+  it('IDLE clone killed when idle exceeds maxIdleTimeMs', async () => {
+    await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    ctx.clock.advance(1_000);
+    await ctx.registry.heartbeat({ clone_id: 'A', state: 'IDLE' });
+    ctx.clock.advance(10_000);
+    await ctx.registry.touch('A');
+    ctx.clock.advance(defaultThresholds.maxIdleTimeMs + 1_000);
+    const result = await findDeadClones(ctx, {
+      thresholds: defaultThresholds,
+      probe: makeProbe({ alive: () => true }),
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0]!.reason).toMatch(/maxIdleTimeMs/);
+  });
+
+  it('WAITING_FOR_TASK clone uses extended timeout', async () => {
+    await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    await ctx.registry.heartbeat({ clone_id: 'A', state: 'WAITING_FOR_TASK' });
+    ctx.clock.advance(defaultThresholds.heartbeatTimeoutMs + 1_000);
+    const result = await findDeadClones(ctx, {
+      thresholds: defaultThresholds,
+      probe: makeProbe({ alive: () => true }),
+    });
+    expect(result).toEqual([]);
+  });
+
+  it('daemon clone killed when session exceeds daemonMaxLifetimeMs', async () => {
+    await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    const r = await ctx.registry.get('A');
+    (r as Record<string, unknown>).session_mode = 'daemon';
+    const fs = await import('node:fs/promises');
+    const regPath = ctx.paths.registry;
+    const regFile = JSON.parse(await fs.readFile(regPath, 'utf8')) as { clones: Record<string, unknown> };
+    (regFile.clones['A'] as Record<string, unknown>).session_mode = 'daemon';
+    await fs.writeFile(regPath, JSON.stringify(regFile), 'utf8');
+    ctx.clock.advance(defaultThresholds.daemonMaxLifetimeMs + 1_000);
+    const result = await findDeadClones(ctx, {
+      thresholds: defaultThresholds,
+      probe: makeProbe({ alive: () => true }),
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0]!.reason).toMatch(/daemonMaxLifetimeMs/);
+  });
+
+  it('batch clone NOT affected by daemon lifetime threshold', async () => {
+    await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    ctx.clock.advance(1_000);
+    await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    const result = await findDeadClones(ctx, {
+      thresholds: defaultThresholds,
+      probe: makeProbe({ alive: () => true }),
+    });
+    expect(result).toEqual([]);
+  });
 });

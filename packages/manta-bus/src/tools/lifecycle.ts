@@ -3,6 +3,10 @@ import {
   RegisterInputSchema,
   ReportDeathInputSchema,
   SuicideIntentInputSchema,
+  RetaskInputSchema,
+  PauseInputSchema,
+  ResumeInputSchema,
+  RequestTaskInputSchema,
 } from '../schema';
 import type { BusContext } from './index';
 import { parse } from './parse';
@@ -19,6 +23,10 @@ export interface LifecycleHandlers {
   heartbeat(input: unknown): Promise<LifecycleResult>;
   suicideIntent(input: unknown): Promise<LifecycleResult>;
   reportDeath(input: unknown): Promise<LifecycleResult>;
+  retask(input: unknown): Promise<LifecycleResult>;
+  pause(input: unknown): Promise<LifecycleResult>;
+  resume(input: unknown): Promise<LifecycleResult>;
+  requestTask(input: unknown): Promise<LifecycleResult>;
 }
 
 export function createLifecycleHandlers(
@@ -77,8 +85,6 @@ export function createLifecycleHandlers(
 
     async reportDeath(input) {
       const parsed = parse(ReportDeathInputSchema, input, 'report_death');
-      // markDead is the *only* legitimate path to the DEAD state — the
-      // registry rejects DEAD via heartbeat (see registry.ts comments).
       let event!: BusEvent;
       const clone = await ctx.registry.markDead(
         parsed.clone_id,
@@ -88,6 +94,76 @@ export function createLifecycleHandlers(
             type: 'death',
             clone_id: parsed.clone_id,
             payload: { last_gasp_report_path: parsed.last_gasp_report_path },
+          });
+        },
+      );
+      return { clone, event };
+    },
+
+    async retask(input) {
+      const parsed = parse(RetaskInputSchema, input, 'retask');
+      let event!: BusEvent;
+      const clone = await ctx.registry.retask(
+        parsed.clone_id,
+        parsed.new_task.slice(0, 200),
+        async () => {
+          event = await ctx.events.append({
+            type: 'retask',
+            clone_id: parsed.clone_id,
+            payload: {
+              new_task: parsed.new_task,
+              new_scope: parsed.new_scope ?? null,
+              new_approach_hint: parsed.new_approach_hint ?? null,
+              new_deadline_ms: parsed.new_deadline_ms ?? null,
+            },
+          });
+        },
+      );
+      return { clone, event };
+    },
+
+    async pause(input) {
+      const parsed = parse(PauseInputSchema, input, 'pause');
+      let event!: BusEvent;
+      const clone = await ctx.registry.heartbeat(
+        { clone_id: parsed.clone_id, state: 'IDLE' },
+        async () => {
+          event = await ctx.events.append({
+            type: 'pause',
+            clone_id: parsed.clone_id,
+            payload: { reason: parsed.reason },
+          });
+        },
+      );
+      return { clone, event };
+    },
+
+    async resume(input) {
+      const parsed = parse(ResumeInputSchema, input, 'resume');
+      let event!: BusEvent;
+      const clone = await ctx.registry.heartbeat(
+        { clone_id: parsed.clone_id, state: 'WORKING' },
+        async () => {
+          event = await ctx.events.append({
+            type: 'resume',
+            clone_id: parsed.clone_id,
+            payload: {},
+          });
+        },
+      );
+      return { clone, event };
+    },
+
+    async requestTask(input) {
+      const parsed = parse(RequestTaskInputSchema, input, 'request_task');
+      let event!: BusEvent;
+      const clone = await ctx.registry.heartbeat(
+        { clone_id: parsed.clone_id, state: 'WAITING_FOR_TASK' },
+        async () => {
+          event = await ctx.events.append({
+            type: 'request_task',
+            clone_id: parsed.clone_id,
+            payload: {},
           });
         },
       );

@@ -116,4 +116,38 @@ describe('Orchestrator', () => {
     // Registry untouched — A is still alive
     expect((await ctx.registry.get('A')).state).not.toBe('DEAD');
   });
+
+  it('runCycle reports idle clones in CycleResult', async () => {
+    await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    ctx.clock.advance(1_000);
+    await ctx.registry.heartbeat({ clone_id: 'A', state: 'IDLE' });
+    const writer = inMemoryPostMortemWriter();
+    const o = new Orchestrator({ ctx, thresholds: defaultThresholds, probe: makeProbe({ alive: () => true }), writer });
+    const result = await o.runCycle();
+    expect(result.idleClones).toHaveLength(1);
+    expect(result.idleClones[0]!.clone_id).toBe('A');
+    expect(result.idleClones[0]!.idle_since).toBeDefined();
+  });
+
+  it('runCycle does NOT post-mortem IDLE clones within thresholds', async () => {
+    await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    ctx.clock.advance(1_000);
+    await ctx.registry.heartbeat({ clone_id: 'A', state: 'IDLE' });
+    ctx.clock.advance(10_000);
+    const writer = inMemoryPostMortemWriter();
+    const o = new Orchestrator({ ctx, thresholds: defaultThresholds, probe: makeProbe({ alive: () => true }), writer });
+    const result = await o.runCycle();
+    expect(result.deadClones).toEqual([]);
+    expect(writer.captured).toEqual([]);
+    expect((await ctx.registry.get('A')).state).toBe('IDLE');
+  });
+
+  it('runCycle empty state returns empty idleClones', async () => {
+    const writer = inMemoryPostMortemWriter();
+    const o = new Orchestrator({ ctx, thresholds: defaultThresholds, probe: makeProbe({ alive: () => true }), writer });
+    const result = await o.runCycle();
+    expect(result.idleClones).toEqual([]);
+  });
 });

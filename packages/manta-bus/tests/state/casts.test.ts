@@ -19,7 +19,7 @@ describe('CastPolicySchema', () => {
         peer_messaging: 'allowed',
         auto_merge_threshold: null,
       }),
-    ).toEqual({ peer_messaging: 'allowed', auto_merge_threshold: null });
+    ).toEqual({ peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' });
   });
 
   it('accepts a forking-realities-style policy with a finite threshold', () => {
