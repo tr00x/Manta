@@ -125,6 +125,7 @@ describe('createBusServer', () => {
         'manta.lock',
         'manta.message',
         'manta.para_append',
+        'manta.read_broadcasts',
         'manta.register',
         'manta.release_work',
         'manta.renew_lock',
