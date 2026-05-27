@@ -211,6 +211,28 @@ describe('buildPrimingText — daemon mode (Phase 5)', () => {
   });
 });
 
+describe('buildPrimingText — documentation-chase mode (Phase 6)', () => {
+  it('includes DOC_CHASE_BLOCK for documentation-chase mode', () => {
+    const snap = makeSnapshotFor({ cloneId: 'DOC', mode: 'documentation-chase' });
+    const text = buildPrimingText(snap);
+    expect(text).toContain('Documentation-Chase Protocol');
+    expect(text).toContain('NEVER modify source files');
+    expect(text).toContain('docs_ready');
+  });
+
+  it('does not include DOC_CHASE_BLOCK for recon-swarm', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', mode: 'recon-swarm' });
+    const text = buildPrimingText(snap);
+    expect(text).not.toContain('Documentation-Chase Protocol');
+  });
+
+  it('does not include DOC_CHASE_BLOCK for pair-programming', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', mode: 'pair-programming' });
+    const text = buildPrimingText(snap);
+    expect(text).not.toContain('Documentation-Chase Protocol');
+  });
+});
+
 describe('buildInitialPrompt', () => {
   const snap = makeSnapshotFor({ cloneId: 'clone-A', task: 'map auth/* and billing/*' });
 

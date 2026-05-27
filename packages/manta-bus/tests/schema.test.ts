@@ -13,6 +13,7 @@ import {
   ZkWriteInputSchema,
   ParaAppendInputSchema,
   CastPolicySchema,
+  CloneAssignmentSchema,
   RetaskInputSchema,
   PauseInputSchema,
   ResumeInputSchema,
@@ -164,6 +165,12 @@ describe('schema', () => {
     expect(BroadcastEventTypeSchema.safeParse('feedback_received').success).toBe(true);
   });
 
+  it('BroadcastEventTypeSchema accepts Wave-2 event types', () => {
+    for (const t of ['commit_ready', 'review_complete', 'writer_stuck', 'code_ready', 'tests_ready', 'fuzz_complete', 'docs_ready']) {
+      expect(BroadcastEventTypeSchema.safeParse(t).success).toBe(true);
+    }
+  });
+
   it('CastPolicySchema defaults session_mode to batch when omitted', () => {
     const result = CastPolicySchema.parse({
       peer_messaging: 'allowed',
@@ -269,5 +276,26 @@ describe('schema', () => {
         cast_id: 'cast-123', target_clone_id: 'A', prompt: '',
       }).success,
     ).toBe(false);
+  });
+
+  it('CloneAssignmentSchema accepts optional role field', () => {
+    const result = CloneAssignmentSchema.parse({
+      task: 'implement feature X',
+      approach_hint: 'writer',
+      role: 'writer',
+    });
+    expect(result.role).toBe('writer');
+  });
+
+  it('CloneAssignmentSchema accepts all Wave-2 roles', () => {
+    for (const role of ['writer', 'reviewer', 'coder', 'tester', 'fuzzer', 'documenter']) {
+      const result = CloneAssignmentSchema.safeParse({ task: 'x', role });
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it('CloneAssignmentSchema works without role', () => {
+    const result = CloneAssignmentSchema.parse({ task: 'implement feature X' });
+    expect(result.role).toBeUndefined();
   });
 });
