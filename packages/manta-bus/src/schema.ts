@@ -154,6 +154,12 @@ export const LockInputSchema = z
 export const BroadcastEventTypeSchema = z.enum([
   'breakthrough', 'blocker', 'dependency', 'self_certainty',
   'task_complete', 'idle', 'feedback_received',
+  // Wave-2: pair-programming
+  'commit_ready', 'review_complete', 'writer_stuck',
+  // Wave-2: test-storm
+  'code_ready', 'tests_ready', 'fuzz_complete',
+  // Wave-2: documentation-chase
+  'docs_ready',
 ]);
 
 export const BroadcastInputSchema = z
@@ -282,6 +288,12 @@ export const CastPolicySchema = z
   })
   .strict();
 
+export const CloneRoleSchema = z.enum([
+  'writer', 'reviewer',
+  'coder', 'tester', 'fuzzer',
+  'documenter',
+]);
+
 export const CloneAssignmentSchema = z
   .object({
     task: z.string().min(1).max(8_000).optional(),
@@ -289,6 +301,7 @@ export const CloneAssignmentSchema = z
     scope: ScopeSchema.optional(),
     budget_usd: z.number().positive().optional(),
     deadline_seconds: z.number().int().positive().optional(),
+    role: CloneRoleSchema.optional(),
   })
   .strict();
 
@@ -457,6 +470,7 @@ export type ZkWriteInput = z.infer<typeof ZkWriteInputSchema>;
 export type ParaAppendInput = z.infer<typeof ParaAppendInputSchema>;
 export type CastId = z.infer<typeof CastIdSchema>;
 export type CastPolicy = z.infer<typeof CastPolicySchema>;
+export type CloneRole = z.infer<typeof CloneRoleSchema>;
 export type CloneAssignment = z.infer<typeof CloneAssignmentSchema>;
 export type CastClonesEntry = z.infer<typeof CastClonesEntrySchema>;
 export type CastManifest = z.infer<typeof CastManifestSchema>;
