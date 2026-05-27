@@ -549,35 +549,13 @@ export async function runCastCommand(
   // retention.
 }
 
-// Types matching the merge-all interface Clone A creates in @manta/orchestrator.
-// Dynamic import resolves at runtime after merge; types declared here for
-// compile-time safety in this worktree.
-interface MergeAllResult {
-  verdict: 'all_merged' | 'partial_merge' | 'no_merges' | 'conflict_escalation';
-  merged: string[];
-  skipped: string[];
-  conflicted: string[];
-}
-
 async function runMergeAllPipeline(
   rt: Runtime,
   opts: RunCastOptions,
   cloneIds: string[],
 ): Promise<void> {
-  // Dynamic import — runMergeAll + MergeAllWriter are created by Clone A
-  // in @manta/orchestrator. In this worktree the symbols don't exist yet;
-  // they resolve after merge.
-  const orchestratorMod = await import('@manta/orchestrator') as Record<string, unknown>;
-  const runMergeAll = orchestratorMod['runMergeAll'] as (
-    opts: { repoRoot: string; castId: string; deadClones: ReadonlyArray<{ cloneId: string; worktreePath: string; exitTime: number }> },
-  ) => Promise<MergeAllResult>;
-  const MergeAllWriter = orchestratorMod['MergeAllWriter'] as new (repoRoot: string) => {
-    write(castId: string, result: MergeAllResult): Promise<void>;
-  };
-
-  if (typeof runMergeAll !== 'function') {
-    throw new Error('runMergeAll not available in @manta/orchestrator — merge Clone A first');
-  }
+  const { runMergeAll, fsMergeAllWriter, renderMergeAllMarkdown } = await import('@manta/orchestrator');
+  const { execa } = await import('execa');
 
   const allWorktrees = await listWorktrees({ repoRoot: rt.repoRoot });
   const allClones = await rt.ctx.registry.list();
@@ -598,12 +576,30 @@ async function runMergeAllPipeline(
     repoRoot: rt.repoRoot,
     castId: opts.castId,
     deadClones,
+    async runQualityGate(worktreePath: string) {
+      const errors: string[] = [];
+      const diffRes = await execa('git', ['diff', '--stat', 'HEAD'], { cwd: worktreePath, reject: false });
+      const hasDiff = diffRes.stdout.trim().length > 0;
+      const tscRes = await execa('npx', ['tsc', '--noEmit'], { cwd: worktreePath, reject: false });
+      const tscOk = tscRes.exitCode === 0;
+      if (!tscOk) errors.push(`tsc: ${tscRes.stderr.slice(0, 200)}`);
+      const testRes = await execa('npx', ['vitest', 'run', '--reporter=dot'], { cwd: worktreePath, reject: false, timeout: 120_000 });
+      const testsOk = testRes.exitCode === 0;
+      if (!testsOk) errors.push(`tests: exit ${testRes.exitCode}`);
+      return { passed: tscOk && testsOk, hasDiff, tscOk, testsOk, errors };
+    },
+    async gitMerge(repoRoot: string, branch: string) {
+      const res = await execa('git', ['merge', '--no-edit', branch], { cwd: repoRoot, reject: false });
+      return { hasConflicts: res.exitCode !== 0 };
+    },
+    async gitMergeAbort(repoRoot: string) {
+      await execa('git', ['merge', '--abort'], { cwd: repoRoot, reject: false });
+    },
   });
 
-  if (typeof MergeAllWriter === 'function') {
-    const writer = new MergeAllWriter(rt.repoRoot);
-    await writer.write(opts.castId, mergeResult);
-  }
+  const writer = fsMergeAllWriter({ repoRoot: rt.repoRoot, mergeAllDir: 'docs/merge-all-reports' });
+  const body = renderMergeAllMarkdown(mergeResult);
+  await writer.write({ filename: `cast-${opts.castId}.md`, body });
 
   opts.reporter.info('cast.merge-all', {
     cast: opts.castId,
@@ -635,9 +631,10 @@ export function validateDisjointPartitions(
       allPaths.set(p, cloneId);
     }
   }
+  const norm = (p: string) => p.endsWith('/') ? p : `${p}/`;
   for (const [p1, c1] of allPaths) {
     for (const [p2, c2] of allPaths) {
-      if (p1 !== p2 && c1 !== c2 && (p1.startsWith(p2) || p2.startsWith(p1))) {
+      if (p1 !== p2 && c1 !== c2 && (norm(p1).startsWith(norm(p2)) || norm(p2).startsWith(norm(p1)))) {
         throw new CliError(
           `Nested partition overlap: "${p1}" (${c1}) and "${p2}" (${c2})`,
           { kind: 'invalid_input' },
