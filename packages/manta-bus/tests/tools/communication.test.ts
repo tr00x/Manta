@@ -177,3 +177,80 @@ describe('readBroadcasts handler', () => {
     expect(result.events).toHaveLength(1);
   });
 });
+
+describe('feedback handler', () => {
+  let root: string;
+  let cleanup: () => Promise<void>;
+  let clock: FakeClock;
+  let handlers: ReturnType<typeof createCommunicationHandlers>;
+
+  beforeEach(async () => {
+    ({ root, cleanup } = await makeTmpRoot());
+    clock = new FakeClock(1_000_000);
+    const paths = busPaths(root);
+    const registry = new Registry(paths, clock);
+    await registry.register({
+      clone_id: 'A',
+      mode: 'recon-swarm',
+      parent_pid: 1,
+      worktree: '/w',
+      metadata: {},
+    });
+    handlers = createCommunicationHandlers({
+      events: new EventsLog(paths, clock),
+      registry,
+    });
+  });
+  afterEach(async () => {
+    await cleanup();
+  });
+
+  it('appends feedback event for existing clone', async () => {
+    const result = await handlers.feedback({
+      clone_id: 'A',
+      from: 'main',
+      feedback: 'fix the tests',
+      severity: 'correction',
+    });
+    expect(result.event.type).toBe('feedback');
+    expect(result.event.clone_id).toBe('A');
+    expect(result.event.payload).toMatchObject({
+      from: 'main',
+      feedback: 'fix the tests',
+      severity: 'correction',
+    });
+  });
+
+  it('rejects feedback for unknown clone', async () => {
+    await expect(
+      handlers.feedback({
+        clone_id: 'GHOST',
+        from: 'main',
+        feedback: 'hello',
+        severity: 'info',
+      }),
+    ).rejects.toBeInstanceOf(BusNotFoundError);
+  });
+
+  it('rejects invalid input (missing severity)', async () => {
+    await expect(
+      handlers.feedback({
+        clone_id: 'A',
+        from: 'main',
+        feedback: 'hello',
+      }),
+    ).rejects.toBeInstanceOf(BusValidationError);
+  });
+
+  it('accepts all severity levels', async () => {
+    for (const severity of ['info', 'correction', 'blocker'] as const) {
+      const result = await handlers.feedback({
+        clone_id: 'A',
+        from: 'main',
+        feedback: `test ${severity}`,
+        severity,
+      });
+      expect(result.event.payload).toMatchObject({ severity });
+    }
+  });
+});
