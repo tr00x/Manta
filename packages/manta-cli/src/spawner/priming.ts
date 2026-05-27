@@ -32,6 +32,17 @@ INVESTIGATION WORKFLOW:
 REPORT SECTIONS: Symptom | Findings | Root Cause Hypothesis | Proposed Fix | Cross-Layer Dependencies
 `;
 
+const MODULE_BOUNDARY_BLOCK = `
+## Module Assignment (refactor-wave)
+You own a specific slice of the codebase defined in your task contract scope.
+
+RULES:
+1. Only modify files within your allowedPaths — other modules belong to sibling clones
+2. If you need a type or interface from another module, import the CURRENT version (do not modify it)
+3. If the migration pattern doesn't apply to any file in your module, commit an empty report and exit
+4. Run tests for your module before completing: ensure your changes compile and pass
+`;
+
 export function buildPrimingText(snapshot: Snapshot): string {
   const hint = snapshot.taskContract.approachHint;
   // The block is one paragraph + a leading blank line so it reads as its own
@@ -44,7 +55,9 @@ export function buildPrimingText(snapshot: Snapshot): string {
   const modeSpecificBlock =
     snapshot.taskContract.mode === 'bug-hunt'
       ? `\n${BUG_HUNT_BLOCK}`
-      : '';
+      : snapshot.taskContract.mode === 'refactor-wave'
+        ? `\n${MODULE_BOUNDARY_BLOCK}`
+        : '';
   const selfCertaintyBlock =
     snapshot.taskContract.mode === 'forking-realities'
       ? `\nBefore your final commit, broadcast your confidence in the solution:\nmanta.broadcast({ clone_id: "{CLONE_ID}", event_type: "self_certainty", payload: { score: <1-10>, rationale: "<one sentence>" } })\nThis is used as a tertiary tie-breaker when composite scores are within noise tolerance.\n`

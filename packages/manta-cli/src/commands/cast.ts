@@ -30,6 +30,7 @@ const SUPPORTED_MODES: ReadonlySet<Mode> = new Set<Mode>([
   'recon-swarm',
   'forking-realities',
   'bug-hunt',
+  'refactor-wave',
 ]);
 const CLONE_NAMES: readonly string[] = ['A', 'B', 'C', 'D', 'E']; // Phase 0 ceiling = 5
 const DEFAULT_DEADLINE_MS = 1_200_000; // 20 min per spec Sec 6.2
@@ -132,6 +133,12 @@ export async function runCastCommand(
   if (opts.mode === 'bug-hunt' && opts.cloneCount > 2) {
     throw new CliError(
       'bug-hunt mode supports at most 2 clones (spec Sec 2)',
+      { kind: 'invalid_input' },
+    );
+  }
+  if (opts.mode === 'refactor-wave' && !opts.cloneAssignments) {
+    throw new CliError(
+      'refactor-wave requires --tasks with per-clone module assignments',
       { kind: 'invalid_input' },
     );
   }
@@ -247,13 +254,17 @@ export async function runCastCommand(
     await verifyMantaBusRegistered();
   }
 
+  if (opts.mode === 'refactor-wave' && assignments) {
+    validateDisjointPartitions(assignments);
+  }
+
   const handles: CloneHandle[] = [];
   const worktrees: WorktreeRecord[] = [];
 
   // Mode-aware policy. Recorded on the manifest now; Phase 2b enforces
   // peer_messaging at the bus surface.
   const castPolicy: CastPolicy =
-    opts.mode === 'forking-realities'
+    (opts.mode === 'forking-realities' || opts.mode === 'refactor-wave')
       ? { peer_messaging: 'denied', auto_merge_threshold: null }
       : { peer_messaging: 'allowed', auto_merge_threshold: null };
 
@@ -436,6 +447,15 @@ export async function runCastCommand(
         cast: opts.castId,
         hint: 'Use manta inspect <cloneId> to review investigation reports',
       });
+    } else if (opts.mode === 'refactor-wave' && !loopResult.aborted) {
+      try {
+        await runMergeAllPipeline(rt, opts, cloneIds);
+      } catch (err) {
+        opts.reporter.info('cast.merge-all-failed', {
+          cast: opts.castId,
+          error: (err as Error)?.message ?? String(err),
+        });
+      }
     } else if (opts.mode === 'forking-realities' && !loopResult.aborted) {
       try {
         const config = await loadScoringConfig(rt.repoRoot);
@@ -527,6 +547,104 @@ export async function runCastCommand(
   // `clone-${id}` worktrees on disk so the operator can `cd` in and inspect
   // post-mortem state. `manta abort` and Phase 7 `manta exhume` will manage
   // retention.
+}
+
+// Types matching the merge-all interface Clone A creates in @manta/orchestrator.
+// Dynamic import resolves at runtime after merge; types declared here for
+// compile-time safety in this worktree.
+interface MergeAllResult {
+  verdict: 'all_merged' | 'partial_merge' | 'no_merges' | 'conflict_escalation';
+  merged: string[];
+  skipped: string[];
+  conflicted: string[];
+}
+
+async function runMergeAllPipeline(
+  rt: Runtime,
+  opts: RunCastOptions,
+  cloneIds: string[],
+): Promise<void> {
+  // Dynamic import — runMergeAll + MergeAllWriter are created by Clone A
+  // in @manta/orchestrator. In this worktree the symbols don't exist yet;
+  // they resolve after merge.
+  const orchestratorMod = await import('@manta/orchestrator') as Record<string, unknown>;
+  const runMergeAll = orchestratorMod['runMergeAll'] as (
+    opts: { repoRoot: string; castId: string; deadClones: ReadonlyArray<{ cloneId: string; worktreePath: string; exitTime: number }> },
+  ) => Promise<MergeAllResult>;
+  const MergeAllWriter = orchestratorMod['MergeAllWriter'] as new (repoRoot: string) => {
+    write(castId: string, result: MergeAllResult): Promise<void>;
+  };
+
+  if (typeof runMergeAll !== 'function') {
+    throw new Error('runMergeAll not available in @manta/orchestrator — merge Clone A first');
+  }
+
+  const allWorktrees = await listWorktrees({ repoRoot: rt.repoRoot });
+  const allClones = await rt.ctx.registry.list();
+  const castClones = allClones
+    .filter((c) => cloneIds.includes(c.clone_id) && c.state === 'DEAD')
+    .sort((a, b) => (a.died_at ?? 0) - (b.died_at ?? 0));
+  const deadClones = castClones.map((c) => {
+    const expectedBranch = `manta/${opts.castId}/${c.clone_id}`;
+    const wt = allWorktrees.find((w) => w.branch === expectedBranch);
+    return {
+      cloneId: c.clone_id,
+      worktreePath: wt?.path ?? `${rt.repoRoot}/.manta/worktrees/clone-${c.clone_id}`,
+      exitTime: c.died_at ?? Date.now(),
+    };
+  });
+
+  const mergeResult = await runMergeAll({
+    repoRoot: rt.repoRoot,
+    castId: opts.castId,
+    deadClones,
+  });
+
+  if (typeof MergeAllWriter === 'function') {
+    const writer = new MergeAllWriter(rt.repoRoot);
+    await writer.write(opts.castId, mergeResult);
+  }
+
+  opts.reporter.info('cast.merge-all', {
+    cast: opts.castId,
+    verdict: mergeResult.verdict,
+    merged: mergeResult.merged.join(', '),
+  });
+}
+
+/**
+ * Validate that per-clone allowedPaths partitions are disjoint — no exact
+ * duplicates and no prefix containment (e.g. `src/auth/` vs `src/auth/login/`).
+ * Throws CliError('invalid_input') on overlap.
+ *
+ * @internal — exported for unit tests in tests/commands/cast.test.ts.
+ */
+export function validateDisjointPartitions(
+  assignments: Record<string, CloneAssignment>,
+): void {
+  const allPaths = new Map<string, string>();
+  for (const [cloneId, assignment] of Object.entries(assignments)) {
+    for (const p of assignment.scope?.allowed_paths ?? []) {
+      const existing = allPaths.get(p);
+      if (existing) {
+        throw new CliError(
+          `Overlapping partition: path "${p}" assigned to both ${existing} and ${cloneId}`,
+          { kind: 'invalid_input' },
+        );
+      }
+      allPaths.set(p, cloneId);
+    }
+  }
+  for (const [p1, c1] of allPaths) {
+    for (const [p2, c2] of allPaths) {
+      if (p1 !== p2 && c1 !== c2 && (p1.startsWith(p2) || p2.startsWith(p1))) {
+        throw new CliError(
+          `Nested partition overlap: "${p1}" (${c1}) and "${p2}" (${c2})`,
+          { kind: 'invalid_input' },
+        );
+      }
+    }
+  }
 }
 
 /**

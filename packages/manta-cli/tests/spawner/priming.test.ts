@@ -143,6 +143,34 @@ describe('buildPrimingText — bug-hunt mode (Phase 4)', () => {
   });
 });
 
+describe('buildPrimingText — refactor-wave mode (Phase 4)', () => {
+  it('includes MODULE_BOUNDARY_BLOCK for refactor-wave', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', mode: 'refactor-wave' });
+    const text = buildPrimingText(snap);
+    expect(text).toContain('Module Assignment (refactor-wave)');
+    expect(text).toContain('Only modify files within your allowedPaths');
+    expect(text).toContain('import the CURRENT version');
+  });
+
+  it('does not include SELF_CERTAINTY_BLOCK for refactor-wave', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', mode: 'refactor-wave' });
+    const text = buildPrimingText(snap);
+    expect(text).not.toContain('self_certainty');
+  });
+
+  it('does not include BUG_HUNT_BLOCK for refactor-wave', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', mode: 'refactor-wave' });
+    const text = buildPrimingText(snap);
+    expect(text).not.toContain('Investigation Protocol');
+  });
+
+  it('does not include MODULE_BOUNDARY_BLOCK for forking-realities', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', mode: 'forking-realities' });
+    const text = buildPrimingText(snap);
+    expect(text).not.toContain('Module Assignment (refactor-wave)');
+  });
+});
+
 describe('buildInitialPrompt', () => {
   const snap = makeSnapshotFor({ cloneId: 'clone-A', task: 'map auth/* and billing/*' });
 

@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Snapshot } from '@manta/snapshot';
 import { TaskContractSchema as BusTaskContractSchema } from '@manta/bus';
-import { runCastCommand, toBusContract } from '../../src/commands/cast.js';
+import { runCastCommand, toBusContract, validateDisjointPartitions } from '../../src/commands/cast.js';
 import {
   runFakeCloneScript,
   type CloneRunner,
@@ -765,5 +765,212 @@ describe('cast command — bug-hunt mode', () => {
     expect(events).toContain('cast.bug-hunt-complete');
     const bhEvent = sink.lines.find((l) => l.event === 'cast.bug-hunt-complete');
     expect(bhEvent?.payload).toHaveProperty('cast', 'cast-bh-report-1');
+  });
+});
+
+describe('cast command — refactor-wave mode', () => {
+  let fx: RepoFixture | undefined;
+  afterEach(async () => {
+    await fx?.cleanup();
+    fx = undefined;
+  });
+
+  it('accepts refactor-wave as valid mode', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: {
+        heartbeatTimeoutMs: 100,
+        startupGraceMs: 100,
+        parentPidCheckEnabled: false,
+      },
+    });
+    const result = await runCastCommand(rt, {
+      mode: 'refactor-wave' as unknown as 'recon-swarm',
+      task: 'migrate all error classes to Result<T>',
+      cloneCount: 2,
+      cycleIntervalMs: 50,
+      tickBudgetMs: 15_000,
+      castId: 'cast-rw-valid-1',
+      budgetUsdPerClone: 5,
+      budgetUsdPerCast: 15,
+      cloneAssignments: {
+        A: {
+          task: 'migrate packages/auth',
+          scope: { allowed_paths: ['packages/auth'], forbidden_paths: ['.manta/state', 'secrets/'], max_files_changed: 10 },
+        },
+        B: {
+          task: 'migrate packages/billing',
+          scope: { allowed_paths: ['packages/billing'], forbidden_paths: ['.manta/state', 'secrets/'], max_files_changed: 10 },
+        },
+      },
+      runner: runFakeCloneScript({ scriptPath: fixturePath }),
+      reporter: createReporter({ sink: new MemorySink() }),
+      verifyMcp: false,
+    });
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('requires cloneAssignments (rejects without --tasks)', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({ repoRoot: fx.root });
+    await expect(
+      runCastCommand(rt, {
+        mode: 'refactor-wave' as unknown as 'recon-swarm',
+        task: 'migrate errors',
+        cloneCount: 2,
+        cycleIntervalMs: 50,
+        tickBudgetMs: 5_000,
+        castId: 'cast-rw-no-tasks',
+        budgetUsdPerClone: 5,
+        budgetUsdPerCast: 15,
+        runner: runFakeCloneScript({ scriptPath: fixturePath }),
+        reporter: createReporter({ sink: new MemorySink() }),
+        verifyMcp: false,
+      }),
+    ).rejects.toMatchObject({
+      name: 'CliError',
+      kind: 'invalid_input',
+      message: expect.stringContaining('--tasks') as unknown as string,
+    });
+  });
+
+  it('rejects overlapping partitions', () => {
+    expect(() =>
+      validateDisjointPartitions({
+        A: {
+          task: 'a',
+          scope: { allowed_paths: ['src/auth'], forbidden_paths: [], max_files_changed: 5 },
+        },
+        B: {
+          task: 'b',
+          scope: { allowed_paths: ['src/auth'], forbidden_paths: [], max_files_changed: 5 },
+        },
+      }),
+    ).toThrow(/Overlapping partition.*src\/auth/);
+  });
+
+  it('rejects prefix-nested partitions', () => {
+    expect(() =>
+      validateDisjointPartitions({
+        A: {
+          task: 'a',
+          scope: { allowed_paths: ['src/auth/'], forbidden_paths: [], max_files_changed: 5 },
+        },
+        B: {
+          task: 'b',
+          scope: { allowed_paths: ['src/auth/login/'], forbidden_paths: [], max_files_changed: 5 },
+        },
+      }),
+    ).toThrow(/Nested partition overlap/);
+  });
+
+  it('sets peer_messaging = denied', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: {
+        heartbeatTimeoutMs: 100,
+        startupGraceMs: 100,
+        parentPidCheckEnabled: false,
+      },
+    });
+    await runCastCommand(rt, {
+      mode: 'refactor-wave' as unknown as 'recon-swarm',
+      task: 'migrate errors',
+      cloneCount: 2,
+      cycleIntervalMs: 50,
+      tickBudgetMs: 15_000,
+      castId: 'cast-rw-policy-1',
+      budgetUsdPerClone: 5,
+      budgetUsdPerCast: 15,
+      cloneAssignments: {
+        A: {
+          task: 'migrate packages/auth',
+          scope: { allowed_paths: ['packages/auth'], forbidden_paths: ['.manta/state'], max_files_changed: 10 },
+        },
+        B: {
+          task: 'migrate packages/billing',
+          scope: { allowed_paths: ['packages/billing'], forbidden_paths: ['.manta/state'], max_files_changed: 10 },
+        },
+      },
+      runner: runFakeCloneScript({ scriptPath: fixturePath }),
+      reporter: createReporter({ sink: new MemorySink() }),
+      verifyMcp: false,
+    });
+    const manifestPath = path.join(fx.root, '.manta', 'state', 'casts', 'cast-rw-policy-1.json');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8')) as {
+      mode: string;
+      policy: { peer_messaging: string };
+    };
+    expect(manifest.policy.peer_messaging).toBe('denied');
+  });
+
+  it('triggers merge-all after cast (not merge-review)', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: {
+        heartbeatTimeoutMs: 100,
+        startupGraceMs: 100,
+        parentPidCheckEnabled: false,
+      },
+    });
+    const sink = new MemorySink();
+    await runCastCommand(rt, {
+      mode: 'refactor-wave' as unknown as 'recon-swarm',
+      task: 'migrate errors',
+      cloneCount: 2,
+      cycleIntervalMs: 50,
+      tickBudgetMs: 15_000,
+      castId: 'cast-rw-merge-1',
+      budgetUsdPerClone: 5,
+      budgetUsdPerCast: 15,
+      cloneAssignments: {
+        A: {
+          task: 'migrate packages/auth',
+          scope: { allowed_paths: ['packages/auth'], forbidden_paths: ['.manta/state'], max_files_changed: 10 },
+        },
+        B: {
+          task: 'migrate packages/billing',
+          scope: { allowed_paths: ['packages/billing'], forbidden_paths: ['.manta/state'], max_files_changed: 10 },
+        },
+      },
+      runner: runFakeCloneScript({ scriptPath: fixturePath }),
+      reporter: createReporter({ sink }),
+      verifyMcp: false,
+    });
+    const events = sink.lines.map((l) => l.event);
+    expect(events).not.toContain('cast.merge_review');
+    // merge-all triggers but may fail (Clone A's runMergeAll not in this worktree);
+    // either cast.merge-all or cast.merge-all-failed is acceptable before merge
+    const hasMergeAll = events.includes('cast.merge-all') || events.includes('cast.merge-all-failed');
+    expect(hasMergeAll).toBe(true);
+  });
+});
+
+describe('validateDisjointPartitions', () => {
+  it('accepts non-overlapping partitions', () => {
+    expect(() =>
+      validateDisjointPartitions({
+        A: {
+          task: 'a',
+          scope: { allowed_paths: ['src/auth'], forbidden_paths: [], max_files_changed: 5 },
+        },
+        B: {
+          task: 'b',
+          scope: { allowed_paths: ['src/billing'], forbidden_paths: [], max_files_changed: 5 },
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  it('skips validation when assignment has no scope', () => {
+    expect(() =>
+      validateDisjointPartitions({
+        A: { task: 'a' },
+        B: { task: 'b' },
+      }),
+    ).not.toThrow();
   });
 });
