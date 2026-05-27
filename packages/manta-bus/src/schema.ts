@@ -22,7 +22,10 @@ export const ModeSchema = z.enum([
   'decoy',
 ]);
 
-export const CloneStateSchema = z.enum(['STARTING', 'WORKING', 'BLOCKED', 'WINDING_DOWN', 'DEAD']);
+export const CloneStateSchema = z.enum([
+  'STARTING', 'WORKING', 'BLOCKED', 'IDLE', 'WAITING_FOR_TASK',
+  'WINDING_DOWN', 'DEAD',
+]);
 
 // Matches CastIdSchema pattern — duplicated here because metadata is
 // Record<string, string>, not typed against CastIdSchema directly.
@@ -148,7 +151,10 @@ export const LockInputSchema = z
   })
   .strict();
 
-export const BroadcastEventTypeSchema = z.enum(['breakthrough', 'blocker', 'dependency', 'self_certainty']);
+export const BroadcastEventTypeSchema = z.enum([
+  'breakthrough', 'blocker', 'dependency', 'self_certainty',
+  'task_complete', 'idle', 'feedback_received',
+]);
 
 export const BroadcastInputSchema = z
   .object({
@@ -215,21 +221,64 @@ export const ReadBroadcastsInputSchema = z
   })
   .strict();
 
+// Phase 5 — Daemon-mode input schemas
+
+export const RetaskInputSchema = z
+  .object({
+    clone_id: CloneIdSchema,
+    new_task: z.string().min(1).max(8_000),
+    new_scope: ScopeSchema.optional(),
+    new_approach_hint: z.string().max(8_000).optional(),
+    new_deadline_ms: z.number().int().positive().optional(),
+  })
+  .strict();
+
+export const PauseInputSchema = z
+  .object({
+    clone_id: CloneIdSchema,
+    reason: z.string().min(1).max(2_000),
+  })
+  .strict();
+
+export const ResumeInputSchema = z
+  .object({
+    clone_id: CloneIdSchema,
+  })
+  .strict();
+
+export const FeedbackInputSchema = z
+  .object({
+    clone_id: CloneIdSchema,
+    from: z.string().min(1).max(64),
+    feedback: z.string().min(1).max(8_000),
+    severity: z.enum(['info', 'correction', 'blocker']),
+  })
+  .strict();
+
+export const RequestTaskInputSchema = z
+  .object({
+    clone_id: CloneIdSchema,
+  })
+  .strict();
+
+export const EnqueueWorkInputSchema = z
+  .object({
+    cast_id: CastIdSchema,
+    target_clone_id: CloneIdSchema,
+    prompt: z.string().min(1).max(16_000),
+    priority: z.enum(['normal', 'high']).default('normal'),
+  })
+  .strict();
+
 export const CastPolicySchema = z
   .object({
-    // Phase 2: 'allowed' (recon-swarm and friends) | 'denied' (forking-realities).
-    // String-enum (rather than boolean) is the forward-compatible cut from
-    // research §4.4 — a future `peer_messaging: 'role-based'` or 'main-only'
-    // slots in additively.
     peer_messaging: z.enum(['allowed', 'denied']),
-    // Phase 2: stays null (manual-merge default per research best-of-n §4 hybrid
-    // mode); Phase 3+ can set a value in [0, 1]. Null encodes "manual review
-    // required" without overloading the number space.
     auto_merge_threshold: z
       .number()
       .min(0)
       .max(1)
       .nullable(),
+    session_mode: z.enum(['batch', 'daemon']).default('batch'),
   })
   .strict();
 
@@ -418,3 +467,9 @@ export type ChargeEventType = z.infer<typeof ChargeEventTypeSchema>;
 export type DailySpendEntry = z.infer<typeof DailySpendEntrySchema>;
 export type DailySpendState = z.infer<typeof DailySpendStateSchema>;
 export type BudgetConfig = z.infer<typeof BudgetConfigSchema>;
+export type RetaskInput = z.infer<typeof RetaskInputSchema>;
+export type PauseInput = z.infer<typeof PauseInputSchema>;
+export type ResumeInput = z.infer<typeof ResumeInputSchema>;
+export type FeedbackInput = z.infer<typeof FeedbackInputSchema>;
+export type RequestTaskInput = z.infer<typeof RequestTaskInputSchema>;
+export type EnqueueWorkInput = z.infer<typeof EnqueueWorkInputSchema>;

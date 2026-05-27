@@ -210,6 +210,108 @@ describe('Registry', () => {
     const stale = await registry.staleSince(1_000);
     expect(stale).toEqual([]);
   });
+  it('heartbeat to IDLE sets idle_since and increments tasks_completed', async () => {
+    await registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    await registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    clock.advance(5_000);
+    await registry.heartbeat({ clone_id: 'A', state: 'IDLE' });
+    const r = await registry.get('A');
+    expect(r.state).toBe('IDLE');
+    expect(r.idle_since).toBe(1_005_000);
+    expect(r.tasks_completed).toBe(1);
+    expect(r.last_task_completed_at).toBe(1_005_000);
+  });
+
+  it('heartbeat to IDLE increments tasks_completed cumulatively', async () => {
+    await registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    await registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    clock.advance(1_000);
+    await registry.heartbeat({ clone_id: 'A', state: 'IDLE' });
+    clock.advance(1_000);
+    await registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    clock.advance(1_000);
+    await registry.heartbeat({ clone_id: 'A', state: 'IDLE' });
+    const r = await registry.get('A');
+    expect(r.tasks_completed).toBe(2);
+  });
+
+  it('heartbeat from IDLE to WORKING clears idle_since', async () => {
+    await registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    await registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    clock.advance(1_000);
+    await registry.heartbeat({ clone_id: 'A', state: 'IDLE' });
+    expect((await registry.get('A')).idle_since).toBeDefined();
+    clock.advance(1_000);
+    await registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    const r = await registry.get('A');
+    expect(r.idle_since).toBeUndefined();
+    expect(r.state).toBe('WORKING');
+  });
+
+  it('heartbeat from BLOCKED to IDLE is rejected', async () => {
+    await registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    await registry.heartbeat({ clone_id: 'A', state: 'BLOCKED' });
+    await expect(
+      registry.heartbeat({ clone_id: 'A', state: 'IDLE' }),
+    ).rejects.toBeInstanceOf(BusConflictError);
+  });
+
+  it('retask transitions IDLE to WORKING', async () => {
+    await registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    await registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    clock.advance(1_000);
+    await registry.heartbeat({ clone_id: 'A', state: 'IDLE' });
+    clock.advance(1_000);
+    const r = await registry.retask('A', 'new task: fix the bug');
+    expect(r.state).toBe('WORKING');
+    expect(r.idle_since).toBeUndefined();
+    expect(r.progress).toMatch(/retasked/);
+  });
+
+  it('retask transitions WAITING_FOR_TASK to WORKING', async () => {
+    await registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    await registry.heartbeat({ clone_id: 'A', state: 'WAITING_FOR_TASK' });
+    const r = await registry.retask('A', 'assigned task');
+    expect(r.state).toBe('WORKING');
+  });
+
+  it('retask rejects WORKING clone', async () => {
+    await registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    await registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    await expect(registry.retask('A', 'nope')).rejects.toBeInstanceOf(BusConflictError);
+  });
+
+  it('retask rejects DEAD clone', async () => {
+    await registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    await registry.markDead('A', 'rip');
+    await expect(registry.retask('A', 'nope')).rejects.toBeInstanceOf(BusConflictError);
+  });
+
+  it('retask rejects unknown clone', async () => {
+    await expect(registry.retask('GHOST', 'nope')).rejects.toBeInstanceOf(BusNotFoundError);
+  });
+
+  it('staleSince excludes IDLE clones under idleThreshold', async () => {
+    await registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    await registry.heartbeat({ clone_id: 'A', state: 'IDLE' });
+    clock.advance(5_000);
+    const stale = await registry.staleSince(4_000, 60_000);
+    expect(stale).toEqual([]);
+  });
+
+  it('staleSince includes IDLE clones over idleThreshold', async () => {
+    await registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    await registry.heartbeat({ clone_id: 'A', state: 'IDLE' });
+    clock.advance(61_000);
+    const stale = await registry.staleSince(4_000, 60_000);
+    expect(stale.map((r) => r.clone_id)).toEqual(['A']);
+  });
+
+  it('CloneRecord.session_mode is persisted through heartbeat', async () => {
+    await registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    const before = await registry.get('A');
+    expect(before.session_mode).toBeUndefined();
+  });
 });
 
 describe('Registry — cross-process safety', () => {

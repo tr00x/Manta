@@ -10,6 +10,9 @@ export const ThresholdsSchema = z
     postMortemDir: z.string().min(1),
     mergeReviewDir: z.string().min(1),
     timelinesDir: z.string().min(1),
+    idleHeartbeatTimeoutMs: z.number().int().positive().default(600_000),
+    maxIdleTimeMs: z.number().int().positive().default(300_000),
+    daemonMaxLifetimeMs: z.number().int().positive().default(3_600_000),
   })
   .strict();
 
@@ -39,6 +42,9 @@ export const defaultThresholds: Thresholds = {
   postMortemDir: 'docs/post-mortems',
   mergeReviewDir: 'docs/merge-reviews',
   timelinesDir: '.manta/state/timelines',
+  idleHeartbeatTimeoutMs: 600_000,
+  maxIdleTimeMs: 300_000,
+  daemonMaxLifetimeMs: 3_600_000,
 };
 
 export function mergeThresholds(override: Partial<Thresholds>): Thresholds {

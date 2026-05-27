@@ -21,4 +21,34 @@ describe('thresholds', () => {
     expect(() => ThresholdsSchema.parse({ ...defaultThresholds, heartbeatTimeoutMs: -1 })).toThrow();
     expect(() => ThresholdsSchema.parse({ ...defaultThresholds, staleLockMs: 0 })).toThrow();
   });
+
+  it('new daemon threshold fields have correct defaults', () => {
+    expect(defaultThresholds.idleHeartbeatTimeoutMs).toBe(600_000);
+    expect(defaultThresholds.maxIdleTimeMs).toBe(300_000);
+    expect(defaultThresholds.daemonMaxLifetimeMs).toBe(3_600_000);
+  });
+
+  it('new daemon threshold fields parse correctly with schema defaults', () => {
+    const partial = {
+      heartbeatTimeoutMs: 90_000,
+      startupGraceMs: 90_000,
+      staleLockMs: 15_000,
+      parentPidCheckEnabled: true,
+      cycleIntervalMs: 5_000,
+      postMortemDir: 'docs/post-mortems',
+      mergeReviewDir: 'docs/merge-reviews',
+      timelinesDir: '.manta/state/timelines',
+    };
+    const parsed = ThresholdsSchema.parse(partial);
+    expect(parsed.idleHeartbeatTimeoutMs).toBe(600_000);
+    expect(parsed.maxIdleTimeMs).toBe(300_000);
+    expect(parsed.daemonMaxLifetimeMs).toBe(3_600_000);
+  });
+
+  it('mergeThresholds carries daemon defaults when not overridden', () => {
+    const merged = mergeThresholds({ heartbeatTimeoutMs: 60_000 });
+    expect(merged.idleHeartbeatTimeoutMs).toBe(600_000);
+    expect(merged.maxIdleTimeMs).toBe(300_000);
+    expect(merged.daemonMaxLifetimeMs).toBe(3_600_000);
+  });
 });
