@@ -9,6 +9,7 @@
 .manta/snapshots/
 .manta/worktrees/
 .manta/active.json
+.manta/config/
 
 # Graphify runtime artifacts (regenerable, not source)
 graphify-out/
