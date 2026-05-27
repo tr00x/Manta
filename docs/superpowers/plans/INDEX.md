@@ -49,7 +49,7 @@
 
 | План | Статус | Содержит |
 |---|---|---|
-| `2026-05-27-phase-4-wave1-closeout.md` | **In progress** — Chunk 1 cast launched. Research-backed: 3-clone recon-swarm (cast-1779890518943, 73k chars research). Plan reviewer-approved (2 must-fix + 6 should-fix applied). | 2 chunks, 22 tasks. Chunk 1: bug-hunt mode (SUPPORTED_MODES + cast.ts dispatch + read_broadcasts MCP tool + priming + tests + e2e + docs). Chunk 2: refactor-wave mode (merge-all.ts orchestrator + partition validator + priming + cast.ts wiring + tests + e2e + docs). |
+| `2026-05-27-phase-4-wave1-closeout.md` | **Executed** — Chunk 1 (cast-1779891646065, 2 clones, merged + 3 review fixes `093e4dd`) + Chunk 2 (cast-1779892719760, 2 clones, merged + 4 review fixes `2520528`). 746 tests workspace-wide green; lint+typecheck+build clean. | 2 chunks, 22 tasks. Chunk 1: bug-hunt mode (SUPPORTED_MODES + cast.ts dispatch + read_broadcasts MCP tool + priming + tests + e2e + docs). Chunk 2: refactor-wave mode (merge-all.ts orchestrator + partition validator + priming + cast.ts wiring + tests + e2e + docs). Research-backed: 3-clone recon-swarm (cast-1779890518943). |
 
 ## Phase 5+ — TBD
 
