@@ -1,0 +1,80 @@
+A:
+  task: >-
+    Map the existing mode infrastructure in Manta and design the bug-hunt mode.
+    Part 1 — Infrastructure map: (1) How cast.ts dispatches per-mode behavior
+    (SUPPORTED_MODES, worktree isolation, scope defaults, merge-review triggering);
+    (2) How clone-spawner.ts / priming.ts generate mode-specific priming text and
+    initial prompts; (3) How orchestrator (merge-review, post-mortem, scoring)
+    handles mode-specific logic; (4) How forking-isolation.ts in bus enforces
+    cross-clone boundaries; (5) What e2e tests exist per mode and how they're structured.
+    Part 2 — bug-hunt mode design: Per spec Sec 2 line 59, bug-hunt uses 1-2 clones
+    that investigate a problem by layers (frontend/network/backend/db/infra).
+    Main assembles root cause. Design: (a) worktree model (shared vs isolated —
+    bug-hunt is read-heavy investigation, clones may propose fixes);
+    (b) task contract structure (layer assignment, bug description, reproduction steps);
+    (c) deliverable format (per-clone investigation report + proposed fix);
+    (d) merge strategy (no merge-review needed if read-only, or cherry-pick fixes);
+    (e) mode-specific priming text; (f) bus coordination (sharing findings between clones).
+    Deliverable: docs/research/phase-4-mode-infra-and-bug-hunt.md with file:line references.
+  approach_hint: >-
+    Start by reading cast.ts fully (mode dispatch, forking vs recon-swarm branches).
+    Then priming.ts for mode-specific prompt generation. Then forking-isolation.ts
+    for bus-level isolation. Then the two e2e tests. For bug-hunt design, consider
+    that clones need to share intermediate findings (bus broadcast) so they don't
+    duplicate investigation across layers.
+
+B:
+  task: >-
+    Design the refactor-wave mode for Manta. Per spec Sec 2 line 60: after a
+    migration decision, N clones simultaneously fix different modules in a parallel
+    sweep. Charge cost 2, Wave 1, batch-spawn (one-shot per clone per spec Sec 9).
+    Research and design: (1) Worktree model — each clone needs its own worktree
+    (parallel writes to different modules). Compare with forking-realities isolation;
+    (2) Module partitioning — how the user specifies which clone handles which modules
+    (explicit assignment via cloneAssignments, or auto-partition based on directory structure);
+    (3) Task contract structure — migration pattern description + per-clone module list +
+    scope constraints (forbiddenPaths = other clones' modules to prevent overlap);
+    (4) File-lock coordination — should clones use the existing bus lock system to
+    prevent accidental cross-module edits? Or is scope enforcement sufficient?
+    (5) Merge strategy — unlike forking-realities (best-of-N), refactor-wave merges
+    ALL clone outputs (they're complementary, not competing). Design the merge flow:
+    sequential merge per clone branch, conflict detection, auto-resolve vs escalate;
+    (6) Post-cast validation — after merging all branches, run full test suite;
+    (7) Mode-specific priming text and skill guidance;
+    (8) CLI UX — how does user specify the module partition? Flag? Interactive? Config?
+    Deliverable: docs/research/phase-4-refactor-wave-design.md with comparison tables
+    and explicit recommendations per design decision.
+  approach_hint: >-
+    Read forking-realities implementation fully (cast.ts forking branches, worktree.ts,
+    forking-isolation.ts, merge-review.ts). Refactor-wave reuses most of that infra
+    but with a different merge model (merge-all vs pick-winner). Key difference:
+    clones are complementary (different modules) not competing (same problem).
+    The merge-review scoring may not apply — or may score each clone independently
+    for quality before merging.
+
+C:
+  task: >-
+    Map the test coverage and integration surface for Phase 4 (bug-hunt + refactor-wave).
+    Part 1 — Existing test map: (1) List every test file with count, what it covers,
+    and whether it's mode-specific or generic; (2) Map the e2e test structure
+    (recon-swarm.e2e.test.ts, forking-realities.e2e.test.ts, charge-system.e2e.test.ts) —
+    how they set up fake runners, bus context, assert outcomes; (3) Integration tests
+    in manta-cli/tests/integration/ — what they cover per mode.
+    Part 2 — Phase 4 test plan: For each new mode (bug-hunt, refactor-wave), design:
+    (a) Unit tests needed (mode-specific cast.ts branches, priming text generation,
+    merge strategy); (b) Integration tests (full cast lifecycle with fake runner);
+    (c) E2e tests (preflight + cast + outcome verification); (d) Charge system
+    integration (both modes cost 2 — verify pre-spawn gate, settlement, outcome
+    classification work correctly for new modes).
+    Part 3 — Shared infrastructure changes: (1) Does ModeSchema need updates?
+    (already has both modes as enum values — verify); (2) Does CastOutcomeClassifier
+    handle new modes? (3) Does merge-review scoring make sense for refactor-wave
+    (merge-all) vs bug-hunt (investigation report)? (4) Does ForensicTimelineWriter
+    need mode-specific event types?
+    Deliverable: docs/research/phase-4-test-and-integration-map.md
+  approach_hint: >-
+    Run find + wc -l on all test files first for the census. Read e2e tests to
+    understand the harness pattern. For the test plan, be concrete — list actual
+    test case names and what they assert. For shared infra, grep for mode-specific
+    conditionals (if mode === 'forking-realities') to find all branching points
+    that need new cases.
