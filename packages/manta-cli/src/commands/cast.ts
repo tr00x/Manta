@@ -23,6 +23,10 @@ import { listWorktrees } from '../spawner/worktree.js';
 import { loadBudgetConfig } from '../config/budget-config.js';
 import { runPreSpawnGate } from '../budget/pre-spawn-gate.js';
 import { classifyCastOutcome } from '../budget/cast-outcome.js';
+import type { DispatchEnqueuer } from '../dispatch/types.js';
+import { PairDispatcher } from '../dispatch/pair-dispatch.js';
+import { DocChaseDispatcher } from '../dispatch/doc-chase-dispatch.js';
+import { BroadcastReader } from '../dispatch/broadcast-reader.js';
 
 // Phase 2a: forking-realities joins recon-swarm. Spec Sec 2 #2; see
 // docs/research/phase-2-codepath-map.md §1.1 for the per-mode capability
@@ -300,6 +304,15 @@ export async function runCastCommand(
     assignment: assignments[id] ?? null,
   }));
 
+  // Wave-2: assign roles for pair-programming and documentation-chase
+  if (opts.mode === 'pair-programming') {
+    effective[cloneIds[0]!]!.approachHint = effective[cloneIds[0]!]!.approachHint ?? 'writer';
+    effective[cloneIds[1]!]!.approachHint = effective[cloneIds[1]!]!.approachHint ?? 'reviewer';
+  }
+  if (opts.mode === 'documentation-chase') {
+    effective[cloneIds[0]!]!.approachHint = effective[cloneIds[0]!]!.approachHint ?? 'documenter';
+  }
+
   try {
     for (const cloneId of cloneIds) {
       const e = effective[cloneId]!;
@@ -358,6 +371,48 @@ export async function runCastCommand(
       opts.reporter.info('cast.spawn', { cloneId, worktree: wt.path });
     }
 
+    // Wave-2: create mode-specific dispatchers
+    let pairDispatcher: PairDispatcher | null = null;
+    if (opts.mode === 'pair-programming') {
+      pairDispatcher = new PairDispatcher({
+        writerCloneId: cloneIds[0]!,
+        reviewerCloneId: cloneIds[1]!,
+        castId: opts.castId,
+        maxIterations: 5,
+      });
+    }
+
+    // Wave-2: documentation-chase pre-populates work queue at cast start
+    if (opts.mode === 'documentation-chase' && rt.ctx.workQueue) {
+      const docCloneId = cloneIds[0]!;
+      const items = DocChaseDispatcher.parseTaskIntoItems(
+        opts.task,
+        docCloneId,
+        opts.castId,
+      );
+      for (const item of items) {
+        await rt.ctx.workQueue.enqueue(item);
+      }
+      opts.reporter.info('cast.doc_chase_enqueued', { items: items.length });
+    }
+
+    // Wave-2: BroadcastReader + enqueuer for dispatch callbacks
+    const broadcastReader = (opts.mode === 'pair-programming')
+      ? new BroadcastReader(opts.castId, rt.ctx.events)
+      : null;
+    const dispatchEnqueuer: DispatchEnqueuer | null = (rt.ctx.workQueue)
+      ? {
+          enqueue: async (target, prompt, priority) => {
+            await rt.ctx.workQueue!.enqueue({
+              cast_id: opts.castId,
+              target_clone_id: target,
+              prompt,
+              priority: priority ?? 'normal',
+            });
+          },
+        }
+      : null;
+
     const startedAt = rt.ctx.clock.now();
     const timelinePath = join(
       rt.repoRoot,
@@ -389,7 +444,17 @@ export async function runCastCommand(
         intervalMs: opts.cycleIntervalMs,
         signal: ctrl.signal,
         daemonMode: sessionMode === 'daemon',
+        onCycleComplete: (pairDispatcher && broadcastReader && dispatchEnqueuer)
+          ? async (result) => {
+              const broadcasts = await broadcastReader!.readNew();
+              await pairDispatcher!.onCycleComplete(
+                { idleClones: result.idleClones, broadcasts },
+                dispatchEnqueuer!,
+              );
+            }
+          : undefined,
         allDone: async () => {
+          if (pairDispatcher?.isDone) return true;
           const all = await rt.ctx.registry.list();
           const ours = all.filter((c) => cloneIds.includes(c.clone_id));
           if (ours.length < cloneIds.length) return false;

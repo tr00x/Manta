@@ -24,7 +24,7 @@ describe('Phase 0e content integration', () => {
     const result = await validateAll(repoRoot);
     const skillReports = result.reports.filter((r) => r.path.startsWith('skills/'));
     const skills = skillReports.map((r) => r.path.replace(/^skills\//, '').replace(/\/SKILL\.md$/, '')).sort();
-    expect(skills).toEqual(['manta-as-clone', 'manta-cast-decide', 'manta-coordinate', 'manta-daemon-idle', 'manta-graceful-death', 'manta-merge-review', 'manta-pair-protocol']);
+    expect(skills).toEqual(['manta-as-clone', 'manta-cast-decide', 'manta-coordinate', 'manta-daemon-idle', 'manta-doc-chase', 'manta-graceful-death', 'manta-merge-review', 'manta-pair-protocol', 'manta-pair-reviewer', 'manta-pair-writer']);
   });
 
   it('all slash commands are present', async () => {

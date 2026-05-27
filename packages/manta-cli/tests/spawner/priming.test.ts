@@ -211,16 +211,37 @@ describe('buildPrimingText — daemon mode (Phase 5)', () => {
   });
 });
 
-describe('buildPrimingText — documentation-chase mode (Phase 6)', () => {
+describe('buildPrimingText — Wave-2 priming blocks (Phase 6)', () => {
+  it('PAIR_PROTOCOL_BLOCK uses commit_ready instead of task_complete', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', mode: 'pair-programming' });
+    const text = buildPrimingText(snap);
+    expect(text).toContain('commit_ready');
+    expect(text).toContain('review_complete');
+    expect(text).not.toContain('task_complete');
+  });
+
+  it('PAIR_PROTOCOL_BLOCK references role-specific skills', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', mode: 'pair-programming' });
+    const text = buildPrimingText(snap);
+    expect(text).toContain('manta-pair-writer');
+    expect(text).toContain('manta-pair-reviewer');
+  });
+
   it('includes DOC_CHASE_BLOCK for documentation-chase mode', () => {
-    const snap = makeSnapshotFor({ cloneId: 'DOC', mode: 'documentation-chase' });
+    const snap = makeSnapshotFor({ cloneId: 'A', mode: 'documentation-chase' });
     const text = buildPrimingText(snap);
     expect(text).toContain('Documentation-Chase Protocol');
     expect(text).toContain('NEVER modify source files');
+  });
+
+  it('DOC_CHASE_BLOCK restricts output to docs/ only', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', mode: 'documentation-chase' });
+    const text = buildPrimingText(snap);
+    expect(text).toContain('docs/');
     expect(text).toContain('docs_ready');
   });
 
-  it('does not include DOC_CHASE_BLOCK for recon-swarm', () => {
+  it('does not include DOC_CHASE_BLOCK for non-doc-chase modes', () => {
     const snap = makeSnapshotFor({ cloneId: 'A', mode: 'recon-swarm' });
     const text = buildPrimingText(snap);
     expect(text).not.toContain('Documentation-Chase Protocol');
