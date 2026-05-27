@@ -6,7 +6,10 @@ export type CliErrorKind =
   | 'orchestrator_failed'
   | 'recovery_failed'
   | 'not_found'
-  | 'budget_gate_failed';
+  | 'budget_gate_failed'
+  | 'daemon_failed'
+  | 'retask_failed'
+  | 'feedback_failed';
 
 export interface CliErrorOptions {
   kind: CliErrorKind;

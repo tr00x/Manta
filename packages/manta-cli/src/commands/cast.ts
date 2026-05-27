@@ -16,6 +16,7 @@ import { CliError } from '../errors.js';
 import { verifyMantaBusRegistered } from './mcp-preflight.js';
 import { loadScoringConfig, runMergeReview, Orchestrator, makeProbe, fsPostMortemWriter, ForensicTimelineWriter, type BusContext as MergeReviewBusContext } from '@manta/orchestrator';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { createMetricCollector } from './merge-review-collector.js';
 import { adjustWeightsFromProject } from './rubric-prepass.js';
 import { listWorktrees } from '../spawner/worktree.js';
@@ -31,6 +32,15 @@ const SUPPORTED_MODES: ReadonlySet<Mode> = new Set<Mode>([
   'forking-realities',
   'bug-hunt',
   'refactor-wave',
+  'pair-programming',
+  'test-storm',
+  'documentation-chase',
+]);
+
+const DAEMON_MODES: ReadonlySet<Mode> = new Set<Mode>([
+  'pair-programming',
+  'test-storm',
+  'documentation-chase',
 ]);
 const CLONE_NAMES: readonly string[] = ['A', 'B', 'C', 'D', 'E']; // Phase 0 ceiling = 5
 const DEFAULT_DEADLINE_MS = 1_200_000; // 20 min per spec Sec 6.2
@@ -139,6 +149,18 @@ export async function runCastCommand(
   if (opts.mode === 'refactor-wave' && !opts.cloneAssignments) {
     throw new CliError(
       'refactor-wave requires --tasks with per-clone module assignments',
+      { kind: 'invalid_input' },
+    );
+  }
+  if (opts.mode === 'pair-programming' && opts.cloneCount !== 2) {
+    throw new CliError(
+      'pair-programming mode requires exactly 2 clones (writer + reviewer)',
+      { kind: 'invalid_input' },
+    );
+  }
+  if (opts.mode === 'test-storm' && (opts.cloneCount < 2 || opts.cloneCount > 3)) {
+    throw new CliError(
+      'test-storm mode requires 2-3 clones (spec Sec 2)',
       { kind: 'invalid_input' },
     );
   }
@@ -261,12 +283,14 @@ export async function runCastCommand(
   const handles: CloneHandle[] = [];
   const worktrees: WorktreeRecord[] = [];
 
+  const sessionMode = DAEMON_MODES.has(opts.mode) ? 'daemon' as const : 'batch' as const;
+
   // Mode-aware policy. Recorded on the manifest now; Phase 2b enforces
   // peer_messaging at the bus surface.
   const castPolicy: CastPolicy =
     (opts.mode === 'forking-realities' || opts.mode === 'refactor-wave')
-      ? { peer_messaging: 'denied', auto_merge_threshold: null, session_mode: 'batch' as const }
-      : { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' as const };
+      ? { peer_messaging: 'denied', auto_merge_threshold: null, session_mode: sessionMode }
+      : { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: sessionMode };
 
   // Roster carries the per-clone CloneAssignment if one exists (forking-
   // realities) or null otherwise (recon-swarm). Phase 2c merge-review reads
@@ -285,13 +309,13 @@ export async function runCastCommand(
         branch: `manta/${opts.castId}/${cloneId}`,
       });
       worktrees.push(wt);
+      const sessionId = sessionMode === 'daemon'
+        ? `${opts.castId}-${cloneId}-${randomUUID()}`
+        : undefined;
       const snap = buildCloneSnapshot({
         cloneId,
         mode: opts.mode,
         task: e.task,
-        // snapshot.Scope uses camelCase (allowedPaths/forbiddenPaths/maxFilesChanged);
-        // the bus's TaskContractSchema uses snake_case. We translate at the
-        // ctx.contracts.write boundary below.
         scope: {
           allowedPaths: e.scope.allowedPaths,
           forbiddenPaths: e.scope.forbiddenPaths,
@@ -303,12 +327,11 @@ export async function runCastCommand(
         parentWorktree: rt.repoRoot,
         cloneWorktree: wt.path,
         parentPid: process.pid,
-        // Phase 0 has no real session-id concept yet; the cast id is unique
-        // and serves the same role for snapshot identity. Phase 1+ replaces
-        // this with a real Claude-Code session id when daemon-mode lands.
         parentSessionId: opts.castId,
         castId: opts.castId,
         budgetUsd: e.budgetUsd,
+        sessionMode,
+        sessionId,
       });
 
       // Translate snapshot.taskContract (camelCase) → bus.TaskContract
@@ -365,14 +388,30 @@ export async function runCastCommand(
         orchestrator: castOrchestrator,
         intervalMs: opts.cycleIntervalMs,
         signal: ctrl.signal,
+        daemonMode: sessionMode === 'daemon',
         allDone: async () => {
           const all = await rt.ctx.registry.list();
           const ours = all.filter((c) => cloneIds.includes(c.clone_id));
-          // Either every spawned clone is registered AND DEAD, or the tick
-          // hasn't seen registrations yet (race window before clone subprocess
-          // writes its registry record).
           if (ours.length < cloneIds.length) return false;
-          return ours.every((c) => c.state === 'DEAD');
+          if (sessionMode === 'batch') {
+            return ours.every((c) => c.state === 'DEAD');
+          }
+          // Daemon mode: done when all clones are DEAD, OR all clones
+          // are IDLE/DEAD with no pending work items in the queue.
+          const allDead = ours.every((c) => c.state === 'DEAD');
+          if (allDead) return true;
+          const allIdleOrDead = ours.every(
+            (c) => c.state === 'DEAD' || c.state === 'IDLE',
+          );
+          if (!allIdleOrDead) return false;
+          // All idle — check if work queue is empty for each clone
+          if (rt.ctx.workQueue) {
+            for (const id of cloneIds) {
+              const pending = await rt.ctx.workQueue.pending(id);
+              if (pending.length > 0) return false;
+            }
+          }
+          return true;
         },
       });
     } finally {

@@ -22,6 +22,9 @@ export const ScopeSchema = z.object({
   maxFilesChanged: z.number().int().nonnegative(),
 });
 
+export const SessionModeSchema = z.enum(['batch', 'daemon']);
+export type SessionMode = z.infer<typeof SessionModeSchema>;
+
 export const TaskContractSchema = z.object({
   cloneId: z.string().min(1),
   mode: ModeSchema,
@@ -30,6 +33,7 @@ export const TaskContractSchema = z.object({
   approachHint: z.string().nullable(),
   siblingClones: z.array(z.string().min(1)),
   deadlineSeconds: z.number().int().positive(),
+  sessionMode: SessionModeSchema.default('batch'),
 });
 
 export type TaskContract = z.infer<typeof TaskContractSchema>;
@@ -75,6 +79,8 @@ export const SnapshotSchema = z
     budget: BudgetSchema,
     ttlSeconds: z.number().int().positive(),
     siblingCloneIds: z.array(z.string().min(1)),
+    sessionMode: SessionModeSchema.default('batch'),
+    sessionId: z.string().min(1).optional(),
   })
   .refine((s) => s.mode === s.taskContract.mode, {
     message: 'snapshot.mode must equal snapshot.taskContract.mode',

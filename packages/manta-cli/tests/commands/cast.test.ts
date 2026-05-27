@@ -949,6 +949,241 @@ describe('cast command — refactor-wave mode', () => {
   });
 });
 
+describe('cast command — Wave 2 daemon modes', () => {
+  let fx: RepoFixture | undefined;
+  afterEach(async () => {
+    await fx?.cleanup();
+    fx = undefined;
+  });
+
+  it('accepts pair-programming as valid mode', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: {
+        heartbeatTimeoutMs: 100,
+        startupGraceMs: 100,
+        parentPidCheckEnabled: false,
+      },
+    });
+    const result = await runCastCommand(rt, {
+      mode: 'pair-programming' as unknown as 'recon-swarm',
+      task: 'implement auth module',
+      cloneCount: 2,
+      cycleIntervalMs: 50,
+      tickBudgetMs: 15_000,
+      castId: 'cast-pp-valid-1',
+      budgetUsdPerClone: 5,
+      budgetUsdPerCast: 15,
+      runner: runFakeCloneScript({ scriptPath: fixturePath }),
+      reporter: createReporter({ sink: new MemorySink() }),
+      verifyMcp: false,
+    });
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('accepts test-storm as valid mode', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: {
+        heartbeatTimeoutMs: 100,
+        startupGraceMs: 100,
+        parentPidCheckEnabled: false,
+      },
+    });
+    const result = await runCastCommand(rt, {
+      mode: 'test-storm' as unknown as 'recon-swarm',
+      task: 'write tests for auth',
+      cloneCount: 3,
+      cycleIntervalMs: 50,
+      tickBudgetMs: 15_000,
+      castId: 'cast-ts-valid-1',
+      budgetUsdPerClone: 5,
+      budgetUsdPerCast: 15,
+      runner: runFakeCloneScript({ scriptPath: fixturePath }),
+      reporter: createReporter({ sink: new MemorySink() }),
+      verifyMcp: false,
+    });
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('accepts documentation-chase as valid mode', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: {
+        heartbeatTimeoutMs: 100,
+        startupGraceMs: 100,
+        parentPidCheckEnabled: false,
+      },
+    });
+    const result = await runCastCommand(rt, {
+      mode: 'documentation-chase' as unknown as 'recon-swarm',
+      task: 'document API',
+      cloneCount: 2,
+      cycleIntervalMs: 50,
+      tickBudgetMs: 15_000,
+      castId: 'cast-dc-valid-1',
+      budgetUsdPerClone: 5,
+      budgetUsdPerCast: 15,
+      runner: runFakeCloneScript({ scriptPath: fixturePath }),
+      reporter: createReporter({ sink: new MemorySink() }),
+      verifyMcp: false,
+    });
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('pair-programming requires exactly 2 clones', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({ repoRoot: fx.root });
+    await expect(
+      runCastCommand(rt, {
+        mode: 'pair-programming' as unknown as 'recon-swarm',
+        task: 'impl',
+        cloneCount: 3,
+        cycleIntervalMs: 50,
+        tickBudgetMs: 5_000,
+        castId: 'cast-pp-reject-3',
+        budgetUsdPerClone: 5,
+        budgetUsdPerCast: 15,
+        runner: runFakeCloneScript({ scriptPath: fixturePath }),
+        reporter: createReporter({ sink: new MemorySink() }),
+        verifyMcp: false,
+      }),
+    ).rejects.toMatchObject({ name: 'CliError', kind: 'invalid_input' });
+  });
+
+  it('test-storm requires 2-3 clones', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({ repoRoot: fx.root });
+    await expect(
+      runCastCommand(rt, {
+        mode: 'test-storm' as unknown as 'recon-swarm',
+        task: 'tests',
+        cloneCount: 4,
+        cycleIntervalMs: 50,
+        tickBudgetMs: 5_000,
+        castId: 'cast-ts-reject-4',
+        budgetUsdPerClone: 5,
+        budgetUsdPerCast: 20,
+        runner: runFakeCloneScript({ scriptPath: fixturePath }),
+        reporter: createReporter({ sink: new MemorySink() }),
+        verifyMcp: false,
+      }),
+    ).rejects.toMatchObject({ name: 'CliError', kind: 'invalid_input' });
+  });
+
+  it('daemon modes set session_mode = daemon on castPolicy', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: {
+        heartbeatTimeoutMs: 100,
+        startupGraceMs: 100,
+        parentPidCheckEnabled: false,
+      },
+    });
+    await runCastCommand(rt, {
+      mode: 'pair-programming' as unknown as 'recon-swarm',
+      task: 'impl auth',
+      cloneCount: 2,
+      cycleIntervalMs: 50,
+      tickBudgetMs: 15_000,
+      castId: 'cast-pp-policy-1',
+      budgetUsdPerClone: 5,
+      budgetUsdPerCast: 15,
+      runner: runFakeCloneScript({ scriptPath: fixturePath }),
+      reporter: createReporter({ sink: new MemorySink() }),
+      verifyMcp: false,
+    });
+    const manifestPath = path.join(fx.root, '.manta', 'state', 'casts', 'cast-pp-policy-1.json');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8')) as {
+      mode: string;
+      policy: { session_mode: string; peer_messaging: string };
+    };
+    expect(manifest.policy.session_mode).toBe('daemon');
+    expect(manifest.policy.peer_messaging).toBe('allowed');
+  });
+
+  it('daemon modes generate sessionId in snapshot', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: {
+        heartbeatTimeoutMs: 100,
+        startupGraceMs: 100,
+        parentPidCheckEnabled: false,
+      },
+    });
+    const realRunner = runFakeCloneScript({ scriptPath: fixturePath });
+    const captured: Snapshot[] = [];
+    const recordingRunner: CloneRunner = {
+      run(input) {
+        const raw = readFileSync(input.env.MANTA_SNAPSHOT_PATH!, 'utf-8');
+        captured.push(JSON.parse(raw) as Snapshot);
+        return realRunner.run(input);
+      },
+    };
+    await runCastCommand(rt, {
+      mode: 'pair-programming' as unknown as 'recon-swarm',
+      task: 'impl auth',
+      cloneCount: 2,
+      cycleIntervalMs: 50,
+      tickBudgetMs: 15_000,
+      castId: 'cast-pp-sid-1',
+      budgetUsdPerClone: 5,
+      budgetUsdPerCast: 15,
+      runner: recordingRunner,
+      reporter: createReporter({ sink: new MemorySink() }),
+      verifyMcp: false,
+    });
+    for (const snap of captured) {
+      expect(snap.sessionMode).toBe('daemon');
+      expect(snap.sessionId).toBeDefined();
+      expect(snap.sessionId!.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('batch modes leave sessionMode = batch (regression)', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: {
+        heartbeatTimeoutMs: 100,
+        startupGraceMs: 100,
+        parentPidCheckEnabled: false,
+      },
+    });
+    const realRunner = runFakeCloneScript({ scriptPath: fixturePath });
+    const captured: Snapshot[] = [];
+    const recordingRunner: CloneRunner = {
+      run(input) {
+        const raw = readFileSync(input.env.MANTA_SNAPSHOT_PATH!, 'utf-8');
+        captured.push(JSON.parse(raw) as Snapshot);
+        return realRunner.run(input);
+      },
+    };
+    await runCastCommand(rt, {
+      mode: 'recon-swarm',
+      task: 'map src/',
+      cloneCount: 2,
+      cycleIntervalMs: 50,
+      tickBudgetMs: 15_000,
+      castId: 'cast-batch-sid-1',
+      budgetUsdPerClone: 5,
+      budgetUsdPerCast: 15,
+      runner: recordingRunner,
+      reporter: createReporter({ sink: new MemorySink() }),
+      verifyMcp: false,
+    });
+    for (const snap of captured) {
+      expect(snap.sessionMode).toBe('batch');
+      expect(snap.sessionId).toBeUndefined();
+    }
+  });
+});
+
 describe('validateDisjointPartitions', () => {
   it('accepts non-overlapping partitions', () => {
     expect(() =>

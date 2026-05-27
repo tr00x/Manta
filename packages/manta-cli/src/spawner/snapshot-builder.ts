@@ -17,6 +17,8 @@ export interface CloneSpawnRequest {
   budgetUsd: number;
   budgetTokens?: number;
   approachHint?: string | null;
+  sessionMode?: 'batch' | 'daemon' | undefined;
+  sessionId?: string | undefined;
 }
 
 export function buildCloneSnapshot(req: CloneSpawnRequest): Snapshot {
@@ -26,6 +28,7 @@ export function buildCloneSnapshot(req: CloneSpawnRequest): Snapshot {
     });
   }
   const deadlineSeconds = Math.max(1, Math.ceil(req.deadlineMs / 1000));
+  const sessionMode = req.sessionMode ?? 'batch';
   return captureState({
     castId: req.castId,
     parentSessionId: req.parentSessionId,
@@ -38,6 +41,7 @@ export function buildCloneSnapshot(req: CloneSpawnRequest): Snapshot {
       approachHint: req.approachHint ?? null,
       siblingClones: req.siblingClones,
       deadlineSeconds,
+      sessionMode,
     },
     recentMessages: [],
     activeTodos: [],
@@ -52,5 +56,7 @@ export function buildCloneSnapshot(req: CloneSpawnRequest): Snapshot {
     },
     ttlSeconds: deadlineSeconds,
     siblingCloneIds: req.siblingClones,
+    sessionMode,
+    sessionId: req.sessionId,
   });
 }

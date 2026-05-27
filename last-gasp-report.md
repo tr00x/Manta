@@ -1,39 +1,37 @@
-# Last Gasp Report — Clone A (cast-1779899160449)
+# Clone B Last-Gasp Report — Phase 5 Chunk 2 (cast-1779899160449)
 
 ## Task
-Phase 5 Chunk 2 — Spawner daemon support + daemon-loop + priming + skills + E2E test
+Phase 5 Chunk 2 — tick-loop + snapshot schema + cast.ts Wave 2 + CLI commands
 
 ## Outcome: COMPLETE
 
-All 5 assigned tasks delivered. All new tests passing.
+All 5 assigned tasks delivered. 844/845 tests passing (1 pre-existing flaky test in bus registry).
 
 ## What was done
 
-1. **[2.1] clone-spawner.ts** — `sessionId` on `CloneRunnerInput`, `sessionId`/`isDaemon` on `CloneHandle`, `--session-id` flag in `runClaudeCli`, new `runClaudeResume()` for `--resume` sessions. Fixed `exactOptionalPropertyTypes` mismatch with conditional spread.
+1. **[2.4] Snapshot schema** — SessionModeSchema + sessionMode/sessionId fields on SnapshotSchema and TaskContractSchema (defaults to 'batch'). CaptureInput + captureState propagation. snapshot-builder.ts with sessionMode/sessionId in CloneSpawnRequest. 7 new tests.
 
-2. **[2.2] daemon-loop.ts** — New file. Orchestrator-side poll-resume cycle: dequeue from WorkQueueStore, resume via `runClaudeResume`, track failures, exit on max_failures/no_work/aborted. Added `runner?: CloneRunner` DI seam for testability.
+2. **[2.3] Tick-loop daemon mode** — RunTickLoopOptions.daemonMode, TickLoopResult.daemonResumeCycles. Daemon-awareness lives in the allDone callback constructed in cast.ts. 2 new tests.
 
-3. **[2.6] priming.ts** — `DAEMON_MODE_BLOCK` (IDLE protocol, task-end vs session-end) and `PAIR_PROTOCOL_BLOCK` (writer/reviewer coordination). Injected based on `sessionMode` and mode. `{CLONE_ID}` substitution verified.
+3. **[2.5] cast.ts Wave 2 dispatch** — SUPPORTED_MODES expanded with pair-programming, test-storm, documentation-chase. DAEMON_MODES set for sessionMode detection. sessionId generation via randomUUID for daemon casts. castPolicy.session_mode propagation. allDone daemon branch (exit when all DEAD or all IDLE+empty queue). Mode-specific clone count validation. 8 new tests.
 
-4. **[2.8] Skills** — Created `manta-daemon-idle/SKILL.md` (idle protocol between tasks) and `manta-pair-protocol/SKILL.md` (writer/reviewer pair coordination). Updated `manta-as-clone/SKILL.md` (+daemon mode section) and `manta-graceful-death/SKILL.md` (+task-end vs session-end).
+4. **[2.7] New CLI commands** — daemon.ts (manta daemon status/stop), retask.ts (manta retask with state validation), feedback.ts (manta feedback with severity). 3 new error kinds. All registered in bin/manta.ts. 9 new tests.
 
-5. **[2.10] E2E test** — `daemon-lifecycle.test.ts`: 5 integration tests covering spawn+work queue, daemon-loop max_failures, empty queue no_work, abort signal, and successful resume cycle with onCycleComplete.
+5. **[2.9] Modified commands** — status-table.ts shows [daemon] indicator and tasks_completed count. kill.ts and abort.ts already daemon-aware. No changes needed for kill/abort.
 
 ## Test Results
-- 16/16 clone-spawner tests (4 new)
-- 6/6 daemon-loop unit tests
-- 5/5 daemon-lifecycle E2E tests
-- 5/5 daemon-mode priming tests
-- Build clean (DTS + ESM + CJS)
+- Snapshot: 55/55 PASS
+- CLI: 282/282 PASS (48 test files)
+- Full workspace: 844/845 PASS (1 pre-existing flaky also fails on main)
+- Build: Clean
 
-## Notes
-- daemon-loop.ts accepts optional `runner` DI seam — original plan used `claudeBin` only but ENOENT on non-existent cwd made tests unreliable. The DI seam is strictly additive.
-- `exactOptionalPropertyTypes` is active in tsconfig — `sessionId?: string` on `CloneHandle` requires conditional spread instead of `undefined` assignment.
+## Cross-Clone Dependency Notes
+- toBusContract does NOT propagate sessionMode to bus TaskContract (bus schema is Clone A territory — `.strict()` would reject unknown field). SessionMode flows through CastPolicy.session_mode instead.
+- WorkQueueStore already exists from Chunk 1 merge. Used in retask.ts and cast.ts allDone.
+- CloneRecord.session_mode/tasks_completed/idle_since — all from Chunk 1 Clone A — used in daemon.ts and status-table.ts.
 
-## Files Changed (11)
-Production: clone-spawner.ts, daemon-loop.ts (new), priming.ts
-Tests: clone-spawner.test.ts, daemon-loop.test.ts (new), priming.test.ts, daemon-lifecycle.test.ts (new)
-Skills: manta-daemon-idle/SKILL.md (new), manta-pair-protocol/SKILL.md (new), manta-as-clone/SKILL.md, manta-graceful-death/SKILL.md
+## Files Changed (17 production + test)
+Production: schema.ts, capture.ts, index.ts (snapshot); snapshot-builder.ts, tick-loop.ts, cast.ts, daemon.ts, retask.ts, feedback.ts, errors.ts, manta.ts, status-table.ts (CLI)
+Tests: schema.test.ts (snapshot); tick-loop.test.ts, cast.test.ts, daemon.test.ts, retask.test.ts, feedback.test.ts, snapshotFixture.ts (CLI)
 
 ## Confidence: 9/10
-All tests pass, build clean, no TODOs or skips. Minor deviation: added DI seam to daemon-loop (not in plan).

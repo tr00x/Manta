@@ -13,6 +13,8 @@ export interface SnapshotFor {
   budgetUsd?: number;
   /** Optional per-clone approach hint; null/undefined → contract.approachHint = null. */
   approachHint?: string | null;
+  sessionMode?: 'batch' | 'daemon';
+  sessionId?: string;
 }
 
 export function makeSnapshotFor(opts: SnapshotFor): Snapshot {
@@ -34,5 +36,7 @@ export function makeSnapshotFor(opts: SnapshotFor): Snapshot {
     castId: opts.castId ?? 'cast-test',
     budgetUsd: opts.budgetUsd ?? 5,
     approachHint: opts.approachHint ?? null,
+    sessionMode: opts.sessionMode,
+    sessionId: opts.sessionId,
   });
 }

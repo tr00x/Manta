@@ -79,4 +79,44 @@ describe('SnapshotSchema', () => {
   it('rejects createdAt that is not ISO 8601', () => {
     expect(() => SnapshotSchema.parse({ ...validSnapshot, createdAt: 'yesterday' })).toThrow();
   });
+
+  it('defaults sessionMode to batch when omitted', () => {
+    const result = SnapshotSchema.parse(validSnapshot);
+    expect(result.sessionMode).toBe('batch');
+  });
+
+  it('accepts daemon sessionMode', () => {
+    const result = SnapshotSchema.parse({
+      ...validSnapshot,
+      sessionMode: 'daemon',
+      sessionId: 'sess-1',
+      taskContract: { ...validContract, sessionMode: 'daemon' },
+    });
+    expect(result.sessionMode).toBe('daemon');
+    expect(result.sessionId).toBe('sess-1');
+  });
+
+  it('accepts optional sessionId', () => {
+    const result = SnapshotSchema.parse(validSnapshot);
+    expect(result.sessionId).toBeUndefined();
+  });
+
+  it('backward compat: existing snapshots without sessionMode parse as batch', () => {
+    const legacy = { ...validSnapshot };
+    delete (legacy as Record<string, unknown>).sessionMode;
+    const result = SnapshotSchema.parse(legacy);
+    expect(result.sessionMode).toBe('batch');
+  });
+});
+
+describe('TaskContractSchema — sessionMode', () => {
+  it('defaults sessionMode to batch when omitted', () => {
+    const result = TaskContractSchema.parse(validContract);
+    expect(result.sessionMode).toBe('batch');
+  });
+
+  it('accepts daemon sessionMode', () => {
+    const result = TaskContractSchema.parse({ ...validContract, sessionMode: 'daemon' });
+    expect(result.sessionMode).toBe('daemon');
+  });
 });
