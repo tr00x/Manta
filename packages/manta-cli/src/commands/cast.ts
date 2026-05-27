@@ -27,6 +27,7 @@ import type { DispatchEnqueuer } from '../dispatch/types.js';
 import { PairDispatcher } from '../dispatch/pair-dispatch.js';
 import { DocChaseDispatcher } from '../dispatch/doc-chase-dispatch.js';
 import { BroadcastReader } from '../dispatch/broadcast-reader.js';
+import { TestStormDispatcher } from '../dispatch/test-storm-dispatch.js';
 
 // Phase 2a: forking-realities joins recon-swarm. Spec Sec 2 #2; see
 // docs/research/phase-2-codepath-map.md §1.1 for the per-mode capability
@@ -312,16 +313,41 @@ export async function runCastCommand(
   if (opts.mode === 'documentation-chase') {
     effective[cloneIds[0]!]!.approachHint = effective[cloneIds[0]!]!.approachHint ?? 'documenter';
   }
+  if (opts.mode === 'test-storm') {
+    effective[cloneIds[0]!]!.approachHint = effective[cloneIds[0]!]!.approachHint ?? 'coder';
+    effective[cloneIds[1]!]!.approachHint = effective[cloneIds[1]!]!.approachHint ?? 'tester';
+    if (cloneIds[2]) {
+      effective[cloneIds[2]!]!.approachHint = effective[cloneIds[2]!]!.approachHint ?? 'fuzzer';
+    }
+  }
 
   try {
+    // test-storm: create ONE shared worktree for all clones
+    let sharedWorktree: WorktreeRecord | null = null;
+    if (opts.mode === 'test-storm') {
+      sharedWorktree = await addWorktree({
+        repoRoot: rt.repoRoot,
+        name: `storm-${opts.castId}`,
+        branch: `storm/${opts.castId}/work`,
+      });
+      worktrees.push(sharedWorktree);
+    }
+
     for (const cloneId of cloneIds) {
       const e = effective[cloneId]!;
-      const wt = await addWorktree({
-        repoRoot: rt.repoRoot,
-        name: `clone-${cloneId}`,
-        branch: `manta/${opts.castId}/${cloneId}`,
-      });
-      worktrees.push(wt);
+
+      let wt: WorktreeRecord;
+      if (sharedWorktree) {
+        wt = sharedWorktree;
+      } else {
+        wt = await addWorktree({
+          repoRoot: rt.repoRoot,
+          name: `clone-${cloneId}`,
+          branch: `manta/${opts.castId}/${cloneId}`,
+        });
+        worktrees.push(wt);
+      }
+
       const sessionId = sessionMode === 'daemon'
         ? `${opts.castId}-${cloneId}-${randomUUID()}`
         : undefined;
@@ -373,12 +399,24 @@ export async function runCastCommand(
 
     // Wave-2: create mode-specific dispatchers
     let pairDispatcher: PairDispatcher | null = null;
+    let stormDispatcher: TestStormDispatcher | null = null;
+
     if (opts.mode === 'pair-programming') {
       pairDispatcher = new PairDispatcher({
         writerCloneId: cloneIds[0]!,
         reviewerCloneId: cloneIds[1]!,
         castId: opts.castId,
         maxIterations: 5,
+      });
+    }
+
+    if (opts.mode === 'test-storm') {
+      stormDispatcher = new TestStormDispatcher({
+        coderCloneId: cloneIds[0]!,
+        testerCloneId: cloneIds[1]!,
+        fuzzerCloneId: cloneIds[2] ?? cloneIds[1]!,
+        castId: opts.castId,
+        maxFixCycles: 3,
       });
     }
 
@@ -397,7 +435,8 @@ export async function runCastCommand(
     }
 
     // Wave-2: BroadcastReader + enqueuer for dispatch callbacks
-    const broadcastReader = (opts.mode === 'pair-programming')
+    const needsDispatch = opts.mode === 'pair-programming' || opts.mode === 'test-storm';
+    const broadcastReader = needsDispatch
       ? new BroadcastReader(opts.castId, rt.ctx.events)
       : null;
     const dispatchEnqueuer: DispatchEnqueuer | null = (rt.ctx.workQueue)
@@ -444,17 +483,21 @@ export async function runCastCommand(
         intervalMs: opts.cycleIntervalMs,
         signal: ctrl.signal,
         daemonMode: sessionMode === 'daemon',
-        onCycleComplete: (pairDispatcher && broadcastReader && dispatchEnqueuer)
+        onCycleComplete: (broadcastReader && dispatchEnqueuer && (pairDispatcher || stormDispatcher))
           ? async (result) => {
               const broadcasts = await broadcastReader!.readNew();
-              await pairDispatcher!.onCycleComplete(
-                { idleClones: result.idleClones, broadcasts },
-                dispatchEnqueuer!,
-              );
+              const cycleInput = { idleClones: result.idleClones, broadcasts };
+              if (pairDispatcher) {
+                await pairDispatcher.onCycleComplete(cycleInput, dispatchEnqueuer!);
+              }
+              if (stormDispatcher) {
+                await stormDispatcher.onCycleComplete(cycleInput, dispatchEnqueuer!);
+              }
             }
           : undefined,
         allDone: async () => {
           if (pairDispatcher?.isDone) return true;
+          if (stormDispatcher?.isDone) return true;
           const all = await rt.ctx.registry.list();
           const ours = all.filter((c) => cloneIds.includes(c.clone_id));
           if (ours.length < cloneIds.length) return false;

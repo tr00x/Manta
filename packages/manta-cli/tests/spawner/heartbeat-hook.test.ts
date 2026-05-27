@@ -1,11 +1,15 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
-import { installHeartbeatHook } from '../../src/spawner/heartbeat-hook';
+import { installHeartbeatHook, _resetInstalledWorktrees } from '../../src/spawner/heartbeat-hook';
 
 describe('heartbeat-hook', () => {
+  beforeEach(() => {
+    _resetInstalledWorktrees();
+  });
+
   async function makeTmp(): Promise<string> {
     return fs.mkdtemp(path.join(os.tmpdir(), 'manta-hb-hook-'));
   }
