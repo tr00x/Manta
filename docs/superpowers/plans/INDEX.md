@@ -59,10 +59,17 @@
 |---|---|---|
 | `2026-05-27-phase-5-daemon-mode.md` | **Executed** — Chunk 1 (cast-1779896354228, 2 clones, merged + 3 post-merge fixes) + Chunk 2 (cast-1779899160449, 2 clones, merged + 4 post-merge fixes). 865 tests workspace-wide green; build+lint clean. | 2 chunks, ~1,300 LOC. Chunk 1: bus schema expansion (IDLE/WAITING_FOR_TASK), registry daemon methods, WorkQueueStore, 6 new MCP tools, health monitor IDLE-awareness. Chunk 2: clone-spawner --session-id/--resume, daemon-loop.ts, tick-loop daemon mode, cast.ts Wave-2 dispatch, new commands, skills (manta-daemon-idle/manta-pair-protocol), E2E. Research-backed: 3-clone recon-swarm (cast-1779894176321). |
 
-## Phase 6+ — TBD
+## Phase 6 — Wave-2 Modes (`pair-programming`, `test-storm`, `documentation-chase`)
+
+Цель: implement all three Wave-2 daemon modes with mode-specific dispatch logic, role-specific skills, priming text, and shared worktree support (test-storm). Build by **heavy dogfood** — forking-realities casts with 2 clones per chunk.
+
+| План | Статус | Содержит |
+|---|---|---|
+| `2026-05-27-phase-6-wave2-modes.md` | **Executed** — Chunk 1 (cast-1779904972889, 2 clones, merged + 3 post-merge fixes) + Chunk 2 (cast-1779906432547, 2 clones, merged + 1 post-merge fix). 928 tests workspace-wide green; build+lint clean. | 2 chunks, ~2000 LOC. Chunk 1: shared dispatch infra (DispatchCycleInput/DispatchEnqueuer types, BroadcastReader with sinceTs tracking, PairDispatcher state machine, DocChaseDispatcher), tick-loop onCycleComplete hook, BroadcastEventTypeSchema Wave-2 types, CloneAssignment role field, cast.ts wiring (pair-programming + documentation-chase), 3 role skills (manta-pair-writer, manta-pair-reviewer, manta-doc-chase), priming blocks (DOC_CHASE_BLOCK + PAIR_PROTOCOL_BLOCK update), user docs, integration tests. Chunk 2: shared worktree spawner for test-storm, heartbeat hook idempotency guard, GIT_OPERATIONS virtual lock + PreToolUse enforcement hook (git-lock-hook.ts), TestStormDispatcher pipeline stage manager (coding→testing→fuzzing with fix-cycle loop), cast.ts wiring, 3 storm skills (manta-storm-coder, manta-storm-tester, manta-storm-fuzzer), integration tests (happy path + fix cycle + escalation), user docs, skill count updates. Research-backed: 3-clone recon-swarm (cast-1779903737920). |
+
+## Phase 7+ — TBD
 
 Per spec Sec 15.1. Each phase = separate plan file:
-- Phase 6: Wave-2 modes (`pair-programming`, `test-storm`, `documentation-chase`)
 - Phase 7: Manta Library + auto-cast triggers + community
 - Phase 8: Aghs-locked modes (`council`, `phantom-lance`, `decoy`)
 
