@@ -1,0 +1,93 @@
+A:
+  task: |
+    Phase 4 Chunk 2 — Refactor-wave orchestrator layer. You are Clone A.
+
+    PLAN FILE: docs/superpowers/plans/2026-05-27-phase-4-wave1-closeout.md (Chunk 2 section).
+    READ THE PLAN before starting — it has exact APIs, interfaces, and pseudocode.
+
+    YOUR TASKS (in order):
+    1. [2.1] merge-all.ts orchestrator
+       - File: packages/manta-orchestrator/src/merge-all.ts (new)
+       - Interface: MergeAllOptions, MergeAllResult, QualityGateResult
+       - Function: runMergeAll(opts) — sequential merge with per-clone quality gate
+       - Seam-based: runQualityGate, gitMerge, gitMergeAbort injected for testability
+       - Quality gate: non-empty diff, tsc --noEmit, vitest run
+
+    2. [2.2] Merge-all report renderer
+       - File: packages/manta-orchestrator/src/merge-all-writer.ts (new)
+       - Markdown report to docs/merge-all-reports/cast-<id>.md
+       - Pattern: follow merge-review-writer.ts for structure
+       - Sections: verdict, per-clone quality gate table, merge step log
+
+    3. [2.3] Orchestrator exports
+       - File: packages/manta-orchestrator/src/index.ts
+       - Re-export runMergeAll, MergeAllResult, MergeAllOptions, MergeAllWriter
+
+    4. [2.9-merge-all] Unit tests for merge-all
+       - File: packages/manta-orchestrator/tests/merge-all.test.ts (new)
+       - 8 test cases per plan: all-merged, skip-on-gate-fail, conflict-escalation,
+         partial-merge, no-merges, report-writing, empty-diff-skip, sort-by-exit-time
+
+    TDD: failing test → implement → green → commit (conventional commits).
+    After all tasks: pnpm --filter @manta/orchestrator run build && pnpm --filter @manta/orchestrator run test — must be green.
+  approach_hint: "Start with merge-all.ts types/interface (prerequisite). Then implement runMergeAll with seams. Then writer. Then tests. The pseudocode in the plan is your implementation guide."
+
+B:
+  task: |
+    Phase 4 Chunk 2 — Refactor-wave CLI layer + tests + docs. You are Clone B.
+
+    PLAN FILE: docs/superpowers/plans/2026-05-27-phase-4-wave1-closeout.md (Chunk 2 section).
+    READ THE PLAN before starting — it has exact APIs, validation logic, and test cases.
+
+    PREREQUISITE: Clone A is creating merge-all.ts in @manta/orchestrator.
+    Your cast.ts post-loop wiring should import { runMergeAll, MergeAllWriter } from '@manta/orchestrator'.
+    In your worktree this import won't resolve until merge — write code against the interface
+    in the plan (task 2.1). Your integration tests can mock runMergeAll via injected seam.
+
+    YOUR TASKS (in order):
+    1. [2.4] Add 'refactor-wave' to SUPPORTED_MODES + cast.ts dispatch
+       - File: packages/manta-cli/src/commands/cast.ts
+       - Add to SUPPORTED_MODES
+       - Set peer_messaging = 'denied' (update the ternary to include refactor-wave)
+       - Require cloneAssignments
+       - Call validateDisjointPartitions before spawn
+       - Post-loop: call runMergeAll + write report
+
+    2. [2.5] Refactor-wave priming block
+       - File: packages/manta-cli/src/spawner/priming.ts
+       - Add MODULE_BOUNDARY_BLOCK constant
+       - Inject when mode === 'refactor-wave'
+
+    3. [2.6] Disjoint partition validator
+       - File: packages/manta-cli/src/commands/cast.ts (inline function)
+       - validateDisjointPartitions: check both exact duplicates AND prefix containment
+       - Throw CliError('invalid_input', ...) on overlap
+
+    4. [2.7] Verify clone-spawner peer scope (no code change expected)
+       - Refactor-wave should get MANTA_BUS_PEER_SCOPE='siblings-allowed'
+
+    5. [2.8] Unit tests for refactor-wave cast dispatch
+       - File: packages/manta-cli/tests/commands/cast.test.ts (extend)
+       - 6 test cases per plan
+
+    6. [2.9-priming] Unit tests for refactor-wave priming
+       - File: packages/manta-cli/tests/spawner/priming.test.ts (extend)
+       - 2 test cases
+
+    7. [2.10] Integration test for refactor-wave lifecycle
+       - File: packages/manta-cli/tests/integration/refactor-wave-spawn.test.ts (new)
+       - Pattern: follow forking-spawn.test.ts
+       - 5 assertions per plan
+
+    8. [2.11] E2E smoke test for refactor-wave
+       - File: packages/manta-e2e/tests/refactor-wave.e2e.test.ts (new)
+       - Pattern: follow forking-realities.e2e.test.ts
+       - 2-clone with disjoint partitions + fake runner
+
+    9. [2.12] User docs for refactor-wave
+       - File: docs/user/refactor-wave.md (new)
+       - Sections: When to use | How it works | Module partitioning | Tasks file format | CLI examples | Tips
+
+    TDD: write test → implement → green → commit.
+    After all tasks: pnpm --filter @manta/cli run build && pnpm --filter @manta/cli run test — as many green as possible.
+  approach_hint: "Start with cast.ts changes (2.4 + 2.6 together — dispatch + validator). Then priming (2.5). Then unit tests (2.8, 2.9). Then integration (2.10). Then e2e (2.11). Finally docs (2.12). Each logical group = one atomic commit."

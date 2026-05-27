@@ -1,0 +1,81 @@
+A:
+  task: |
+    Phase 4 Chunk 1 — Bug-hunt implementation (data + dispatch layer). You are Clone A.
+
+    PLAN FILE: docs/superpowers/plans/2026-05-27-phase-4-wave1-closeout.md (Chunk 1 section).
+    READ THE PLAN before starting — it has exact APIs, schemas, and file locations.
+
+    YOUR TASKS (in order):
+    1. [1.1] read_broadcasts MCP tool
+       - File: packages/manta-bus/src/tools/communication.ts — add handleReadBroadcasts handler
+       - File: packages/manta-bus/src/schema.ts — add ReadBroadcastsInputSchema
+       - File: packages/manta-bus/src/server.ts — register new tool 'manta.read_broadcasts'
+       - File: packages/manta-bus/src/index.ts — re-export
+       - Behavior: Read events.jsonl, filter by type='broadcast' + cast_id match, exclude own broadcasts
+       - Unit tests in tests/tools/communication.test.ts (4 test cases)
+
+    2. [1.2] Add 'bug-hunt' to SUPPORTED_MODES + cast.ts dispatch
+       - File: packages/manta-cli/src/commands/cast.ts
+       - Add to SUPPORTED_MODES set
+       - Add max-clone validation (<=2 for bug-hunt)
+       - Add post-loop branch: no merge-review, just reporter.info for investigation reports
+
+    3. [1.3] Bug-hunt priming block
+       - File: packages/manta-cli/src/spawner/priming.ts
+       - Add BUG_HUNT_BLOCK constant
+       - Inject when mode === 'bug-hunt'
+       - Content: investigation protocol with broadcast/read_broadcasts workflow
+
+    4. [1.4] Verify clone-spawner peer scope (no code change expected)
+       - File: packages/manta-cli/src/spawner/clone-spawner.ts
+       - Bug-hunt should get MANTA_BUS_PEER_SCOPE='siblings-allowed' (existing else branch)
+       - Verify this works, no code change unless it doesn't
+
+    TDD: failing test → implement → green → commit (conventional commits).
+    After all tasks: pnpm --filter @manta/bus run build && pnpm --filter @manta/bus run test && pnpm --filter @manta/cli run build && pnpm --filter @manta/cli run test — must be green.
+  approach_hint: "Start with read_broadcasts (bus-level, prerequisite for priming text to reference it). Then cast.ts changes. Then priming. Each task = one atomic commit."
+
+B:
+  task: |
+    Phase 4 Chunk 1 — Bug-hunt tests + docs. You are Clone B.
+
+    PLAN FILE: docs/superpowers/plans/2026-05-27-phase-4-wave1-closeout.md (Chunk 1 section).
+    READ THE PLAN before starting — it has exact test case names, assertions, and patterns.
+
+    PREREQUISITE: Clone A is implementing the read_broadcasts handler, cast.ts dispatch, and priming block.
+    Write your tests against the INTERFACES described in the plan. At merge time, Clone A's
+    implementation will satisfy your imports. For unit tests, mock the bus context (same pattern
+    as existing cast.test.ts). For e2e, the fake runner doesn't call real MCP tools.
+
+    YOUR TASKS (in order):
+    1. [1.5] Unit tests for bug-hunt cast dispatch
+       - File: packages/manta-cli/tests/commands/cast.test.ts (extend)
+       - New describe('cast command — bug-hunt mode')
+       - 5 test cases per plan
+
+    2. [1.6] Unit tests for bug-hunt priming
+       - File: packages/manta-cli/tests/spawner/priming.test.ts (extend)
+       - 3 test cases per plan
+
+    3. [1.7] Integration test for bug-hunt lifecycle
+       - File: packages/manta-cli/tests/integration/bug-hunt-spawn.test.ts (new)
+       - Full lifecycle with fake runner, 4 assertions per plan
+       - Pattern: follow forking-spawn.test.ts structure
+
+    4. [1.8] E2E smoke test for bug-hunt
+       - File: packages/manta-e2e/tests/bug-hunt.e2e.test.ts (new)
+       - Pattern: follow forking-realities.e2e.test.ts structure
+       - 2-clone bug-hunt with fake runner
+       - Assert: both DEAD, post-mortems, NO merge-review, forensic timeline, charges
+
+    5. [1.9] Charge system integration test
+       - File: packages/manta-cli/tests/integration/charge-budget.test.ts (extend)
+       - 1 test case: bug-hunt costs 2 charges
+
+    6. [1.10] User docs for bug-hunt
+       - File: docs/user/bug-hunt.md (new)
+       - Sections: When to use | How it works | CLI examples | Investigation report format | Tips
+
+    TDD: write test → see it compile (imports may not resolve until merge) → commit.
+    After all tasks: pnpm --filter @manta/cli run test && pnpm --filter @manta/e2e run test — as many green as possible (some may fail until merge with Clone A).
+  approach_hint: "Start with unit tests (1.5, 1.6) since they can mock everything. Then integration test (1.7). Then e2e (1.8). Then charge test (1.9). Finally docs (1.10). Each = one atomic commit."
