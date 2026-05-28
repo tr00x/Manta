@@ -1,9 +1,13 @@
 export interface EventSource {
-  readAll: () => Promise<Array<{ ts: number; type: string; payload: unknown }>>;
+  readAll: () => Promise<Array<{ id: string; ts: number; type: string; payload: unknown }>>;
 }
 
 export class BroadcastReader {
-  private lastProcessedTs = 0;
+  // Bus event ids are lex-sortable `<padded-ts>-<seq>-<rand>` (see
+  // packages/manta-bus/src/state/events.ts). Tracking the id cursor — not ts —
+  // means same-ms broadcasts from distinct appends are still distinguishable.
+  // Empty string sorts before any real id, so the first readNew() sees all events.
+  private lastProcessedId = '';
 
   constructor(
     private readonly castId: string,
@@ -15,11 +19,19 @@ export class BroadcastReader {
     const fresh = all.filter(
       (e) =>
         e.type === 'broadcast' &&
-        e.ts > this.lastProcessedTs &&
+        e.id > this.lastProcessedId &&
         (e.payload as Record<string, unknown>)?.cast_id === this.castId,
     );
     if (fresh.length > 0) {
-      this.lastProcessedTs = Math.max(...fresh.map((e) => e.ts));
+      // Take the max id seen in this batch as the new cursor. Within a single
+      // bus process ids are strictly monotonic by append order; across
+      // processes they're approximately monotonic (clocks may skew slightly),
+      // which is acceptable because each cast is served by one bus.
+      let maxId = this.lastProcessedId;
+      for (const e of fresh) {
+        if (e.id > maxId) maxId = e.id;
+      }
+      this.lastProcessedId = maxId;
     }
     return fresh.map((e) => {
       const p = e.payload as Record<string, unknown>;
