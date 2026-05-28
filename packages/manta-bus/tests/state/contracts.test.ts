@@ -126,8 +126,9 @@ describe('ContractsStore', () => {
   // unchanged so the snapshot is byte-equal and auditAppend is suppressed.
   it('byte-identical re-write does not emit a second contract_write audit event (bug #30)', async () => {
     let auditCalls = 0;
-    const auditAppend = async () => {
+    const auditAppend = (): Promise<void> => {
       auditCalls++;
+      return Promise.resolve();
     };
     const c = sample();
     await contracts.write(c, auditAppend);
