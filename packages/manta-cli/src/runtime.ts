@@ -29,6 +29,7 @@ import {
 
 import { CliError } from './errors.js';
 import { createLockfileStore, type LockfileStore } from './library/lockfile.js';
+import { createLocalStore, type LocalStore } from './library/local-store.js';
 
 export interface CreateRuntimeOptions {
   repoRoot: string;
@@ -42,6 +43,7 @@ export interface Runtime {
   thresholds: Thresholds;
   mergeReviewWriter: MergeReviewWriter;
   lockfile: LockfileStore;
+  localStore: LocalStore;
   dispose: () => Promise<void>;
 }
 
@@ -104,6 +106,7 @@ export async function createRuntime(opts: CreateRuntimeOptions): Promise<Runtime
   });
 
   const lockfile = createLockfileStore({ repoRoot });
+  const localStore = createLocalStore();
 
   return {
     repoRoot,
@@ -112,6 +115,7 @@ export async function createRuntime(opts: CreateRuntimeOptions): Promise<Runtime
     thresholds,
     mergeReviewWriter,
     lockfile,
+    localStore,
     dispose: async () => {
       // No resources to release in Phase 0 — placeholder for daemon-mode.
     },

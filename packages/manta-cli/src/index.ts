@@ -17,3 +17,5 @@ export * from './commands/recover.js';
 export * from './commands/mcp-preflight.js';
 export * from './library/mode-registry.js';
 export * from './library/lockfile.js';
+export * from './library/local-store.js';
+export * from './library/dir-digest.js';
