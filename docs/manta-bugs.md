@@ -24,6 +24,28 @@
 
 ## Open bugs
 
+### #36 — `tsc --noEmit` never in exit-criteria gate; `pnpm -r lint` never green (dies at first failing package) → ~360 type-aware-lint errors in `manta-cli` undetected
+
+**Discovered:** 2026-05-28, cast-1779997703425 (Phase 7a Chunk 2 refactor-wave) merge ceremony — running `pnpm -r lint` as part of the post-merge sweep surfaced that the lint gate fails in `@manta/cli` and that no typecheck step exists at all.
+**Severity:** High — the project quality bar is PROD-only, yet a whole class of type errors ships undetected. The exit-criteria gate is `pnpm -r build && pnpm -r test && pnpm -r lint`. `build` uses tsup/esbuild (transpile-only, no type-check). `test` uses vitest (transpile-only). `lint` is the only type-aware step, but `pnpm -r` stops at the first package that exits non-zero, so packages ordered after the first failure are never linted. Net: no command in the gate ever ran `tsc --noEmit` across the workspace, and `pnpm -r lint` was never actually green. Prior INDEX claims of "lint/typecheck clean" for Phase 0-6 were therefore unverified.
+**Status:** Open — debt isolated to `@manta/cli`; other 4 packages (snapshot, bus, orchestrator, skill-validator) are lint-clean as of this ceremony.
+**Reproducer:**
+1. `cd /Users/timur/projectos/manta && pnpm --filter @manta/cli exec tsc --noEmit` → ~360 errors.
+2. `pnpm --filter @manta/cli lint` → fails on the type-aware rules (`no-unsafe-*`, `no-floating-promises` cascade) driven by the same real type errors.
+3. `pnpm -r lint` → exits non-zero at `@manta/cli` (or earlier), so any package after it is silently skipped — the run never reaches green and no aggregate "all clean" is possible.
+**Root cause:** Two compounding gaps:
+- **(a) No typecheck in the gate.** `exactOptionalPropertyTypes: true` is on in `packages/manta-cli/tsconfig.json`, surfacing real `string | undefined` → `string` mismatches and missing-property accesses that esbuild/vitest happily transpile past. Representative real errors: `bin/manta.ts:367`, `limit.ts:113-118`, `daemon-loop.ts:54`, `inspect-renderer.ts:50/61` (`Property 'status' on ContractAck`, `'heartbeat_at' on LockLease`), plus several test files missing `.js` ESM extensions + implicit `any`. These are genuine type errors, NOT module-resolution artifacts.
+- **(b) `pnpm -r` fail-fast masks downstream packages.** Because the run aborts at the first non-zero package, "lint passed" was only ever observed for the packages that happened to be ordered before `@manta/cli`.
+**Fix (proposed):**
+- Add a `typecheck` script (`tsc --noEmit`) to every package and a root `pnpm -r typecheck` step in the exit-criteria gate (and CI).
+- Use `pnpm -r --no-bail lint` (or `pnpm -r --workspace-concurrency=1 --no-bail`) so all packages are linted and the aggregate failure is visible, rather than fail-fast hiding downstream packages.
+- Fix the ~360 `@manta/cli` type errors via a focused `bug-hunt` / `refactor-wave` cast (too large + cross-file for inline main fix per curator-not-coder rule).
+- Recommended sequencing: land the gate change FIRST (so the debt is visible and can't regress), then cast the cli fix against the now-red gate.
+**Lessons:**
+- "Build green + tests green" ≠ "type-clean". esbuild/vitest transpile-only toolchains never type-check; a separate `tsc --noEmit` is mandatory in the gate. Encode in spec Sec 14 (quality bar) + CLAUDE.md.
+- `pnpm -r` is fail-fast by default — an aggregate "lint clean" claim across the workspace is meaningless unless `--no-bail` is used or every package is run individually. Past "lint clean" reports were structurally unable to be true.
+- Validation discipline: re-run the FULL gate unfiltered before any "clean" claim in INDEX/post-mortems; never trust a per-package green as workspace-green.
+
 ### #35 — Concurrent casts corrupt main-repo `node_modules` symlinks (pnpm rewrites paths to point inside worktree pnpm store)
 
 **Discovered:** 2026-05-28, attempting to launch refactor-wave + forking-realities casts in parallel.
