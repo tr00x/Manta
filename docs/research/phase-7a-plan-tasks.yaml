@@ -1,0 +1,144 @@
+A:
+  task: >-
+    Write the Phase 7a Manta Library implementation plan at
+    docs/superpowers/plans/2026-05-28-phase-7a-manta-library.md.
+
+    SCOPE OF 7a: Manta Library install + uninstall + lockfile + ModeRegistry
+    seam + manifest schema. Does NOT include Manta Share (that is Phase 7b)
+    and does NOT include Auto-cast triggers (that is Phase 7c). Stay strictly
+    in 7a scope.
+
+    PRIMARY INPUT — read in full:
+    - docs/research/phase-7-manta-library.md (645 LOC, clone-A research,
+      ground truth for this plan)
+
+    REFERENCE INPUT — read for context:
+    - docs/research/phase-7-community-share-trust.md (clone-C cross-references
+      the ModeRegistry seam; respect their requirements)
+    - docs/superpowers/specs/2026-05-06-manta-pattern-design.md Sec 11.1
+      line 476, Sec 12 lines 542-543
+
+    PLAN STRUCTURE TEMPLATE (mirror this from prior phases):
+    - docs/superpowers/plans/2026-05-27-phase-6-wave2-modes.md (1436 LOC,
+      2 chunks, the exact format/cadence to match)
+    - docs/superpowers/plans/2026-05-27-phase-5-daemon-mode.md (similar
+      scale and rhythm)
+
+    CHUNK BREAKDOWN (DO NOT REORDER OR RESHAPE — these are curator decisions):
+
+    Chunk 1 — Shared foundation + install pipeline (~700 LOC implementation,
+    ~600 LOC plan). Tasks must include:
+    1.1 MantaPackageManifest Zod schema (new file
+        packages/manta-skill-validator/src/manifest-schema.ts)
+        Reuse research §1.3 schema verbatim. Test coverage 100%.
+    1.2 ModeRegistry extraction
+        New file packages/manta-cli/src/library/mode-registry.ts.
+        Replace SUPPORTED_MODES at cast.ts:35 with modeRegistry.has(mode).
+        Seed from built-ins (current 7 modes) + later from lockfile.
+        Tests for has/list/conflict detection.
+    1.3 Lockfile read/write
+        New file packages/manta-cli/src/library/lockfile.ts.
+        manta-lock.json schema per research §5.1.
+        Atomic write via atomic-fs.ts pattern.
+        Tests for round-trip + concurrent safety.
+    1.4 LocalStore (~/.manta/library/<scope>/<name>/<version>/)
+        New file packages/manta-cli/src/library/local-store.ts.
+        Atomic stage→commit→index pattern.
+        Index file (~/.manta/library/index.json) write.
+        Tests for atomic move + collision detection.
+    1.5 Registry client abstraction
+        New file packages/manta-cli/src/library/registry-client.ts
+        with NpmClient + GitClient implementations.
+        NpmClient: shell out to `npm pack`, parse manifest, compute sha256.
+        GitClient: execa `git clone --depth=1`, pack to tgz.
+        Injected dependency for tests (NetworkRunner seam).
+    1.6 validatePackage extension
+        Add validatePackage(packageRoot) to
+        packages/manta-skill-validator/src/walk.ts.
+        Calls existing validateAll + parses MantaPackageManifest +
+        cross-checks contributes paths.
+    1.7 install command (basic happy path only — Chunk 2 finishes flags)
+        New file packages/manta-cli/src/commands/install.ts.
+        Wire into bin/manta.ts adjacent to existing commands.
+        Resolve → fetch → validate → atomic move → lockfile add.
+        Error paths per research §3.3 (network, checksum, validation,
+        conflict, compat-unmet).
+        Integration test: install local .tgz fixture, verify atomic.
+    1.8 ModeRegistry integration with cast.ts
+        Replace SUPPORTED_MODES.has at cast.ts:132 with modeRegistry.has.
+        verifyMantaVersionCompat(lock, mantaCliVersion) before mode lookup.
+        Compat error message per research §5.2.
+    1.9 Documentation: docs/user/manta-library.md draft for Chunk 1 surface.
+
+    Chunk 2 — Uninstall + library CLI + flag completeness + e2e (~700 LOC
+    implementation, ~500 LOC plan). Tasks must include:
+    2.1 install command flag completeness
+        All flags from research §3.2: --no-validate, --no-hooks, --force,
+        --offline, --integrity, --json, --dry-run.
+        For Phase 7a: --no-hooks defaults to refuse hooks entirely
+        (hooks are deferred to Phase 7c; ship the flag now with hard-refuse
+        behavior to avoid retrofit).
+    2.2 uninstall command
+        New file packages/manta-cli/src/commands/uninstall.ts.
+        Multi-version check, in-use check (registry.json scan),
+        index re-emit, lockfile drop. Per research §3.4.
+    2.3 library CLI commands
+        New file packages/manta-cli/src/commands/library.ts.
+        Subcommands: list, show, outdated (npm-only), doctor.
+        Per research §3.5.
+    2.4 Hash-pin verification on every cast
+        Fast cheap check in runCastCommand: lockfile integrity vs on-disk
+        content hash. Exit 19 library_tampered on mismatch.
+        Per research §5.3.
+    2.5 E2E test
+        New file packages/manta-e2e/src/manta-library.e2e.test.ts.
+        Preflight: build packages, install local .tgz fixture.
+        Cast using a library-installed mode (basedOn: recon-swarm).
+        Verify mode resolves through ModeRegistry, runs end-to-end.
+        Env-gated by MANTA_E2E=1.
+    2.6 Documentation: complete docs/user/manta-library.md +
+        docs/internals/mode-registry.md (architecture note).
+    2.7 INDEX.md update + CHANGELOG.md entry.
+
+    CONSTRAINTS:
+    - Mirror Phase 6 plan formatting exactly: ### Task N.M headings,
+      ## Chunk N section headings, task bodies with motivation/files-touched/
+      acceptance-criteria/tests subsections.
+    - For each new file: state the path, the exported interface
+      (function/class signatures), and the test file path next to it.
+    - For each existing file edit: state the file path, the surgical
+      change (one-line description), and acceptance criteria.
+    - Each chunk ends with explicit "Chunk complete when" criteria:
+      build green, tests green, lint clean, manual happy-path
+      verification, INDEX.md updated.
+    - DEFER to Phase 7b/7c (mention briefly, do NOT plan):
+      Manta Share (everything `manta share` related)
+      Auto-cast triggers (everything `manta trigger` related)
+      Hooks distribution (per clone-A §7 open question 5: defer to Phase 8)
+      Code signing, author reputation, runtime sandbox (per clone-C MVTS-7)
+    - DO include in Phase 7a: the latent bug #18 fix (post-mortem allowlist
+      redactor for record.metadata). It's a Chunk 1 task because the
+      sanitization module that fixes it is reused by Phase 7b later.
+      Add it as task 1.10.
+
+    DELIVERABLE:
+    - docs/superpowers/plans/2026-05-28-phase-7a-manta-library.md (~1100 LOC)
+    - update docs/superpowers/plans/INDEX.md with Phase 7 section and
+      Phase 7a entry (status: TODO)
+
+    DO NOT:
+    - write any implementation code
+    - run any tests
+    - touch packages/* source files
+    - cast sub-clones
+    - exceed 5 files written (1 plan, 1 INDEX edit, this last-gasp report —
+      that's 3; leaves 2 spare for any breakdowns)
+  approach_hint: >-
+    Start by reading the Phase 6 plan in full to internalize the formatting
+    cadence. Then read the clone-A research file fully — its §6 codebase
+    audit is the file:line backbone for the task list. Use the exact
+    file:line references throughout. When in doubt about chunk boundary,
+    keep Chunk 1 to the schema + foundation files + happy-path install;
+    push polish + e2e + uninstall to Chunk 2. The two chunks must each
+    individually be greenable end-to-end (tests pass after Chunk 1, more
+    tests pass after Chunk 2).
