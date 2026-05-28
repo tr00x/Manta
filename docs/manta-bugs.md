@@ -24,6 +24,188 @@
 
 ## Open bugs
 
+### #34 — `parseTasksFile` Zod `z.record(keySchema, valueSchema)` 2-arg form silently drops value schema → 4 tasks-file tests + 1 cast.ts test fail on YAML/JSON parsing
+
+**Discovered:** 2026-05-28, post-bug-hunt verification by main (workspace test sweep after cherry-picking Clone B's #20/#21 fixes).
+**Severity:** Medium — `manta cast --tasks <yaml>` may silently misvalidate per-clone assignments. Tests assert failure: `Expected string, received object` at path `['A']`, meaning the 2-arg `z.record(z.string().min(1), CloneAssignmentSchema)` at `packages/manta-cli/src/spawner/tasks-file.ts:8` is interpreted as a 1-arg form where the value type defaults to `string`. The whole tasks-file overlay path is broken for object values.
+**Status:** Open. Verified pre-existing on commit `bfcc7c3` (Phase 6 end-of-day HEAD before any of today's work).
+**Reproducer:**
+1. `pnpm --filter @manta/cli test tasks-file` on HEAD `bfcc7c3` → 4 fail / 7 pass.
+2. Same failure on current HEAD post-bug-hunt fixes — independent of #20/#21.
+3. Failure: `tasks-file.ts:51` calling `FileSchema.safeParse(parsed)` rejects the YAML where `A: { task: '...' }` because schema expected a string at value position.
+**Root cause:** Zod 3.25.x changed `z.record(keySchema, valueSchema)` semantics — the 2-arg form is no longer supported in the same way (or was never the intended API). The single-arg `z.record(schema)` interprets the arg as the value schema with implicit string keys. Our code passing two args has the second silently ignored → value schema defaults to `z.string()`.
+**Fix (proposed):**
+- (a) Swap to single-arg form with manual key validation: `z.record(CloneAssignmentSchema).refine(rec => Object.keys(rec).every(k => k.length >= 1))`. Or
+- (b) Use `z.object({}).catchall(CloneAssignmentSchema)` if available in installed Zod version. Or
+- (c) Replace `z.record` with explicit `z.object({A: CloneAssignmentSchema.optional(), B: CloneAssignmentSchema.optional(), ...})` — verbose but type-safe.
+- Recommended: (a). ~3 LOC.
+**Lessons:**
+- Zod major-minor upgrades can change API semantics silently — pin transitive zod version or add a smoke test for every Zod 2-arg call site.
+- Test was failing on main but went unnoticed because Phase 6 verification ran a narrower test selection. Whole-workspace `pnpm -r test` should be a Phase exit gate, not just package-level test runs.
+- Clone B claimed "371/372 pass" in their cast-1779980048361 audit — they missed these 4 failures, likely because they ran tests via a filtered selector that excluded `tasks-file`. Validation discipline: when a clone reports test count, audit-cast the count by re-running unfiltered.
+
+### #33 — Pre-existing flake: `heartbeat-hook.test.ts > touch script updates last_heartbeat_at`
+
+**Discovered:** 2026-05-28, bug-hunt cast `cast-1779980048361` clone B audit (surfaced during regression-test validation of Clone B's #20/#21 fixes).
+**Severity:** Low — masks bug #32 (heartbeat-touch lies about proper-lockfile) from CI signal.
+**Status:** Open. Verified pre-existing on HEAD `01ef4d4` by stashing the bug-hunt diff and re-running the test.
+**Symptom:** `packages/manta-cli/tests/spawner/heartbeat-hook.test.ts:64-95` seeds a registry with `last_heartbeat_at: 1000`, runs the emitted touch script via `execSync`, asserts the registry's `last_heartbeat_at` was updated. Assertion fails: the script ran but the registry was unchanged.
+**Root cause hypothesis:** Linked to bug #32. The mkdir-lock at `LOCK_DIR/registry.json.lock` is left behind by a previous test invocation (test fixtures don't clean lock dirs explicitly). Subsequent runs see a pre-existing lock dir → `tryLock` returns false → 50ms retry fires → still false (lock owner long gone but dir persists) → script exits without touching registry.
+**Recommended fix:** (a) test should seed/clean the lock dir explicitly; or (b) script should detect stale locks (lock-dir mtime > 5s old → treat as stale, remove, retry). (b) is the same hygiene the bus's `proper-lockfile` ships out of the box — another argument for #32's option (a).
+**Lessons:** Test flakes with cross-test resource leakage often share a single root-cause with a production bug. Don't `it.skip` them — fix the cleanup.
+
+### #32 — Heartbeat-touch script claims `proper-lockfile` parity but uses mkdir locking
+
+**Discovered:** 2026-05-28, bug-hunt cast `cast-1779980048361` clone B audit.
+**Severity:** Low — race window is short (single read+write touch).
+**Status:** Open — docstring/impl mismatch.
+**Symptom:** `packages/manta-cli/src/spawner/heartbeat-hook.ts:14-15` docstring says "Uses proper-lockfile for safe concurrent access to registry.json (same locking primitive as `atomicMutateJson` in `@manta/bus`)." The actual emitted touch script (`buildTouchScript`, lines 70-118) uses `fs.mkdirSync(LOCK_FILE)` with a single 50ms retry, no fairness, no stale-lock detection. The bus's `atomicMutateJson` uses `proper-lockfile`'s file-based lock with a different on-disk representation. The two schemes do not coordinate.
+**Reproducer:** Concurrent `manta.heartbeat` from the bus + Read/Edit hook fires on the clone during a registry mutation. The touch script can read the registry mid-mutation (post-`atomicMutateJson`'s lock acquire but before the rename) and write back, overwriting the bus's pending mutation.
+**Recommended fix:** (a) make the touch script use `proper-lockfile` from worktree's node_modules (`require('proper-lockfile')`); or (b) update the docstring to honestly describe the mkdir scheme + accept the race window. (b) is the minimum honesty fix; (a) is the correctness fix.
+**Lessons:** Comments that overstate guarantees are landmines. Either align the comment to the code or upgrade the code.
+
+### #31 — `validateDisjointPartitions` throws after `runPreSpawnGate` commits → charges + daily-spend leak
+
+**Discovered:** 2026-05-28, bug-hunt cast `cast-1779980048361` clone B audit.
+**Severity:** Low — operator-only failure mode (mis-authored tasks YAML). But charges & daily-spend stay deducted with zero work performed, no compensating credit.
+**Status:** Investigating — fix is mechanical reordering, but tests may pin the current ordering.
+**Reproducer:**
+1. Author a refactor-wave tasks YAML with overlapping `allowed_paths` partitions across two clones.
+2. Run `manta cast refactor-wave --tasks tasks.yaml`. `runPreSpawnGate` runs, charges are deducted (`pre-spawn-gate.ts:153`), daily-spend is recorded (`pre-spawn-gate.ts:157-163`).
+3. Immediately after, `commands/cast.ts:309-311 validateDisjointPartitions(assignments)` throws `CliError(invalid_input)`.
+4. The throw unwinds before the `try` block at line 349 is entered, so the catch-block compensating cleanup at line 682 does not fire. Charges remain deducted; no clones spawned; no credit issued.
+**Root cause:** Operator-typo validation lives below the state-committing gate. Should be above.
+**Recommended fix:** Move `validateDisjointPartitions` above `runPreSpawnGate`, adjacent to the cumulative-budget validation at `:260-269`. Pattern: every operator-typo guard goes before any commit.
+**Lessons:** **Validation before commit** is universal — applies to ledgers, file writes, and any side-effect-producing call. Cumulative-budget validation already follows this rule; partition validation should too.
+
+### #30 — `ContractsStore.write` emits `contract_write` audit on idempotent rewrite (only `written_at` changes) — bug-#14 class for timestamp-only diffs
+
+**Discovered:** 2026-05-28, bug-hunt cast `cast-1779980048361` clone A audit (re-audit of post-bug-#14/#15 mutators).
+**Severity:** Low — duplicate audit events; no state corruption, but `manta status` / replay shows phantom contract-writes that never changed semantics.
+**Status:** Open.
+**Reproducer:**
+1. Main writes a task contract for clone B with body X via `manta.task_contract.write`. Bus emits `contract_write` event 1.
+2. Main writes the byte-identical contract again. Bus emits `contract_write` event 2 with the same body.
+3. `manta replay` / `events.jsonl` show two writes where only one mutation happened semantically. Compare to `CastsStore.create` (`packages/manta-bus/src/state/casts.ts:33-90`) which was fixed to return `current` unchanged on byte-identical input.
+**Root cause:** `ContractsStore.write` (`packages/manta-bus/src/state/contracts.ts:35-65`) always builds a fresh `next: StoredContract = { contract, written_at: this.clock.now() }`. Even when `sameBody` is true, the post-mutation JSON differs from the snapshot in `written_at`, so `atomicMutateJson`'s change-detection at `atomic-fs.ts:102` fires `auditAppend`. Defeats the same idempotency that bug #14's fix established for `CastsStore.create`.
+**Fix (proposed):**
+- **Option A:** detect `sameBody` and return `current` unchanged (parallel to `CastsStore.create` fix at casts.ts:70-72). Preserves the prior `written_at` on identical re-writes.
+- **Option B:** preserve `written_at` on `sameBody` (semantic: "last time the body actually changed"), only re-stamp on body-diff. Cleanest semantic.
+**Lessons:** any mutator that injects a fresh `clock.now()` into its return value defeats the JSON-equality idempotency check at the primitive level. Add bug-hunt taxonomy item **(l) Timestamp-only diffs**: any mutator that updates a timestamp field should explicitly gate the update on a semantic-change predicate, not let `clock.now()` run unconditionally.
+
+### #29 — `post-mortem.ts:101` renders raw event payloads (`broadcast.body` / `message.body` / `drift.evidence`) via `JSON.stringify(e.payload)` — extends #18 from metadata to payload surface
+
+**Discovered:** 2026-05-28, bug-hunt cast `cast-1779980048361` clone A audit of orchestrator render-to-string paths.
+**Severity:** Low currently (clones don't broadcast sensitive content today), **High by Phase 7 ship** (post-mortems land in `/manta share` bundles).
+**Status:** Open — should be folded into Phase 7a plan task 1.10 sanitization module scope (the module already targets `record.metadata`; extending to event payloads is one extra context tag).
+**Reproducer:**
+1. Clone A calls `manta.broadcast({clone_id:'A', event_type:'blocker', payload:{stderr:'... AWS_SECRET_ACCESS_KEY=AKIAxxxxx ...'}})` after a failing shell call.
+2. Clone A dies; orchestrator writes `docs/post-mortems/<date>-<cast>-A.md`.
+3. Line 101 of `packages/manta-orchestrator/src/post-mortem.ts` does `JSON.stringify(e.payload)` — verbatim payload rendered. Secret lands in post-mortem.
+4. Next `/manta share` (Phase 7) bundles the post-mortem and ships it externally.
+**Root cause:** identical pattern to bug #18 — render-to-string with no allowlist. `BroadcastInputSchema.payload`, `MessageInputSchema.payload`, `DriftReportInputSchema.evidence`, `FeedbackInputSchema.feedback`, `AckContractInputSchema.interpretation` are all unconstrained free-form fields. Phase 7a sanitizer (task 1.10) was scoped only to `record.metadata`.
+**Fix (proposed):**
+- **Couple to Phase 7a sanitization:** add render context tag `'post-mortem-event-payload'` and route the payload-render through the same allowlist/redact pipeline as `record.metadata`.
+- **Short-term (~10 LOC):** replace `JSON.stringify(e.payload)` with type-aware projection — `'broadcast' → e.payload.event_type`, `'lock' → e.payload.path`, `'message' → '<from→to>'` — omits free-form fields entirely.
+**Lessons:** Every render-to-string of free-form input is a leak surface. Audit found 4 such paths (post-mortem, merge-review, merge-all-writer, forensic-timeline). For every `render*Markdown` / `JSON.stringify(...)` against user-controlled input, verify upstream schema is closed or allowlist applies.
+
+### #28 — `manta.lock` / `manta.unlock` / `manta.renew_lock` not refused for `forking-realities` clones — analogous gap to `manta.claim_work` FR-isolation
+
+**Discovered:** 2026-05-28, bug-hunt cast `cast-1779980048361` clone A cross-referencing forking-isolation.ts against tools/index.ts.
+**Severity:** Medium — two FR-cast clones in isolated worktrees collide on the *shared* `.manta/state/locks.json` because lock paths are repo-relative.
+**Status:** Open.
+**Reproducer:**
+1. Two clones (A, B) in `cast-X` mode `forking-realities` with isolated worktrees, both with `metadata.cast_mode='forking-realities'` and same `cast_id`.
+2. Clone A: `manta.lock({clone_id:'A', path:'packages/foo/bar.ts'})` — succeeds.
+3. Clone B: `manta.lock({clone_id:'B', path:'packages/foo/bar.ts'})` — gets `BusLockedError`, even though B has its own worktree copy of `bar.ts` and cannot conflict with A.
+4. Compare: `manta.claim_work` for the same FR clone is explicitly refused with `BusForkingIsolationError` at `packages/manta-bus/src/tools/work.ts:22-36`.
+**Root cause:** forking-isolation policy applied to `claim_work` (Phase 2) but never extended to `lock`/`unlock`/`renew_lock`. Semantic invariant identical: FR-cast clones share no resources.
+**Fix (proposed):** add cast-mode check to all three lock handlers in `packages/manta-bus/src/tools/locks.ts`:
+```ts
+const r = await ctx.registry.get(parsed.clone_id);
+if (r.metadata.cast_mode === 'forking-realities') {
+  throw new BusForkingIsolationError({ tool: 'manta.lock', fromCloneId: parsed.clone_id, castId: r.metadata.cast_id ?? '<missing>' });
+}
+```
+3 handlers × ~5 LOC = ~15 LOC + new `forking-isolation.test.ts` block.
+**Lessons:** when a new isolation rule is added for one tool, the same rule must be evaluated for every analogous tool. Bug-hunt taxonomy (g) "forking-isolation gaps" — the recurring failure mode is adding the rule to one handler and forgetting the symmetric handlers. Every new MCP handler that accepts `clone_id` should declare its FR-policy explicitly (allow / refuse / cross-cast-ok).
+
+### #27 — `runDaemonLoop` loses work items on runner failure (no retry, no requeue)
+
+**Discovered:** 2026-05-28, bug-hunt cast `cast-1779980048361` clone B audit.
+**Severity:** Medium currently (no CLI command wires `runDaemonLoop` yet — only tests). Graduates to High the moment a `manta daemon run` lands.
+**Status:** Open — by-design or bug determined by Phase 5+ plan author. Investigating.
+**Reproducer (forward-looking):**
+1. `runDaemonLoop` is wired into a `manta daemon run` command.
+2. Daemon dequeues an item (`work-queue.json` flips `claimed_at`).
+3. Resume runner fails to start (`exitResult.failed && exitCode == null`) — e.g. `claude` binary missing, sandbox blocked.
+4. Daemon increments `consecutiveFailures` and `continue`s. **Item stays in queue forever with `claimed_at` set**; subsequent `dequeue` calls filter it out (`work-queue.ts:60` requires `!i.claimed_at`).
+**Root cause:** `packages/manta-cli/src/daemon-loop.ts:65-78` treats runner failures as "skip this item" without redrive or terminal state. `WorkQueueStore` has no `release` (requeue) API.
+**Recommended fix:** Either (a) add `WorkQueueStore.release(itemId)` to reset `claimed_at` and increment `attempts` counter; OR (b) `complete(item.id)` with synthetic `failed: true` audit event plus structured `daemon.work_failed` event. (a) preserves work, (b) loses it but is observable. Phase 5 plan author decides.
+
+### #26 — `TestStormDispatcher.handleCodeReady` resets stage on duplicate `code_ready` while testing
+
+**Discovered:** 2026-05-28, bug-hunt cast `cast-1779980048361` clone B audit.
+**Severity:** Medium — masks convergence stalls and wastes a fix-cycle budget. Edge case but real with three live clones broadcasting concurrently.
+**Status:** Open.
+**Reproducer (synthetic):**
+1. Coder clone broadcasts `code_ready` for `feature_id: X`. Dispatcher creates stage with `status: 'testing', fixCycles: 0`. Enqueues tester prompt.
+2. Coder clone (cold-fix flow) broadcasts another `code_ready` for `feature_id: X` while tester is still running.
+3. `handleCodeReady` finds `existing.status === 'testing'` (not `complete`/`escalated`/`fixing`). Falls through to `this.stages.set(featureId, { fixCycles: 0, status: 'testing' })` — **silently wipes the in-flight stage**, re-enqueues the tester, and resets fix-cycle counter.
+**Root cause:** `packages/manta-cli/src/dispatch/test-storm-dispatch.ts:44-77` branch ladder is non-exhaustive. Treating 'testing'/'fuzzing' as fall-through into "fresh stage" is the bug. Adjacent: `buildFixPrompt` at line 158 hard-codes `/${3}` instead of `config.maxFixCycles`.
+**Recommended fix:** Explicit branch for `status === 'testing' | 'fuzzing'`: ignore the duplicate broadcast or replace only `codeCommitRef` without resetting state. Fix the `/3` hard-code in the same commit. Add regression test in `tests/dispatch/test-storm-dispatch.test.ts`.
+**Lessons:** Branch ladders over state machines need an exhaustive default. TS's `never`-type discriminated-union exhaustiveness check would have caught this if `TestStormStage.status` were narrowed in each branch.
+
+### #25 — `BroadcastReader` strict-`>` ts comparison drops same-millisecond events
+
+**Discovered:** 2026-05-28, bug-hunt cast `cast-1779980048361` clone B audit.
+**Severity:** Medium — exposure during high broadcast-rate cycles (test-storm fix loops). A miss is a hung dispatcher waiting on an event that already arrived.
+**Status:** Open.
+**Reproducer (synthetic):**
+1. Two clones broadcast in the same `Date.now()` ms tick.
+2. Bus appends both; both events have the same `ts`.
+3. Cycle N reads one of them. `lastProcessedTs = ts`.
+4. Cycle N+1 reads `readAll()` and filters `e.ts > ts` (strict). Second same-ts event fails the filter and is dropped permanently.
+**Root cause:** `packages/manta-cli/src/dispatch/broadcast-reader.ts:18` uses `e.ts > this.lastProcessedTs`. The bus emits a lex-sortable monotonic `id` field per event (`packages/manta-bus/src/state/events.ts:25-28`) precisely to disambiguate same-ms events, but `EventSource` interface in this file does not expose `id`.
+**Recommended fix:** Widen `EventSource` to include `id: string`, then track `lastProcessedId` (lex-sortable string) and filter `e.id > lastProcessedId`. Same monotonicity guarantee. Add regression test in `tests/dispatch/broadcast-reader.test.ts` with two same-ts events split across two `readNew()` calls.
+**Lessons:** Tie-breaking ordering needs a tertiary key when wall-clock has finite resolution. The bus already provides one — surface it.
+
+### #24 — Reapers (`lock-reaper` / `claim-reaper`) and `enqueue_work` emit audit AFTER state commit — violates `audit-trail-invariant`
+
+**Discovered:** 2026-05-28, bug-hunt cast `cast-1779980048361` clone A.
+**Severity:** Medium — replay/post-mortem cannot reconstruct *which* clone lost a lock/claim and when, on bus crash between state-commit and audit-append. Same correctness class as bug #14 (idempotent audit) but inverted polarity.
+**Status:** Open.
+**Reproducer:**
+1. Crash the bus process between `LocksStore.reapStale()`'s atomic-mutate rename (writes `locks.json` with N leases removed) and the first `events.append({type:'lock_reap', ...})` call in `packages/manta-orchestrator/src/lock-reaper.ts:11-24`.
+2. Restart. `locks.json` shows N leases gone; `events.jsonl` shows zero `lock_reap` events for them.
+3. `manta replay` / post-mortem cannot tell *which* clone lost a lease and when.
+Same pattern: `packages/manta-bus/src/state/claims.ts:79-92` + `packages/manta-orchestrator/src/claim-reaper.ts:8-26`. Same pattern: `packages/manta-bus/src/tools/work.ts:61-78` (`enqueue_work` — `workQueue.enqueue` commits, then `events.append('enqueue_work', ...)` runs outside the atomicMutateJson lock).
+**Root cause:** audit-trail invariant ("audit append inside the file mutex") was implemented for single-record mutators (Registry.heartbeat, Locks.acquire, etc.) where closure `auditAppend?: () => Promise<void>` carries exactly 0–1 audit events. Fan-out mutators (reapers iterating N leases) and the work-queue path route around the closure entirely.
+**Fix (proposed):**
+- **(a) Widen closure contract:** `auditAppend?: (committedNext: T, computedDelta: ReaperDelta) => Promise<void>` — closure receives post-mutation snapshot; reaper can compute reaped[] inside the lock and emit N audit lines before commit.
+- **(b) Per-record loop:** `for (const stale of staleLeases) await atomicMutateJson(file, ..., (cur) => removeOne, async () => events.append(...))`. Slower (N lock acquires) but preserves invariant.
+- **(c) For `enqueue_work`:** trivially wrap `workQueue.enqueue` to accept same `auditAppend` callback as other handlers. ~5 LOC.
+**Lessons:** Invariant is "audit lives inside the file mutex." Whenever a future mutator emits > 1 logical event, the closure shape needs widening — not bypassing. Bug-hunt taxonomy (k) Fan-out mutator audit-invariant: every `atomicMutateJson` mutator that emits > 1 logical event needs explicit audit semantics.
+
+### #23 — Bus auto-touch extracts the *subject* `clone_id` not the *caller* — `manta.message` / cross-clone reads / main-driven retasks mis-touch (or no-op)
+
+**Discovered:** 2026-05-28, bug-hunt cast `cast-1779980048361` clone A audit of `@manta/bus` server dispatch.
+**Severity:** Medium — orchestrator's death-detector loses accuracy for any clone that primarily talks via `manta.message`; main-driven calls (retask/pause/resume/feedback) advance the *target* clone's heartbeat when the *target* did nothing. Partial regression of bug #9 structural fix.
+**Status:** Open.
+**Reproducer:**
+1. Read `packages/manta-bus/src/server.ts:316-348` — `extractCloneId(args)` reads only the literal `clone_id` field.
+2. Walk the 25 MCP tools' input schemas. Five use a caller-id field other than `clone_id`:
+   - `manta.message` — caller is `from_clone_id`. No `clone_id` field → auto-touch silent no-op.
+   - `manta.task_contract.read` with `requesting_clone_id` — caller is `requesting_clone_id`, but `extractCloneId` returns the *target* `clone_id`. Wrong clone touched.
+   - `manta.retask` / `pause` / `resume` / `feedback` — caller is the main agent; `clone_id` is the *target*. Target's `last_heartbeat_at` advances on main's call, masking actual quiescence.
+   - `manta.enqueue_work` — uses `target_clone_id`; no `clone_id` field → no touch fires.
+**Root cause:** the bug-#9 structural fix treated `args.clone_id` as a synonym for "the calling clone". Holds for ~17 of 25 tools (lifecycle self-calls, broadcasts, locks, claims). Other 5+ have caller ≠ subject and silently mis-touch.
+**Fix (proposed):**
+- **(a) tool-name-aware extraction** — `extractCloneId(toolName, args)` maps each tool to its caller-field key: `'manta.message' → 'from_clone_id'`, etc. ~30 LOC + table.
+- **(b) schema-uniform caller field** — every input schema gets explicit `caller_clone_id`. Heavier, requires priming change.
+Recommended (a).
+**Lessons:** "Refresh on every call" was the fix for #9; "refresh the *caller*, not the subject" is the missing half. Validation cast for the bug-#9 fix should have audited every tool's argument list against the auto-touch contract — not just lifecycle. Bug-hunt taxonomy (j) `extractCloneId`-style identity extraction: for every dispatcher convention that auto-acts per caller, audit every tool's input schema for which field is *actually* "the caller".
+
 ### #18 — `post-mortem.ts` emits raw `record.metadata` unsanitized — latent leak surface for Phase 7 share bundles
 
 **Discovered:** 2026-05-28, Phase 7 research cast `cast-1779977834212` (clone C codebase audit).
@@ -37,6 +219,47 @@
 **Lessons:** "Pre-existing pattern" is not "correct pattern" — post-mortems were build-to-disk-locally infra; Phase 7's share command changes the threat model retroactively. Any infra that newly ships off-machine needs a sanitization review pass.
 
 ## Recently fixed
+
+### #22 — Orchestrator `ScoringWeightsSchema` / `ScoringConfigSchema` missing `.strict()` — drive-by config fields silently dropped
+
+**Discovered:** 2026-05-28, bug-hunt cast `cast-1779980048361` clone A schema-strictness audit pass.
+**Severity:** Low.
+**Status:** Fixed in `037241a` (extracted from Clone A's bundled commit; the atomic fix is the `.strict()` wrapping on `ScoringWeightsSchema` and `ScoringConfigSchema` in `packages/manta-orchestrator/src/scoring.ts`).
+**Reproducer:**
+1. User writes `.manta/config/scoring.json` with `{"weights":{...}, "perfBonus":0.10, "epsilon":0.05, "notes":"tuned for refactor-wave"}`.
+2. `loadScoringConfig` parses through `ScoringConfigSchema`. Default Zod behaviour strips the unknown `notes` key silently — user gets no warning.
+3. Compounding: typo on optional field that *will* be added in future version (`perfBonues: 0.1`) is silently dropped.
+**Root cause:** schema-strict discipline drift at package boundaries. `packages/manta-bus/src/schema.ts` consistently uses `.strict()` on every `z.object` (37 schemas); orchestrator was missed for the only two schemas it owns (`ThresholdsSchema` is correctly `.strict()`).
+**Fix:** wrapped both schemas in `.strict()`. 139/139 orchestrator + 337/337 bus tests pass.
+**Lessons:** Schema-strict discipline lives package-by-package, not project-wide. Add a CI lint that greps every package for `z.object({` not followed by `.strict()` within a short window. Bug-hunt taxonomy (m) schema-strictness audit per package: don't trust that one package's discipline implies another's.
+
+### #21 — Daemon-mode `allDone` excludes `WAITING_FOR_TASK` → daemon casts hang to budget abort
+
+**Discovered:** 2026-05-28, bug-hunt cast `cast-1779980048361` clone B audit.
+**Severity:** High — every daemon cast (pair-programming, test-storm, documentation-chase) risked hanging until tick-budget timer fired, killing every clone with SIGTERM/SIGKILL instead of letting them shut down gracefully. Compounded with #20 because the (broken) queue-empty branch would have been the only path to `allDone === true`.
+**Status:** Fixed in `10b02aa` — new exported `DAEMON_IDLE_STATES` constant (`{IDLE, WAITING_FOR_TASK}`); `allDone` predicate now uses `DAEMON_IDLE_STATES.has(c.state)`. Regression tests in `tests/commands/cast.test.ts > DAEMON_IDLE_STATES` (positive membership for both idle states, negative for all others).
+**Reproducer:**
+1. Cast any daemon-mode (e.g. `manta cast pair-programming --task X --clones 2`).
+2. Writer clone broadcasts `commit_ready`, then per priming preamble calls `manta.request_task` and transitions to `WAITING_FOR_TASK`.
+3. `commands/cast.ts:536-538` `allDone` checked `c.state === 'IDLE'` only — `WAITING_FOR_TASK` clones caused `allIdleOrDead === false`.
+4. Loop never terminated naturally; budget timer at `cast.ts:503` eventually aborted and killed clones.
+**Root cause:** `CloneStateSchema` declares both `IDLE` and `WAITING_FOR_TASK` as valid states. Registry, retask command, stale-detector all branched correctly; `cast.ts` predates `WAITING_FOR_TASK` (added Phase 5) and was missed in the consumer sweep. Same shape as #7/#8.
+**Lessons:** Adding a new value to a state enum is a cross-package change. Grep for `'IDLE'` (string literal) at schema-change time would have caught this. Inline lambdas are hard to regression-test — extracting to a named, exported constant makes the predicate testable. State-enum sweep checklist: registry, stale-detector, retask, cast.allDone, post-mortem renderer, status command. Any new state belongs in all six.
+
+### #20 — `runtime.ts` does not wire `WorkQueueStore` → Phase 5/6 daemon-mode features silently no-op in production
+
+**Discovered:** 2026-05-28, bug-hunt cast `cast-1779980048361` clone B audit.
+**Severity:** High — every Phase 6 Wave-2 daemon mode (pair-programming, test-storm, documentation-chase) and the Phase 5 `retask` command short-circuit on `if (rt.ctx.workQueue)` and silently no-op in production. Tests pass because every daemon-mode test wires `workQueue` manually.
+**Status:** Fixed in `64600c4` — adds `WorkQueueStore` to imports and instantiates it in the `BusContext` literal with shared `paths` + `clock`. Regression test in `tests/runtime.test.ts` enqueues an item and asserts it round-trips via `pending`.
+**Reproducer (historical):**
+1. With HEAD `01ef4d4`, run `manta cast documentation-chase --task 'doc packages/foo' --clones 1`. Cast spawns the doc clone, but `cast.ts:449 if (opts.mode === 'documentation-chase' && rt.ctx.workQueue)` is false → no work items enqueued. Clone receives no tasks via `manta.dequeue_work`, eventually goes IDLE.
+2. Pair-programming or test-storm: `dispatchEnqueuer` at `cast.ts:467` is null → `onCycleComplete` callback to tick-loop is `undefined` → broadcasts from clones never trigger work enqueue → dispatchers never fire.
+3. `manta retask <cloneId> "new task"` exits 0 but silently does nothing.
+**Root cause:** `BusContext.workQueue?: WorkQueueStore` is optional in the `@manta/bus` type. The bus server wires it (`server.ts:96-111`); the CLI runtime forgot. Same shape as #2 (skill claims behaviour spawner doesn't perform), #13 (priming references a field the bus schema doesn't accept). Class lesson: **cross-package wiring is checked by TS only when the type is required**; optional fields silently leak through.
+**Lessons:**
+- Optional fields in `BusContext` need an integration test that exercises the production wiring path, not just unit tests that fake the field.
+- Any new `BusContext` field added in `@manta/bus` must be sweep-audited across all callers (cli runtime + tests + bus server). Grep for the field name should be a Phase-N exit gate.
+- `if (rt.ctx.workQueue)` is a code smell. Optional-field guards in production paths should either be removed (require the field) or have a structured-error fallback instead of a silent skip.
 
 ### #19 — Cannot run two concurrent casts: clone-name allocation collides on WORKING clone
 
