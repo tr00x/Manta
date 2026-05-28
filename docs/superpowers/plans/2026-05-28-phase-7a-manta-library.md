@@ -36,11 +36,11 @@ This chunk lands the manifest schema, the registry seam, the lockfile, the globa
 **Files:**
 - Create: `packages/manta-skill-validator/src/manifest-schema.ts`
 - Create: `packages/manta-skill-validator/tests/manifest-schema.test.ts`
-- Modify: `packages/manta-skill-validator/src/index.ts` — re-export `MantaPackageManifest` + inferred type
+- Modify: `packages/manta-skill-validator/src/index.ts` — re-export `MantaPackageManifestSchema`, `LibraryModeJsonSchema`, and inferred types `MantaPackageManifest`, `LibraryModeJson`.
 
 **Why:** The manifest is the only schema-validated artifact at install time; the install path's whole correctness story rests on this Zod parser. We put it in `@manta/skill-validator` (not in `@manta/cli`) because the validator package is the canonical home for parsing+validating plugin-shaped on-disk content, and the validator already owns `SkillFrontmatterSchema` / `SlashCommandFrontmatterSchema` (per `packages/manta-skill-validator/src/schemas.ts:7`, `:21`). Co-locating keeps one parser package, one set of tests, one set of error-message conventions.
 
-**Schema (reuse verbatim from research §1.3):** Zod object with `schemaVersion: z.literal(1)`, `name` (npm-scoped or bare kebab regex), `version` (semver regex), `description` (10–280 chars), `author`, `license` (closed SPDX enum), `homepage` / `repository` optional URLs, `mantaVersionCompat` (semver range), `contributes` (`skills[]` / `commands[]` / `modes[]` with `name` / `description` / `basedOn` enum of the 7 built-in modes / `cloneCount.{min,max}` / `sessionMode` / `capabilityProfile?` / `templates[]` / `hooks[]` with `event` enum and hard-coded `requiresApproval: z.literal(true)`), `deps: z.record(z.string()).default({})`, optional `integrity` (`contentHash` `^sha256-…` + `publishedAt` ISO-8601). `.strict()` at top-level.
+**Schema (reuse verbatim from research §1.3):** Zod object with `schemaVersion: z.literal(1)`, `name` (npm-scoped or bare kebab regex), `version` (semver regex), `description` (10–280 chars), `author`, `license` (closed SPDX enum), `homepage` / `repository` optional URLs, `mantaVersionCompat` (semver range), `contributes` (`skills[]` / `commands[]` / `modes[]` with `name` / `description` / `basedOn` enum of the 7 built-in modes / `cloneCount.{min,max}` / `sessionMode` / `capabilityProfile?` / `templates[]` / `hooks[]` with `event` enum and hard-coded `requiresApproval: z.literal(true)`), `deps: z.record(z.string()).default({})`, optional `integrity` (`contentHash` `^sha256-…` + `publishedAt` ISO-8601). `.strict()` at top-level. **Also exports a second schema `LibraryModeJsonSchema`** — the per-mode `mode.json` payload referenced by `validatePackage` (Task 1.6) — fields `{ name, description, basedOn, cloneCount: {min,max}, sessionMode, capabilityProfile?, primingBlock?: string }`, `.strict()`. Inferred type `LibraryModeJson`.
 
 **Acceptance criteria:**
 - `MantaPackageManifest.parse(<valid manifest>)` returns the inferred type with `contributes.skills/commands/modes/templates/hooks` defaulted to `[]` when omitted.
@@ -51,6 +51,9 @@ This chunk lands the manifest schema, the registry seam, the lockfile, the globa
 - `MantaPackageManifest.parse(<license: "ProprietaryStuff">)` throws (enum mismatch).
 - `MantaPackageManifest.parse(<hooks: [{event: "PreToolUse", script: "x.sh", requiresApproval: false}]>)` throws — `requiresApproval` is hard-coded `true` in the schema.
 - Unknown top-level fields throw because of `.strict()`.
+- `LibraryModeJsonSchema.parse(<valid mode.json>)` returns the inferred `LibraryModeJson` type.
+- `LibraryModeJsonSchema.parse(<basedOn: "unknown-mode">)` throws.
+- `LibraryModeJsonSchema.parse(<{name: "x", description: "x", basedOn: "recon-swarm", cloneCount: {min:1,max:1}, sessionMode: "batch", unknownField: 1}>)` throws because of `.strict()`.
 
 **Tests (must achieve 100 % branch coverage of the new file):**
 
@@ -81,7 +84,7 @@ feat(skill-validator): MantaPackageManifest Zod schema for Phase 7a library pack
 - Create: `packages/manta-cli/tests/library/mode-registry.test.ts`
 - Modify: `packages/manta-cli/src/index.ts` — re-export `ModeRegistry`
 
-**Why:** `SUPPORTED_MODES` at `packages/manta-cli/src/commands/cast.ts:35` is a hardcoded `ReadonlySet<Mode>` of the seven built-in modes; `cast.ts:132` validates against it. Phase 7a needs a single seam that combines built-ins with library-installed modes — without that seam, the install command has nothing to register *into*. Clone-C §4.4 sketches a richer `ModeDefinition` (with `createDispatcher` / `primingBlock` / `invariants` callbacks); Phase 7a deliberately ships **only the minimum surface** needed by the install + cast integration. The richer factory-shaped registry is a follow-on chunk after Phase 7a proves the seam.
+**Why:** `SUPPORTED_MODES` at `packages/manta-cli/src/commands/cast.ts:35` is a hardcoded `ReadonlySet<Mode>` of the seven built-in modes; `cast.ts:157` validates against it (line verified 2026-05-28; previous reviewer surfaced drift caused by the bug #19 fix that inserted `allocateCloneIds` above). Phase 7a needs a single seam that combines built-ins with library-installed modes — without that seam, the install command has nothing to register *into*. Clone-C §4.4 sketches a richer `ModeDefinition` (with `createDispatcher` / `primingBlock` / `invariants` callbacks); Phase 7a deliberately ships **only the minimum surface** needed by the install + cast integration. The richer factory-shaped registry is a follow-on chunk after Phase 7a proves the seam.
 
 **Exported interface:**
 
@@ -168,7 +171,9 @@ feat(cli): ModeRegistry seam to combine built-in modes with library-installed mo
 
 **Why:** The lockfile is the single source of truth for which library packages a repo depends on. It lives at repo root, is committed to git, and is read by `manta cast` to know which modes are valid (Task 1.8) and at every cast to verify hash integrity (Chunk 2 task 2.4). Without a lockfile, the install command can't make its mutations reproducible across machines.
 
-**Schema (per research §5.1):** `schemaVersion: 1`, `mantaVersion: "<semver>"`, `generatedAt: "<ISO-8601>"`, `packages: Record<string, LockEntry>` where `LockEntry` has `version`, `resolved` (URL), `integrity` (`sha256-…` base64), `contributes: { modes, skills, commands, templates }`, `mantaVersionCompat: "<semver range>"`, `installedAt: "<ISO-8601>"`. Stable key order (alphabetical), two-space indent, trailing newline. JSON, not JSONC — `package-lock.json` style.
+**Schema (per research §5.1 + Chunk 2 task 2.4 hash-pin prerequisite):** `schemaVersion: 1`, `mantaVersion: "<semver>"`, `generatedAt: "<ISO-8601>"`, `packages: Record<string, LockEntry>` where `LockEntry` has `version`, `resolved` (URL), `integrity` (`sha256-…` base64; the tarball hash captured at install time), `directoryDigest` (`sha256-…` base64; the canonical hash of the installed directory's content tree, computed by Task 1.7 step 10 — see below), `contributes: { modes, skills, commands, templates }`, `mantaVersionCompat: "<semver range>"`, `installedAt: "<ISO-8601>"`. Stable key order (alphabetical), two-space indent, trailing newline. JSON, not JSONC — `package-lock.json` style.
+
+**Why `directoryDigest` is here in Chunk 1 (not retrofitted from Chunk 2):** Chunk 2 task 2.4 hash-pin verification needs to compare the on-disk directory's content tree against a known-good hash. Computing that hash *post-install* (Chunk 2) would mean writing back to the lockfile entry after Chunk 1's `install` already committed it — schema retrofit + race window. Per the reviewer must-fix, we ship `directoryDigest` in Chunk 1 lockfile schema and Task 1.7 computes it inline before lockfile write; Chunk 2 task 2.4 only reads + compares. **Computation:** sorted list of `<relative-path>:<sha256-of-content>` for every regular file in the install dir, joined by `\n`, then sha256 of that. Implementation helper lives in `packages/manta-cli/src/library/dir-digest.ts` (created in Task 1.4 alongside `LocalStore`; called from Task 1.7 step 10 and from Chunk 2 task 2.4).
 
 **Exported interface:**
 
@@ -196,7 +201,7 @@ export interface LockfileStore {
 export function createLockfileStore(opts: { repoRoot: string }): LockfileStore;
 ```
 
-**Atomic-write pattern:** reuse the same pattern `@manta/bus` already uses for `registry.json` (see `packages/manta-bus/src/state/registry.ts` write path). Concretely: `tmp = path + '.tmp.' + nanoid(6)`; `await writeFile(tmp, canonical, 'utf8')`; `await rename(tmp, path)`. The `mutate` method holds a per-process `Mutex` (we can reuse the `async-mutex` dep already in the bus package) to prevent concurrent writes from racing.
+**Atomic-write pattern:** reuse the project-standard `atomicMutateJson` from `packages/manta-bus/src/atomic-fs.ts:81` — the same primitive `@manta/bus` uses for `registry.json` / `claims.json` / `casts.json`. It already provides cross-process safety via `proper-lockfile` (`packages/manta-bus/src/atomic-fs.ts:6`) — strictly stronger than a per-process mutex which only prevents same-process races. **Prerequisite (must land in this task):** widen `packages/manta-bus/src/index.ts` to re-export `atomicMutateJson` + `atomicReadJson` from `atomic-fs.ts` (currently they are not re-exported — verified 2026-05-28 by grep). Library lockfile + LocalStore (task 1.4) consume the re-exported helpers; no new lockfile library, no new mutex impl. **Rejected alternative — per-process mutex (e.g. `async-mutex`):** does NOT prevent two `manta install` shells from racing on the same `manta-lock.json` or on `~/.manta/library/index.json`. We pick `proper-lockfile` + tmp+rename precisely because Phase 7c auto-cast triggers may invoke `manta install` from a hook concurrently with a user-typed `manta install`.
 
 **Acceptance criteria:**
 - `await store.read()` on a fresh repo (no `manta-lock.json`) returns `null` — not throw.
@@ -460,7 +465,7 @@ export async function validatePackage(packageRoot: string): Promise<ValidatePack
 1. Read `<packageRoot>/manta-package.json`. Parse via `MantaPackageManifestSchema`. Any Zod error → `fatal: true` with synthetic `ValidationReport` containing the error path.
 2. Run `validateAll(packageRoot)` (existing). Collect `ValidationReport[]`. `fatal: true` if any report has severity `error`.
 3. Cross-check: for every entry in `manifest.contributes.skills`, ensure the corresponding `<packageRoot>/skills/<name>/SKILL.md` exists AND was discovered by `walkSkillsAndCommands`. Conversely, every `walkSkillsAndCommands`-discovered skill must be listed in `manifest.contributes.skills`. Same for `contributes.commands`. Mismatches → `contributesCrossCheck: { ok: false, issues: […] }`, `fatal: true`. (This is the defence-in-depth rule from research §1.3 — packages cannot ship "drive-by" skills not declared in the manifest.)
-4. For each `manifest.contributes.modes`, verify `<packageRoot>/modes/<name>/mode.json` exists and parses against a small `LibraryModeJsonSchema` (defined in `manifest-schema.ts` from Task 1.1).
+4. For each `manifest.contributes.modes`, verify `<packageRoot>/modes/<name>/mode.json` exists and parses against `LibraryModeJsonSchema` — see Task 1.1 acceptance criterion "exports `LibraryModeJsonSchema`" (added per reviewer must-fix; forward-reference was undefined in the original draft).
 5. For each `manifest.contributes.templates`, verify the file exists under `<packageRoot>/templates/`.
 6. Hooks (`manifest.contributes.hooks`): existence check only. `validatePackage` does **not** decide whether to install hooks — that's the install command's responsibility (Chunk 2 task 2.1, where `--no-hooks` defaults to hard-refuse).
 
@@ -500,6 +505,7 @@ feat(skill-validator): validatePackage cross-checks manifest contributes against
 - Create: `packages/manta-cli/tests/commands/install.test.ts`
 - Modify: `packages/manta-cli/src/bin/manta.ts:375` — register `.command('install <spec>')` adjacent to existing commands (between `feedback` registration and `await program.parseAsync(process.argv)` per research §6.1).
 - Modify: `packages/manta-cli/src/index.ts:12` — re-export `runInstallCommand` next to `runCastCommand`.
+- **Modify (prerequisite — schema-first per CLAUDE.md HARD RULE):** `packages/manta-cli/src/errors.ts` — widen `CliErrorKind` union by adding these new kinds before any install code references them: `'install_spec_parse_failed'`, `'install_network_failed'`, `'install_manifest_invalid'`, `'install_validation_failed'`, `'install_compat_unmet'`, `'install_already_installed'`. This widening is Task 1.7 Step 0 — must land before Step 1 tests reference these kinds. Same pattern as bug #19 fix that added `'concurrent_cast_limit_reached'`. Failure to widen first = the CLAUDE.md `bug #13` class re-surfaces.
 
 **Why:** This task glues 1.1–1.6 into a single command. **Chunk 1 ships only the happy path** — no `--force`, no `--offline`, no `--dry-run`, no `--integrity` pin. The flag completeness work moves to Chunk 2 task 2.1. The point of separating the chunks is that Chunk 1 is a single linear code-path easy to review and easy to test end-to-end with one fixture; Chunk 2 adds the policy knobs without re-litigating the happy path.
 
@@ -537,16 +543,16 @@ export async function runInstallCommand(
 **Happy-path pipeline (per research §3.1):**
 1. Make `workDir = await mkdtemp(os.tmpdir() + '/manta-install-')`.
 2. `resolved = await registryClient.resolve(opts.spec, { workDir })`.
-3. Extract `resolved.tarballPath` to `workDir/unpacked/` via `tar.extract`.
+3. Extract `resolved.tarballPath` to `workDir/unpacked/` via `tar.x({ file: resolved.tarballPath, cwd: workDir + '/unpacked', strict: true, filter: (p) => !p.startsWith('/') && !p.includes('..') && !path.isAbsolute(p) })` — zip-slip / tar-bomb guard per reviewer advisory. Reject paths containing `..` or starting with `/` before extraction.
 4. Pre-flight compat check: read `<unpacked>/manta-package.json` minimally (just `mantaVersionCompat`), call `verifyMantaVersionCompat(manifest.mantaVersionCompat, getMantaCliVersion())`. Fail fast on mismatch with exit code 16 + the friendly multi-recovery-option message from research §5.2 (paraphrased here, full message body in the `compat-error-message.ts` helper).
 5. `staged = await localStore.stage({ unpackedTarballDir: workDir + '/unpacked' })`.
 6. `result = await validatePackage(staged.stagingDir)`. If `result.fatal` → `await staged.discard()` + throw `InstallError('library_validation_failed', { reports: result.validationReport, crossCheck: result.contributesCrossCheck })` → exit 14.
 7. Collision check: `await localStore.isInstalled(packageName, version)` → if true, `await staged.discard()` and throw `InstallError('already_installed', { … })` → exit 15. (`--force` override comes in Chunk 2.)
 8. Hooks gate (Chunk 1 hardcodes `noHooks = true`): if `manifest.contributes.hooks.length > 0`, log a one-line warning "Package <name> declares hooks; hooks distribution is deferred to Phase 8. Continuing install without hooks." Do **not** prompt, do **not** copy. (Chunk 2 task 2.1 wires the flag formally; the behaviour stays hard-refuse.)
 9. `committed = await staged.commit()` → returns the final dir under `~/.manta/library/<scope>/<name>/<version>/`.
-10. Compute `integrity = 'sha256-' + base64(resolved.contentSha256Hex)` — base64-encoded SHA-256, npm-compatible form.
+10. Compute two hashes: (a) `integrity = 'sha256-' + base64(resolved.contentSha256Hex)` — base64-encoded SHA-256 of the resolved tarball (npm-compatible form); (b) `directoryDigest = await computeDirDigest(committed.finalDir)` — canonical content-tree hash for Chunk 2 task 2.4 hash-pin verification. Both go into the lockfile entry in step 12.
 11. `await localStore.upsertIndexEntry({ packageName: manifest.name, version: manifest.version, path: committed.finalDir, contributes: { … }, installedAt: <now>, integrity })`.
-12. `await runtime.lockfile.mutate(current => addEntry(current, manifest, resolved, integrity))`.
+12. `await runtime.lockfile.mutate(current => addEntry(current, manifest, resolved, integrity, directoryDigest))`.
 13. Clean up `workDir` (best-effort `rm -rf`).
 14. Build `RunInstallCommandResult`, log the summary line per research §3.1 step 10, return.
 
@@ -570,6 +576,8 @@ export async function runInstallCommand(
 - `runtime.localStore.readIndex()` after install contains exactly one entry; the entry's `path` exists on disk and contains `manta-package.json`.
 
 **Tests:**
+
+- [ ] **Step 0 (prerequisite — schema-first): Widen `CliErrorKind` union** at `packages/manta-cli/src/errors.ts` with the six new kinds listed in the Files block above. No test for this step — it's a one-line schema change verified by the test-compile in Step 1. Per CLAUDE.md "Schema-first, then text" HARD RULE.
 
 - [ ] **Step 1: Write integration test** that constructs a `Runtime` with `lockfile` pointing at a per-test repo root tmp dir and `localStore` pointing at a per-test fake home dir. Use the sample-package fixture from Task 1.5.
 
@@ -610,7 +618,7 @@ feat(cli): manta install command — happy-path pipeline (npm/git/local-tgz)
 
 **Files:**
 - Modify: `packages/manta-cli/src/commands/cast.ts:35` — keep `SUPPORTED_MODES` as the **built-in seed only**; rename to `BUILTIN_MODES` for clarity.
-- Modify: `packages/manta-cli/src/commands/cast.ts:132` — replace `SUPPORTED_MODES.has(opts.mode)` with `modeRegistry.has(opts.mode)`.
+- Modify: `packages/manta-cli/src/commands/cast.ts:157` — replace `SUPPORTED_MODES.has(opts.mode)` with `modeRegistry.has(opts.mode)`. (Line as of 2026-05-28 HEAD; re-grep before edit.)
 - Modify: `packages/manta-cli/src/commands/cast.ts` — add `verifyMantaVersionCompat(lock, mantaCliVersion)` preflight call before the registry lookup.
 - Create: `packages/manta-cli/src/library/compat.ts` — exports `verifyMantaVersionCompat(lock, mantaCliVersion): { ok: true } | { ok: false; offendingPackage: string; offendingPackageRange: string; currentVersion: string }`.
 - Create: `packages/manta-cli/tests/library/compat.test.ts`
@@ -620,7 +628,7 @@ feat(cli): manta install command — happy-path pipeline (npm/git/local-tgz)
 
 **Surgical change A — `BUILTIN_MODES` rename:** rename the `SUPPORTED_MODES` literal at `cast.ts:35` to `BUILTIN_MODES`. Its definition stays unchanged (the seven literals). It becomes the seed passed to `new ModeRegistry(BUILTIN_MODES)`.
 
-**Surgical change B — registry construction:** at the top of `runCastCommand` (around `cast.ts:128` per research §6.1), build the registry once per command invocation:
+**Surgical change B — registry construction:** at the top of `runCastCommand` (`cast.ts:153`, after the `SUPPORTED_MODES.has` validation block), build the registry once per command invocation:
 
 ```ts
 const modeRegistry = new ModeRegistry(BUILTIN_MODES);
@@ -641,7 +649,7 @@ if (lock) {
 
 `resolveBasedOnFromLocalStore` reads the package's `manta-package.json` from `~/.manta/library/<scope>/<name>/<version>/` (via `runtime.localStore.pathFor`) and pulls `contributes.modes[]` entry by name → returns its `basedOn`. Cheap (sub-ms; the manifests are tiny). Cached per-cast.
 
-**Surgical change C — compat preflight:** between the registry construction and the mode lookup at `cast.ts:132`, call:
+**Surgical change C — compat preflight:** between the registry construction and the mode lookup at `cast.ts:157`, call:
 
 ```ts
 const compat = verifyMantaVersionCompat(lock, getMantaCliVersion());
@@ -656,7 +664,7 @@ if (!compat.ok) {
 
 `getMantaCliVersion()` reads `packages/manta-cli/package.json#version` at runtime (or import-time constant; either works). `buildCompatErrorMessage` reuses the helper from Task 1.7.
 
-**Surgical change D — mode lookup:** replace the `SUPPORTED_MODES.has(opts.mode)` check at `cast.ts:132` with `modeRegistry.has(opts.mode)`. The error message on miss should now list `modeRegistry.list().builtins.concat(modeRegistry.list().library.map(e => e.name))` rather than the hard-coded set.
+**Surgical change D — mode lookup:** replace the `SUPPORTED_MODES.has(opts.mode)` check at `cast.ts:157` with `modeRegistry.has(opts.mode)`. **Preflight ordering (critical, reviewer-flagged):** registry construction → compat preflight (change C) → **integrity preflight (task 2.4 hash-pin check, added in Chunk 2)** → `modeRegistry.has(opts.mode)`. Integrity check must NOT come before compat — otherwise a tampered file masks the actionable "upgrade or downgrade" message when the user has a compat issue. The error message on miss should now list `modeRegistry.list().builtins.concat(modeRegistry.list().library.map(e => e.name))` rather than the hard-coded set.
 
 **Surgical change E — dispatcher dispatch unchanged:** the per-mode branch table at `cast.ts:160`/`:166`/`:404`/`:413`/`:424`/`:606` (research §6.2) stays as-is in Chunk 1. Library modes inherit a host dispatcher via their `basedOn`, but Phase 7a routes library-mode cast invocations *through their host dispatcher branch directly* — i.e., if a library mode has `basedOn: 'pair-programming'`, `runCastCommand` treats `opts.mode` as `'pair-programming'` for branch-selection purposes after recording the library origin in the cast manifest. This is the minimum integration; richer per-mode dispatcher overrides (clone-C §4.4 `createDispatcher`) are a follow-on chunk.
 
@@ -781,7 +789,7 @@ The two allowlisted keys cover the current population (`cast_id`, `cast_mode` ar
 
 - [ ] **Step 6: Run tests — verify PASS** + check that all existing orchestrator tests stay green.
 
-- [ ] **Step 7: Update `docs/manta-bugs.md` bug #18 status** to `In progress — partial fix in Phase 7a (layer a)` with a note pointing at the Phase 7b plan for the full enumeration sanitizer.
+- [ ] **Step 7: Update `docs/manta-bugs.md` bug #18 status** to `Partial — layer (a) applied in Phase 7a; layer (b) deferred to Phase 7b`, with a note pointing at the Phase 7b plan for the full enumeration sanitizer. (Reviewer must-fix: bug log convention uses `Fixed in <release>` or `Partial — …`, not `In progress`.)
 
 - [ ] **Step 8: Commit**
 
@@ -799,7 +807,7 @@ fix(orchestrator): allowlist-redact post-mortem record.metadata (bug #18 layer a
 - `pnpm -r lint` clean (no new warnings, no `eslint-disable` without `// Reason: …` justification per CLAUDE.md "Запрещено в merged-коде").
 - Manual happy-path verification: build a sample-package fixture tgz, run `node packages/manta-cli/dist/bin/manta.cjs install ./sample-package.tgz` in a tmp git repo, observe `manta-lock.json` created at repo root with the right entry, observe `~/.manta/library/@manta-library/sample-package/0.1.0/` populated, then run `node packages/manta-cli/dist/bin/manta.cjs cast <library-mode-name> --clones 2 --dry-run` and observe the library mode resolved through `ModeRegistry`.
 - `docs/superpowers/plans/INDEX.md` updated with the Phase 7 section and a Chunk-1-only Phase 7a entry — the row is added in Chunk 2 task 2.7 after Chunk 2 lands, **not** at end of Chunk 1; this keeps INDEX.md row contents accurate (single Phase 7a row covers both chunks once Chunk 2 ships).
-- Bug #18 in `docs/manta-bugs.md` moved to "In progress — partial fix in Phase 7a (layer a)".
+- Bug #18 in `docs/manta-bugs.md` moved to "Partial — layer (a) applied in Phase 7a; layer (b) deferred to Phase 7b".
 - Post-mortem written for the chunk-1 cast in `docs/post-mortems/`.
 
 ---
@@ -888,7 +896,11 @@ export async function runUninstallCommand(
 1. Parse `spec` into `{ packageName, version? }`.
 2. `index = await runtime.localStore.readIndex()`.
 3. Find all installs of `packageName`. If `version` omitted and >1 install exists → exit 18 with `[manta] uninstall: multiple versions of <name> installed: <list>. Specify one.`. If `version` omitted and exactly 1 exists → proceed with that one.
-4. **In-use check:** scan `.manta/state/registry.json` (via `runtime.ctx.registry.list()`) for clones with `state !== 'DEAD'` whose `mode` corresponds to a library mode owned by this package+version. If any → exit 18 `[manta] uninstall: <name>@<version> is in use by cast <cast-id> (clones: <ids>). Run \`manta abort <cast-id>\` first.` — unless `--force`, which proceeds with a one-line warning.
+4. **In-use check (must-fix expansion):** 
+   a. Read the to-be-removed package's entry from `runtime.localStore.readIndex()` → extract `entry.contributes.modes` (array of library-mode names this package owns).
+   b. `clones = await runtime.ctx.registry.list()`.
+   c. For each clone where `clone.state !== 'DEAD'` (i.e. `state` ∈ `{STARTING, WORKING, BLOCKED, IDLE, WAITING_FOR_TASK, WINDING_DOWN}` — all six non-DEAD states enumerated explicitly per reviewer must-fix), check whether `clone.mode ∈ entry.contributes.modes`. Any match = in-use.
+   d. If any in-use match → exit 18 `[manta] uninstall: <name>@<version> is in use by cast <cast-id> (clones: <ids>; modes: <matched-modes>). Run \`manta abort <cast-id>\` first.` — unless `--force` AND every matched clone is in `{IDLE, WAITING_FOR_TASK, WINDING_DOWN}` (the "soft" non-DEAD states). **`--force` is rejected** when any matched clone is in `{STARTING, WORKING, BLOCKED}` (the "hot" non-DEAD states) — uninstalling files mid-read by a live `claude --print` subprocess corrupts the in-flight cast. Print refusal: `[manta] uninstall --force: refusing while clones <ids> are <state>. Run \`manta abort <cast-id>\` first.` Exit 18.
 5. `await runtime.localStore.removeIndexEntry(packageName, version)`.
 6. `await rm(installPath, { recursive: true, force: true })`.
 7. `await runtime.lockfile.mutate(current => removeEntry(current, packageName))` — drop the lockfile entry. If the package has multiple versions installed but only one is in the lockfile, removing the *installed* version that matches the lockfile is correct; mismatch is unreachable post-install logic.
@@ -935,14 +947,14 @@ feat(cli): manta uninstall — multi-version check, in-use check, lockfile drop
 
 - `manta library outdated [--json]` — for each npm-installed package, shell out `npm view <name> versions --json` (via injected NetworkRunner) to find newer versions satisfying lockfile range. Git-installed packages are reported as `pinned`. Exit 0 always; the report is the value.
 
-- `manta library doctor [--json]` — for each installed package, call `validatePackage(installPath)` and report. Catches `mantaVersionCompat` drift after the user upgraded the CLI: any package whose `mantaVersionCompat` no longer satisfies the current `mantaCliVersion` is flagged. Exit 0 when all healthy, exit 19 when any package is unhealthy.
+- `manta library doctor [--json]` — for each installed package, import `validatePackage` from `@manta/skill-validator` (the function added in Task 1.6) and call `validatePackage(installPath)`. Catches `mantaVersionCompat` drift after the user upgraded the CLI: any package whose `mantaVersionCompat` no longer satisfies the current `mantaCliVersion` is flagged. Exit 0 when all healthy, **exit 20 (`library_unhealthy`)** when any package is unhealthy. (Exit 19 is reserved for `library_tampered` from task 2.4 — distinct codes so CI/JSON consumers can distinguish "re-install" from "upgrade-cli or uninstall".)
 
 **Acceptance criteria:**
 - `manta library list` on a fresh repo prints "No library packages installed." and exits 0.
 - `manta library list --json` produces machine-parseable JSON `{ installs: [...] }`.
 - `manta library show @manta-library/unknown` exits 12.
 - `manta library outdated` with a fake `NetworkRunner` that reports a newer version produces "@manta-library/foo: 1.3.0 → 1.4.0 available (range >=1.0 <2.0)".
-- `manta library doctor` after a simulated CLI upgrade that breaks compat for one package returns exit 19 and lists the offender.
+- `manta library doctor` after a simulated CLI upgrade that breaks compat for one package returns exit 20 and lists the offender. (Exit 19 reserved for tamper.)
 
 **Tests:**
 
@@ -967,17 +979,24 @@ feat(cli): manta library list/show/outdated/doctor observability subcommands
 - Create: `packages/manta-cli/src/library/integrity.ts` — exports `verifyLibraryIntegrity(lock, localStore): Promise<{ ok: true } | { ok: false; offendingPackage: string; expected: string; actual: string }>`.
 - Create: `packages/manta-cli/tests/library/integrity.test.ts`
 
-**Why:** Research §5.3 — on every `manta cast`, recompute on-disk content hash for each lockfile entry and compare against the lockfile's `integrity` field. Mismatch → exit 19 `library_tampered`. The cost is microseconds for typical Manta packages (skill markdown + JSON; cold-disk fs walk for a single-version directory).
+**Why:** Research §5.3 — on every `manta cast`, recompute on-disk content hash for each lockfile entry and compare against the lockfile's `directoryDigest` field (added to schema in Chunk 1 task 1.3). Mismatch → exit 19 `library_tampered`. The cost is microseconds for typical Manta packages (skill markdown + JSON; cold-disk fs walk for a single-version directory).
+
+**Call-site ordering (reviewer must-fix):** the integrity preflight goes **after** `verifyMantaVersionCompat` and **before** `modeRegistry.has`. Full ordering at `runCastCommand`:
+1. `cloneIds = await allocateCloneIds(...)` (bug #19 fix, current HEAD).
+2. `modeRegistry = await loadModeRegistry(runtime)` (Chunk 1 task 1.8 change B).
+3. `await verifyMantaVersionCompat(lock, mantaCliVersion)` — fail with exit 16 (Chunk 1 task 1.8 change C).
+4. **`await verifyLibraryIntegrity(lock, runtime.localStore)`** — fail with exit 19 (this task). Comes after compat so a tampered-AND-compat-broken install surfaces the actionable upgrade message first, not the tamper message.
+5. `if (!modeRegistry.has(opts.mode)) throw ...` (Chunk 1 task 1.8 change D).
 
 **Algorithm:**
 1. For each `[packageName, entry]` in `lock.packages`:
    - `path = localStore.pathFor(packageName, entry.version)`.
-   - If path missing → return `{ ok: false, offendingPackage: packageName, expected: entry.integrity, actual: '<missing>' }`. This handles the case where the user committed the lockfile but didn't run `manta install` (or `rm -rf ~/.manta/library/` happened).
-   - Compute the directory hash deterministically: walk in alphabetical order, hash `<relpath>\0<sha256(filebytes)>\n` lines, sha256 the concatenation. (We hash this concatenation, not the tarball, because the tarball is no longer on disk; the directory contents are.) Result is base64.
-   - Compare `'sha256-' + dirHash` to `entry.integrity`. Return on first mismatch.
+   - If path missing → return `{ ok: false, offendingPackage: packageName, expected: entry.directoryDigest, actual: '<missing>' }`. This handles the case where the user committed the lockfile but didn't run `manta install` (or `rm -rf ~/.manta/library/` happened).
+   - `actual = await computeDirDigest(path)` — reuse the helper from Task 1.4's `dir-digest.ts` (no new walker here).
+   - Compare `actual` to `entry.directoryDigest`. Return on first mismatch.
 2. All match → `{ ok: true }`.
 
-**Note on hash form:** the lockfile `integrity` recorded at install was the tarball sha256 (Task 1.7 step 10). Task 2.4 needs a different hash because the tarball is gone. We resolve this by *storing both* in the lockfile entry: `integrity` (tarball hash, fixed at install) **and** a new `directoryDigest` (computed at install via the deterministic walker, also fixed). Task 2.4 verifies `directoryDigest`. Task 1.7 acceptance must be expanded to compute and persist `directoryDigest` — add this to Task 2.4's implementation note and update the lockfile schema accordingly with one new optional-at-read-required-at-write field. Backwards-compatible because Phase 7a is the first to write the lockfile.
+**Note on hash form:** `directoryDigest` (lockfile field) is the canonical directory-content hash captured at install time by Task 1.7 step 10. This task only reads + compares — no retrofit to Chunk 1 schema (schema includes `directoryDigest` as of Chunk 1 task 1.3 per the reviewer must-fix).
 
 **Acceptance criteria:**
 - Unmodified install → `{ ok: true }` in microseconds.
@@ -989,7 +1008,7 @@ feat(cli): manta library list/show/outdated/doctor observability subcommands
 
 - [ ] **Step 1: Write failing unit tests** for `verifyLibraryIntegrity` against happy/tampered/missing fixtures.
 
-- [ ] **Step 2: Update lockfile schema** to add `directoryDigest: z.string().regex(/^sha256-[A-Za-z0-9+/]+=*$/)` to the entry; update Task 1.7 install pipeline so it writes both `integrity` (tarball) and `directoryDigest`.
+- [ ] **Step 2: ~~Update lockfile schema~~** — REMOVED per reviewer must-fix; `directoryDigest` ships in Chunk 1 task 1.3 schema, no Chunk-2 retrofit. Verify the field is present in the Chunk 1 deliverable before this step proceeds (`grep directoryDigest packages/manta-cli/src/library/lockfile.ts`).
 
 - [ ] **Step 3: Implement `integrity.ts`.**
 
@@ -1008,14 +1027,14 @@ feat(cli): hash-pin verification on every cast — exit 19 library_tampered on m
 ### Task 2.5: E2E test — install + cast a library mode
 
 **Files:**
-- Create: `packages/manta-e2e/src/manta-library.e2e.test.ts`
+- Create: `packages/manta-e2e/tests/manta-library.e2e.test.ts` (project convention is `tests/` not `src/` — verified 2026-05-28 against existing `packages/manta-e2e/tests/recon-swarm.e2e.test.ts`)
 - Create: `packages/manta-e2e/tests/fixtures/library-mode-package/` — a self-contained library package fixture whose `contributes.modes[0]` has `basedOn: 'recon-swarm'`.
 
-**Why:** The Phase 7a contract is "you can install a library package and cast a library mode through it end-to-end." This test exercises every Chunk-1 + Chunk-2 surface together against the real CLI. Env-gated by `MANTA_E2E=1` per the existing e2e gating convention (`packages/manta-e2e/src/recon-swarm.e2e.test.ts`).
+**Why:** The Phase 7a contract is "you can install a library package and cast a library mode through it end-to-end." This test exercises every Chunk-1 + Chunk-2 surface together against the real CLI. Env-gated by `MANTA_E2E=1` using the existing `probeClaudeBin()` helper at `packages/manta-e2e/tests/helpers/claudeBin.ts:19` (returns `{ available: false, reason }` when `MANTA_E2E !== '1'` or `claude --version` fails — reuse, don't reinvent).
 
 **Pipeline:**
 1. **Preflight (always runs even without `MANTA_E2E`):** `pnpm -r build` clean, `node packages/manta-cli/dist/bin/manta.cjs --help` lists `install`, `uninstall`, `library`.
-2. **Env-gated body (`MANTA_E2E=1` + `claude --version` ok):**
+2. **Env-gated body** — call `const probe = await probeClaudeBin()`; if `!probe.available` use `it.skip` semantics (return early with a skip message including `probe.reason`). When `probe.available === true`:
    - Build the fixture package into a tgz under a per-test tmp dir.
    - Make a per-test tmp git repo + tmp home dir (so `~/.manta/library/` is sandboxed).
    - Run `manta install <fixture.tgz>` via execa. Assert exit 0, `manta-lock.json` exists with the right entry, `<tmp-home>/.manta/library/...` populated.
@@ -1110,7 +1129,11 @@ After the existing Phase 6 section ("## Phase 6 — Wave-2 Modes (...)" and its 
 | `2026-05-28-phase-7c-auto-triggers.md` | TODO (not yet written) | Will cover `manta trigger add/list <event> <action>`, trigger taxonomy (git-pull, failing-tests, file-watch), watcher safety, infinite-loop prevention. Independent of Phase 7a/7b implementation surface. |
 ```
 
-Update Chunk-2's commit to flip the Phase 7a row's status from `**TODO**` to `**Executed**` with chunk commits inline (mirroring the format of every prior phase row in INDEX.md).
+**Two-commit pattern (reviewer must-fix — atomicity):** Task 2.7 ships as TWO commits, not one, to resolve the chicken-and-egg of inline-commit-SHA references:
+1. **Commit A (this task's main commit):** add the Phase 7 INDEX.md section with the Phase 7a row at status `**TODO**` + CHANGELOG entry referencing the upcoming `Executed` status.
+2. **Commit B (separate follow-up, last commit of Phase 7a):** flip the Phase 7a row from `**TODO**` to `**Executed** — Chunk 1 (<sha1>) + Chunk 2 (<sha2..sha8>) + post-merge fixes <sha>` with all real commit hashes inline. This mirrors the post-merge INDEX-update pattern from Phase 6 (`bfcc7c3`) and the Phase 4 lockdown (`093e4dd`, `2520528`).
+
+The Chunk-2 task count therefore becomes **eight task commits** (2.1–2.7 + 2.7-followup), not seven.
 
 Also remove the "Phase 7: Manta Library + auto-cast triggers + community" bullet from the existing "## Phase 7+ — TBD" section since Phase 7 is now planned; replace the placeholder with just the Phase 8 bullet:
 
@@ -1167,7 +1190,7 @@ chore: Phase 7a complete — INDEX.md + CHANGELOG.md + status flip
 
 ### Chunk 2 complete when
 
-- All seven task commits land on the chunk-2 branch.
+- All eight task commits (2.1–2.7 + 2.7-followup status flip) land on the chunk-2 branch.
 - `pnpm -r build` clean.
 - `pnpm -r test` green workspace-wide.
 - `pnpm -r lint` clean.
@@ -1242,7 +1265,7 @@ For each chunk's PR review, the reviewer should grep for the file list to ensure
 - `packages/manta-cli/src/commands/uninstall.ts` + test
 - `packages/manta-cli/src/commands/library.ts` + test
 - `packages/manta-cli/src/library/integrity.ts` + test
-- `packages/manta-e2e/src/manta-library.e2e.test.ts` + fixture
+- `packages/manta-e2e/tests/manta-library.e2e.test.ts` + fixture under `packages/manta-e2e/tests/fixtures/library-mode-package/`
 - `docs/internals/mode-registry.md`
 
 **Chunk 2 surgical edits:**
