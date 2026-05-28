@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Snapshot } from '@manta/snapshot';
 import { TaskContractSchema as BusTaskContractSchema } from '@manta/bus';
-import { runCastCommand, toBusContract, validateDisjointPartitions } from '../../src/commands/cast.js';
+import { runCastCommand, toBusContract, validateDisjointPartitions, DAEMON_IDLE_STATES } from '../../src/commands/cast.js';
 import {
   runFakeCloneScript,
   type CloneRunner,
@@ -1207,5 +1207,24 @@ describe('validateDisjointPartitions', () => {
         B: { task: 'b' },
       }),
     ).not.toThrow();
+  });
+});
+
+// Bug #21 regression — daemon clones in WAITING_FOR_TASK state must be
+// recognised as idle by cast.ts allDone. Without this set, a daemon clone
+// calling manta.request_task (per the priming preamble) hangs the cast
+// until budget abort because allDone never returns true.
+describe('DAEMON_IDLE_STATES', () => {
+  it('includes IDLE and WAITING_FOR_TASK', () => {
+    expect(DAEMON_IDLE_STATES.has('IDLE')).toBe(true);
+    expect(DAEMON_IDLE_STATES.has('WAITING_FOR_TASK')).toBe(true);
+  });
+
+  it('excludes non-idle states', () => {
+    expect(DAEMON_IDLE_STATES.has('WORKING')).toBe(false);
+    expect(DAEMON_IDLE_STATES.has('STARTING')).toBe(false);
+    expect(DAEMON_IDLE_STATES.has('BLOCKED')).toBe(false);
+    expect(DAEMON_IDLE_STATES.has('WINDING_DOWN')).toBe(false);
+    expect(DAEMON_IDLE_STATES.has('DEAD')).toBe(false);
   });
 });

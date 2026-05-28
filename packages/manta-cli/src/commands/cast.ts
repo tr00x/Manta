@@ -47,6 +47,23 @@ const DAEMON_MODES: ReadonlySet<Mode> = new Set<Mode>([
   'test-storm',
   'documentation-chase',
 ]);
+
+/**
+ * Bug #21: registry states that signal "daemon clone is currently quiet,
+ * waiting for the orchestrator to push work into the queue." Both IDLE and
+ * WAITING_FOR_TASK are valid daemon-idle states (`packages/manta-bus/src/
+ * state/registry.ts:193` and `manta-bus/src/schema.ts:25`). The cast loop's
+ * `allDone` predicate must treat both equivalently; otherwise a daemon clone
+ * that calls `manta.request_task` (entering WAITING_FOR_TASK per the priming
+ * preamble in `spawner/priming.ts:53`) hangs the cast until budget abort.
+ *
+ * Exported for the regression test in `tests/commands/cast.test.ts`.
+ */
+export const DAEMON_IDLE_STATES: ReadonlySet<string> = new Set([
+  'IDLE',
+  'WAITING_FOR_TASK',
+]);
+
 const CLONE_NAMES: readonly string[] = ['A', 'B', 'C', 'D', 'E']; // Phase 0 ceiling = 5
 
 /**
@@ -534,7 +551,7 @@ export async function runCastCommand(
           const allDead = ours.every((c) => c.state === 'DEAD');
           if (allDead) return true;
           const allIdleOrDead = ours.every(
-            (c) => c.state === 'DEAD' || c.state === 'IDLE',
+            (c) => c.state === 'DEAD' || DAEMON_IDLE_STATES.has(c.state),
           );
           if (!allIdleOrDead) return false;
           // All idle — check if work queue is empty for each clone
