@@ -67,6 +67,7 @@ function canonicalize(lock: Lockfile): Lockfile {
   const packages: Record<string, LockfileEntry> = {};
   for (const name of sortedPackageNames) {
     const entry = lock.packages[name];
+    if (!entry) continue;
     packages[name] = {
       version: entry.version,
       resolved: entry.resolved,

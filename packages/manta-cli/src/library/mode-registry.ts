@@ -28,7 +28,9 @@ export class ModeConflictError extends Error {
     this.name = 'ModeConflictError';
     this.code = opts.code;
     this.conflictingName = opts.conflictingName;
-    this.existingOwner = opts.existingOwner;
+    if (opts.existingOwner !== undefined) {
+      this.existingOwner = opts.existingOwner;
+    }
   }
 }
 

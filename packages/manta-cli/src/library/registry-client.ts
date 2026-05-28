@@ -8,11 +8,11 @@ export type SpecKind = 'npm' | 'git' | 'local-tgz';
 
 export interface ParsedSpec {
   kind: SpecKind;
-  npmName?: string;
-  npmRange?: string;
-  gitUrl?: string;
-  gitRef?: string;
-  localPath?: string;
+  npmName?: string | undefined;
+  npmRange?: string | undefined;
+  gitUrl?: string | undefined;
+  gitRef?: string | undefined;
+  localPath?: string | undefined;
 }
 
 export interface ResolvedPackage {
@@ -33,7 +33,7 @@ export interface NetworkRunner {
   /** `npm pack <spec>` into `cwd`. Returns the produced tarball filename. */
   npmPack(spec: string, opts: { cwd: string }): Promise<string>;
   /** `git clone --depth=1 [--branch <ref>] <url> <dest>`. */
-  gitClone(opts: { url: string; ref?: string; dest: string }): Promise<void>;
+  gitClone(opts: { url: string; ref?: string | undefined; dest: string }): Promise<void>;
 }
 
 export interface RegistryClient {

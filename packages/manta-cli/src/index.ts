@@ -20,3 +20,6 @@ export * from './library/lockfile.js';
 export * from './library/local-store.js';
 export * from './library/dir-digest.js';
 export * from './library/registry-client.js';
+export * from './library/compat.js';
+export * from './library/cli-version.js';
+export * from './commands/install.js';

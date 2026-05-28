@@ -18,6 +18,9 @@ import { runLimitCommand } from '../commands/limit.js';
 import { runDaemonStatusCommand, runDaemonStopCommand } from '../commands/daemon.js';
 import { runRetaskCommand } from '../commands/retask.js';
 import { runFeedbackCommand } from '../commands/feedback.js';
+import { runInstallCommand, InstallError } from '../commands/install.js';
+import { createDefaultNetworkRunner, createRegistryClient } from '../library/registry-client.js';
+import { getMantaCliVersion } from '../library/cli-version.js';
 import { runClaudeCli } from '../spawner/clone-spawner.js';
 import { parseTasksFile } from '../spawner/tasks-file.js';
 import { createReporter, StderrSink } from '../output/reporter.js';
@@ -370,6 +373,46 @@ async function main(): Promise<void> {
       await runWithRuntime((rt) =>
         runFeedbackCommand(rt, { cloneId, message: options.message, severity, reporter }),
       );
+    });
+
+  program
+    .command('install <spec>')
+    .description('Install a Manta Library package (npm spec, git URL, or local .tgz)')
+    .action(async (spec: string) => {
+      const rt = await createRuntime({ repoRoot: process.cwd() });
+      try {
+        const registryClient = createRegistryClient({ runner: createDefaultNetworkRunner() });
+        const result = await runInstallCommand(
+          {
+            repoRoot: rt.repoRoot,
+            lockfile: rt.lockfile,
+            localStore: rt.localStore,
+            registryClient,
+            mantaCliVersion: getMantaCliVersion(),
+          },
+          { spec },
+        );
+        const stdout = [
+          `Installed ${result.packageName}@${result.version}`,
+          `  path:    ${result.installedPath}`,
+          `  lockfile: ${result.lockfilePath}`,
+          `  modes:   ${result.contributedModes.length}`,
+          `  skills:  ${result.contributedSkills}`,
+          `  commands: ${result.contributedCommands}`,
+          `  templates: ${result.contributedTemplates}`,
+        ].join('\n');
+        process.stdout.write(stdout + '\n');
+        process.exitCode = 0;
+      } catch (err) {
+        if (err instanceof InstallError) {
+          process.stderr.write(`[manta] install: ${err.code}: ${err.message}\n`);
+          process.exitCode = err.exitCode;
+        } else {
+          throw err;
+        }
+      } finally {
+        await rt.dispose();
+      }
     });
 
   await program.parseAsync(process.argv);
