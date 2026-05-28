@@ -91,8 +91,17 @@ async function sha256Hex(filePath: string): Promise<string> {
   return crypto.createHash('sha256').update(buf).digest('hex');
 }
 
+function extractNameVersion(parsed: unknown): { name: string; version: string } | null {
+  if (parsed === null || typeof parsed !== 'object') return null;
+  const obj = parsed as Record<string, unknown>;
+  const name = obj.name;
+  const version = obj.version;
+  if (typeof name !== 'string' || typeof version !== 'string') return null;
+  return { name, version };
+}
+
 async function extractManifestFromTarball(tarballPath: string): Promise<{ name: string; version: string }> {
-  let captured: { name?: string; version?: string } = {};
+  let captured: { name: string; version: string } | null = null;
   await tar.t({
     file: tarballPath,
     onentry: (entry) => {
@@ -102,10 +111,9 @@ async function extractManifestFromTarball(tarballPath: string): Promise<{ name: 
         entry.on('data', (c: Buffer) => chunks.push(c));
         entry.on('end', () => {
           try {
-            const json = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-            if (typeof json.name === 'string' && typeof json.version === 'string') {
-              captured = { name: json.name, version: json.version };
-            }
+            const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+            const extracted = extractNameVersion(parsed);
+            if (extracted) captured = extracted;
           } catch {
             // Surfaced below if name/version missing.
           }
@@ -113,10 +121,10 @@ async function extractManifestFromTarball(tarballPath: string): Promise<{ name: 
       }
     },
   });
-  if (!captured.name || !captured.version) {
+  if (!captured) {
     throw new RegistryClientError('manifest_missing', 'tarball did not contain a parseable manta-package.json', { tarballPath });
   }
-  return { name: captured.name, version: captured.version };
+  return captured;
 }
 
 async function readManifestFromDir(dir: string): Promise<{ name: string; version: string }> {
@@ -127,11 +135,17 @@ async function readManifestFromDir(dir: string): Promise<{ name: string; version
   } catch (cause) {
     throw new RegistryClientError('manifest_missing', `manta-package.json not found in ${dir}`, { dir, cause: String(cause) });
   }
-  const json = JSON.parse(raw);
-  if (typeof json.name !== 'string' || typeof json.version !== 'string') {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (cause) {
+    throw new RegistryClientError('manifest_missing', `manta-package.json in ${dir} is not valid JSON`, { dir, cause: String(cause) });
+  }
+  const extracted = extractNameVersion(parsed);
+  if (!extracted) {
     throw new RegistryClientError('manifest_missing', `manta-package.json is missing name or version in ${dir}`, { dir });
   }
-  return { name: json.name, version: json.version };
+  return extracted;
 }
 
 async function packDirToTarball(srcDir: string, outPath: string): Promise<void> {

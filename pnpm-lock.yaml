@@ -93,6 +93,9 @@ importers:
       '@manta/orchestrator':
         specifier: workspace:*
         version: link:../manta-orchestrator
+      '@manta/skill-validator':
+        specifier: workspace:*
+        version: link:../manta-skill-validator
       '@manta/snapshot':
         specifier: workspace:*
         version: link:../manta-snapshot

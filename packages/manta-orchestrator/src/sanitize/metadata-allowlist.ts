@@ -20,8 +20,10 @@ export function redactPostMortemMetadata(
   const kept: Record<string, string> = {};
   const dropped: string[] = [];
   for (const key of Object.keys(meta)) {
+    const value = meta[key];
+    if (value === undefined) continue;
     if (ALLOWLIST_SET.has(key)) {
-      kept[key] = meta[key];
+      kept[key] = value;
     } else {
       dropped.push(key);
     }

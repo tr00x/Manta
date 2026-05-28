@@ -159,19 +159,25 @@ export async function runInstallCommand(
         spec: opts.spec,
       });
     }
-    let preManifest: { mantaVersionCompat?: string };
+    let preManifestRaw: unknown;
     try {
-      preManifest = JSON.parse(manifestRaw);
+      preManifestRaw = JSON.parse(manifestRaw);
     } catch (err) {
       throw new InstallError('install_manifest_invalid', `manta-package.json is not valid JSON: ${String(err)}`, { spec: opts.spec });
     }
-    if (!preManifest.mantaVersionCompat) {
+    const mantaVersionCompat =
+      preManifestRaw !== null &&
+      typeof preManifestRaw === 'object' &&
+      typeof (preManifestRaw as Record<string, unknown>).mantaVersionCompat === 'string'
+        ? ((preManifestRaw as Record<string, unknown>).mantaVersionCompat as string)
+        : null;
+    if (!mantaVersionCompat) {
       throw new InstallError('install_manifest_invalid', 'manta-package.json is missing mantaVersionCompat', { spec: opts.spec });
     }
-    if (!isMantaVersionCompatible(preManifest.mantaVersionCompat, rt.mantaCliVersion)) {
+    if (!isMantaVersionCompatible(mantaVersionCompat, rt.mantaCliVersion)) {
       const ctx = {
         offendingPackage: resolved.name,
-        offendingPackageRange: preManifest.mantaVersionCompat,
+        offendingPackageRange: mantaVersionCompat,
         currentVersion: rt.mantaCliVersion,
       };
       throw new InstallError('install_compat_unmet', buildCompatErrorMessage(ctx), ctx);

@@ -99,7 +99,7 @@ export function createLockfileStore(opts: CreateLockfileStoreOptions): LockfileS
   const filePath = path.resolve(opts.repoRoot, LOCKFILE_NAME);
 
   async function read(): Promise<Lockfile | null> {
-    const parsed = await atomicReadJson<typeof SENTINEL | unknown>(filePath, () => SENTINEL);
+    const parsed: unknown = await atomicReadJson<unknown>(filePath, () => SENTINEL as unknown);
     if (parsed === SENTINEL) return null;
     const r = LockfileSchema.safeParse(parsed);
     if (!r.success) {

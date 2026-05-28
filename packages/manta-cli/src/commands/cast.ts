@@ -126,13 +126,17 @@ async function loadModeRegistry(
       // verification (Chunk 2) surfaces the missing-install case explicitly.
       continue;
     }
-    let manifest: { contributes?: { modes?: Array<{ name?: string; basedOn?: Mode }> } };
+    let parsed: unknown;
     try {
-      manifest = JSON.parse(manifestRaw);
+      parsed = JSON.parse(manifestRaw);
     } catch {
       continue;
     }
-    const modes = manifest.contributes?.modes ?? [];
+    const contributes =
+      parsed !== null && typeof parsed === 'object'
+        ? (parsed as { contributes?: { modes?: Array<{ name?: string; basedOn?: Mode }> } }).contributes
+        : undefined;
+    const modes = contributes?.modes ?? [];
     for (const modeName of entry.contributes.modes) {
       const match = modes.find((m) => m.name === modeName);
       if (!match || !match.basedOn) continue;

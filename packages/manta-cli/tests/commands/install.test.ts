@@ -31,12 +31,8 @@ afterEach(async () => {
 });
 
 const stubNetworkRunner = (): NetworkRunner => ({
-  async npmPack() {
-    throw new Error('network not stubbed');
-  },
-  async gitClone() {
-    throw new Error('network not stubbed');
-  },
+  npmPack: () => Promise.reject(new Error('network not stubbed')),
+  gitClone: () => Promise.reject(new Error('network not stubbed')),
 });
 
 function makeInstallRuntime(opts: { mantaCliVersion?: string } = {}): InstallRuntime {

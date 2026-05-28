@@ -121,7 +121,7 @@ describe('createLockfileStore — read/write', () => {
     await store.write(sampleLock());
     const raw = await fs.readFile(store.path, 'utf8');
     expect(raw.endsWith('\n')).toBe(true);
-    expect(raw).toMatch(/\n  "/);
+    expect(raw).toMatch(/\n {2}"/);
   });
 
   it('write() rejects invalid lockfile shape early (does not write a bad file)', async () => {

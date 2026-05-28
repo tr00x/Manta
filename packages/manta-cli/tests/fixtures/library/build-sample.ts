@@ -51,9 +51,11 @@ export async function buildSampleTarball(): Promise<string> {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   buildSampleTarball()
-    .then((p) => console.log(`built ${p}`))
+    .then((p) => {
+      process.stdout.write(`built ${p}\n`);
+    })
     .catch((err) => {
-      console.error(err);
+      process.stderr.write(`${String(err)}\n`);
       process.exit(1);
     });
 }
