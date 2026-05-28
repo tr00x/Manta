@@ -9,6 +9,7 @@ import { RegisterInputSchema } from '../../src/schema';
 import { BusForkingIsolationError } from '../../src/errors';
 import { siblingsInSameForkingCast, crossCloneRead } from '../../src/tools/forking-isolation';
 import { createLockHandlers } from '../../src/tools/locks';
+import { atomicMutateJson } from '../../src/atomic-fs';
 
 describe('RegisterInputSchema (forking-realities invariants)', () => {
   it('accepts a recon-swarm register without metadata.cast_id', () => {
@@ -321,7 +322,6 @@ describe('manta.lock / unlock / renew_lock under forking-realities (bug #28)', (
     // Simulate runtime corruption: registry record loses cast_id while
     // cast_mode remains. The handler must still raise FR-isolation rather
     // than crashing on a missing field.
-    const { atomicMutateJson } = await import('../../src/atomic-fs');
     interface RegistryFile {
       version: 1;
       clones: Record<string, { metadata: Record<string, string> }>;
@@ -330,8 +330,9 @@ describe('manta.lock / unlock / renew_lock under forking-realities (bug #28)', (
       busPaths(root).registry,
       () => ({ version: 1, clones: {} }),
       (current) => {
-        if (current.clones['A']) {
-          delete current.clones['A'].metadata.cast_id;
+        const entry = current.clones['A'];
+        if (entry) {
+          delete entry.metadata.cast_id;
         }
         return current;
       },
