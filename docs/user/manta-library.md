@@ -1,6 +1,6 @@
-# Manta Library — install + lockfile + ModeRegistry (Phase 7a Chunk 1)
+# Manta Library — install + uninstall + lockfile + ModeRegistry (Phase 7a)
 
-> **Status:** Phase 7a Chunk 1 — happy-path `manta install` only. Uninstall, `manta library list/show/outdated/doctor`, install-flag completeness, and hash-pin verification land in Chunk 2. `manta share` is Phase 7b. `manta trigger` is Phase 7c.
+> **Status:** Phase 7a complete. `manta install` (full flag matrix), `manta uninstall`, `manta library list/show/outdated/doctor`, the lockfile, the `ModeRegistry` seam, and per-cast hash-pin verification all ship in Phase 7a. `manta share` is Phase 7b. `manta trigger` is Phase 7c. Hook distribution is Phase 8.
 
 ## What is Manta Library?
 
@@ -79,7 +79,7 @@ Lockfile structure (see `packages/manta-cli/src/library/lockfile.ts` for the aut
 ```
 
 - `integrity` is the SHA-256 of the resolved tarball bytes.
-- `directoryDigest` is the canonical content-tree hash of the installed directory. Every cast verifies this against on-disk content (Chunk 2 lands the per-cast check); a mismatch surfaces tampering before any clone spawns.
+- `directoryDigest` is the canonical content-tree hash of the installed directory. Every `manta cast` recomputes the on-disk hash and compares it against this field; a mismatch surfaces tampering with exit 19 before any clone spawns. See the "Hash-pin verification on every cast" section below.
 - Package keys are alphabetically sorted; the writer guarantees deterministic byte output so two writes of the same content produce byte-identical files.
 
 The lockfile is read+written atomically (tmp + rename) under `proper-lockfile`, so concurrent `manta install` invocations in the same repo serialize safely.
@@ -120,7 +120,90 @@ Recovery options:
   3) Uninstall @manta-library/refactor-megapack via `manta uninstall @manta-library/refactor-megapack`.
 ```
 
-The compat check happens **before** integrity verification (which lands in Chunk 2). Order matters: a tampered-AND-compat-broken install should show the actionable upgrade message first, not the tamper alarm.
+The compat check happens **before** integrity verification (see the next section). Order matters: a tampered-AND-compat-broken install should show the actionable upgrade message first, not the tamper alarm.
+
+## Hash-pin verification on every cast
+
+Every `manta cast` invocation runs a hash-pin check immediately after the compat preflight and before the mode lookup. For each entry in `manta-lock.json` the CLI recomputes the on-disk directory hash and compares it against the `directoryDigest` captured at install time. On the first mismatch the cast refuses to start with **exit 19** and a `library_tampered` message:
+
+```
+Library package @manta-library/refactor-megapack@1.3.0 failed hash-pin verification: on-disk content hash does not match the lockfile.
+  expected: sha256-<base64>
+  actual:   sha256-<base64>
+
+Run `manta install @manta-library/refactor-megapack@1.3.0 --force` to re-fetch.
+```
+
+If the install directory is missing entirely (e.g. the lockfile was checked in but `manta install` hasn't been run, or `~/.manta/library/` was deleted), the same exit code surfaces with `actual: <missing>` and the same recovery hint.
+
+The check is fast: each library package is a few kilobytes of skill markdown + JSON, and the fs walk completes in single-digit ms cold. It catches three failure modes proactively, before any clones spawn:
+
+- **Manual edit.** Someone opened a file under `~/.manta/library/` and changed it.
+- **Corrupted install.** Disk error or interrupted install left bytes drifted.
+- **Missing install.** Lockfile committed without a corresponding `manta install`.
+
+The exit-code split between compat (16), tamper (19), and observability-doctor unhealthy (20) means CI consumers can route each fault class distinctly — "upgrade CLI" vs. "re-fetch the package" vs. "uninstall the package."
+
+## Uninstalling a package
+
+```sh
+manta uninstall @manta-library/refactor-megapack
+manta uninstall @manta-library/refactor-megapack@1.3.0
+manta uninstall @manta-library/refactor-megapack --force
+```
+
+The pipeline mirrors install in reverse:
+
+1. Parse the spec into `{ packageName, version? }`.
+2. Read `~/.manta/library/index.json`. If `version` is omitted and multiple versions of `packageName` are installed, refuse with exit 18 and list the candidates: `multiple versions of <name> installed: <list>. Specify one.`
+3. **In-use check.** For each non-`DEAD` clone in the registry — that is, any clone in `STARTING`, `WORKING`, `BLOCKED`, `IDLE`, `WAITING_FOR_TASK`, or `WINDING_DOWN` — verify that none of them are running a mode contributed by the package about to be removed. Any match is "in use" and the uninstall refuses with exit 18: `<name>@<version> is in use by cast <cast-id> (clones: <ids>; modes: <matched-modes>). Run \`manta abort <cast-id>\` first.`
+4. `--force` overrides the in-use refusal only when every matched clone is in the **soft** non-DEAD states (`IDLE`, `WAITING_FOR_TASK`, `WINDING_DOWN`). When any matched clone is in the **hot** states (`STARTING`, `WORKING`, `BLOCKED`), `--force` is itself rejected: `refusing while clones <ids> are <state>. Run \`manta abort <cast-id>\` first.` Removing files mid-read by a live `claude --print` subprocess would corrupt the in-flight cast — `--force` is not a foot-gun unlocker, it is a fast-path for known-quiet daemons.
+5. Drop the index entry from `~/.manta/library/index.json`.
+6. Remove the install directory.
+7. Drop the lockfile entry from `manta-lock.json`.
+8. Print a one-line summary.
+
+Idempotency: re-running uninstall after success exits 12 (`not_installed`) with a clear message; the second run is a safe no-op.
+
+Common exit codes:
+
+| Code | Meaning |
+|---|---|
+| 0 | Uninstall completed successfully. |
+| 12 | `not_installed` — no such package + version on disk. |
+| 18 | `in_use` — a live clone is running a mode contributed by this package, or a multi-version install needs a `@<version>` qualifier. |
+
+## `manta install` flag matrix
+
+Chunk 2 ships the full install command surface. Every flag is a deliberate trade-off; defaults are conservative.
+
+| Flag | Behaviour | Notes |
+|---|---|---|
+| `--force` | Override the "already installed" collision; the existing install at `~/.manta/library/<scope>/<name>/<version>/` is removed before the staged install is renamed in. | Surfaces a one-line warning. Use for re-installing a tampered or partially-installed package; also the recovery action printed by exit 19. |
+| `--offline` | Refuse any network call. Only `./local.tgz` spec forms succeed; `@scope/name` and `git+https://…` specs fail with exit 11 (`network_required_for_spec_kind`). | Used by CI replay against a vendored tarball; also a safety net when working on a flight. |
+| `--integrity sha256-<base64>` | Pre-pin the expected tarball hash; the fetch step refuses to proceed if the actual `contentSha256Hex` after fetch does not match. Prints both values on failure with exit 13 (`checksum_mismatch`). | Belt-and-suspenders against npm-cache-poisoning or git-tag-mutation; mirrors `--integrity` in lockfile-based package managers. |
+| `--dry-run` | Run the install pipeline through steps 1–6 (parse, resolve, fetch, extract, compat, validate) but skip the staged commit and lockfile/index writes. Print the would-be summary, exit 0. | Used by `manta library doctor` and by CI replay to confirm a tarball still validates after the CLI upgraded. |
+| `--json` | Emit the success summary as a single JSON line with `{ name, version, integrity, contributedModes, contributedSkills, contributedCommands, contributedTemplates, lockfilePath, installPath }`. On error, emit `{ error: { code, message, hint? } }`. | Pipe to `jq`; pair with `--dry-run` to query what an install would do. |
+| `--no-validate` | Skip the `validatePackage` call. Prints a loud warning: `[manta] install: --no-validate; manifest is parsed but content is not validated.` | Reserved for CI replay of a tarball that was already validated upstream. Not advertised — production installs should always validate. |
+| `--no-hooks` | **Default `true` in Phase 7a.** Refuses to copy any `manifest.contributes.hooks` payload. `--no-hooks=false` is rejected at flag parse with `hooks distribution is deferred to Phase 8; --no-hooks cannot be disabled`. | The flag ships with hard-refuse semantics now so Phase 7c can flip the default without a CLI API break. |
+
+## `manta library` observability subcommands
+
+Four read-only subcommands surface the global install set. None of them mutate state; all of them honour `--json` for machine consumers.
+
+```sh
+manta library list [--json]
+manta library show @manta-library/refactor-megapack[@<version>] [--json]
+manta library outdated [--json]
+manta library doctor [--json]
+```
+
+- **`list`** — table of every installed package with columns `Name`, `Version`, `Modes`, `Skills`, `Cmds`, `Templates`, `Path`. Exits 0 even when the table is empty (`No library packages installed.`).
+- **`show`** — pretty-print one package's manifest, the contributed surface, and the matching lockfile entry. Exits 12 (`not_installed`) when the package or version is not on disk.
+- **`outdated`** — for each npm-resolved package, look up newer versions on the registry and report any that still satisfy the lockfile's range. Git-resolved packages report as `pinned`. Always exits 0; the report is the value.
+- **`doctor`** — for every installed package, run `validatePackage` from `@manta/skill-validator` and check `mantaVersionCompat` against the current CLI. Healthy → exits 0. Any unhealthy package → exits **20** (`library_unhealthy`) and lists the offenders. Distinct from exit 19 (`library_tampered`) so CI consumers can branch on which remediation applies — upgrade or uninstall (doctor) vs. re-fetch (tamper).
+
+`doctor` is the friendly preflight to run after a CLI upgrade: any package whose compat range no longer satisfies the new CLI version is surfaced before the next cast trips the same check.
 
 ## Mode resolution at cast time
 
@@ -137,29 +220,34 @@ The cast manifest on disk records the host dispatcher mode (`mode: 'recon-swarm'
 
 ## Phase 7a limitations
 
-- **Hooks (`PreToolUse`, `PostToolUse`, …) are not installed.** Manifests may declare `contributes.hooks[]` but `manta install` refuses to copy them. Hook distribution is deferred to Phase 8 once the sandboxing design is in place.
-- **`manta uninstall`, `manta library list/show/outdated/doctor` ship in Chunk 2.** Today, removing a package means deleting it from `manta-lock.json`, `~/.manta/library/index.json`, and the install directory by hand. Don't get clever — let Chunk 2 do this for you when it lands.
-- **Install flag completeness (`--force`, `--offline`, `--integrity`, `--dry-run`, `--json`, `--no-validate`) ships in Chunk 2.** The default `--no-hooks` semantics are hard-coded for now.
-- **Hash-pin verification on every cast ships in Chunk 2.** Today, `directoryDigest` is recorded but not yet compared. A tampered install dir won't be caught until you re-install.
-- **`manta share` (publish a cast as a library package) is Phase 7b.**
+- **Hooks (`PreToolUse`, `PostToolUse`, …) are not installed.** Manifests may declare `contributes.hooks[]` but `manta install` refuses to copy them. Hook distribution is deferred to Phase 8 once the sandboxing design is in place. `--no-hooks=false` is a flag-parse-time error in Phase 7a; the flag exists with the right name and exit semantics so Phase 7c can flip the default without breaking the CLI contract.
+- **Library packages cannot ship dispatcher code.** A library mode parameterises an existing built-in dispatcher named by `basedOn`. There is no `createDispatcher` hook in the Phase 7a manifest schema. The threat model is closed by the `basedOn` enum (seven built-ins); see `docs/internals/mode-registry.md` for the rationale and the deferred richer-registry sketch.
+- **`manta share` (publish a cast as a library package) is Phase 7b.** The Phase 7a sanitizer module (`@manta/orchestrator/sanitize/metadata-allowlist`) is the seed; Phase 7b enumerates the full redaction pipeline.
 - **`manta trigger add` (auto-cast triggers) is Phase 7c.**
 - **Custom HTTP registry / code signing / runtime sandbox are Phase 8+.** The npm registry under the `@manta-library/*` scope plus the git+https fallback are the only distribution surfaces shipped here.
+- **`manta library search` + curated GitHub index** are Phase 8 — Phase 7a ships discovery surfaces (list/show/outdated/doctor) but not directory-style browsing.
 
-## Troubleshooting (Chunk 1)
+## Troubleshooting
 
-| Symptom | What it means | What to do |
-|---|---|---|
-| `[manta] install: install_spec_parse_failed: cannot parse spec "..."` | The spec form isn't one of the three supported shapes. | Use `@scope/name@range`, `git+https://...#ref`, or `./local.tgz`. |
-| `[manta] install: install_network_failed: cannot fetch ...` | `npm pack` or `git clone` shelled out and failed. | Check `npm ping` and your network. Phase 7a requires `npm` in `$PATH` for npm-spec installs. |
-| `[manta] install: install_manifest_invalid: ...` | The tarball's `manta-package.json` is missing, not JSON, or fails the schema. | Inspect the tarball with `tar tzf <path>` and validate the manifest by hand against `MantaPackageManifestSchema` in `@manta/skill-validator`. |
-| `[manta] install: install_validation_failed: ...` | A skill/command/mode declared in the manifest doesn't exist on disk, or one exists on disk that the manifest doesn't declare. | Re-check the package author's contributes table — fix the manifest or the on-disk file. The error message names the offending path. |
-| `[manta] install: install_compat_unmet: ...` | The package's `mantaVersionCompat` range doesn't include this CLI version. | Follow the printed recovery options (upgrade CLI / install older package / uninstall). |
-| `[manta] install: install_already_installed: ...` | A previous install of the same name+version exists. | Wait for `--force` in Chunk 2, or manually remove `~/.manta/library/<scope>/<name>/<version>/`. |
-| `[manta] cast: manta_version_compat_unmet` (exit 16) | An installed library package no longer satisfies the CLI's version after an upgrade. | Same recovery options as above. |
+| Symptom | Exit | What it means | What to do |
+|---|---|---|---|
+| `install_spec_parse_failed: cannot parse spec "..."` | 1 | The spec form isn't one of the three supported shapes. | Use `@scope/name@range`, `git+https://...#ref`, or `./local.tgz`. |
+| `install_network_failed: cannot fetch ...` | 1 | `npm pack` or `git clone` shelled out and failed. | Check `npm ping` and your network. Phase 7a requires `npm` in `$PATH` for npm-spec installs. Re-run with `--offline` against a local tarball if you have one. |
+| `network_required_for_spec_kind` | 11 | `--offline` was given but the spec needs the network. | Vendor a tarball and install from `./vendored.tgz`, or drop `--offline`. |
+| `install_manifest_invalid: ...` | 1 | The tarball's `manta-package.json` is missing, not JSON, or fails the schema. | Inspect the tarball with `tar tzf <path>` and validate the manifest by hand against `MantaPackageManifestSchema` in `@manta/skill-validator`. |
+| `checksum_mismatch` | 13 | `--integrity sha256-<base64>` was given and the fetched tarball did not match. | Confirm the expected hash; if it is right, treat the source as compromised and report to the package author. |
+| `install_validation_failed: ...` | 14 | A skill/command/mode declared in the manifest doesn't exist on disk, or one exists on disk that the manifest doesn't declare. | Re-check the package author's contributes table — fix the manifest or the on-disk file. The error message names the offending path. |
+| `mode_conflict_library` | 14 | Two installed packages contribute the same library-mode name. | Pick one. `manta uninstall` the other; library-mode names must be unique across the install set. |
+| `install_already_installed: ...` | 15 | A previous install of the same name+version exists. | Re-run with `--force` to overwrite, or run `manta uninstall <name>@<version>` first. |
+| `cast: manta_version_compat_unmet` | 16 | An installed library package no longer satisfies the CLI's version after an upgrade. | Follow the three printed recovery options. `manta library doctor` reports this proactively. |
+| `uninstall: multiple versions of <name> installed` | 18 | The spec omitted a version and more than one is installed. | Re-run with `@<version>`. |
+| `uninstall: <name>@<version> is in use by cast <cast-id>` | 18 | A live (non-DEAD) clone is running a mode contributed by this package. | `manta abort <cast-id>` first, then re-run uninstall. `--force` covers IDLE/WAITING_FOR_TASK/WINDING_DOWN only. |
+| `cast: library_tampered` | 19 | A lockfile-recorded `directoryDigest` no longer matches the on-disk install. | `manta install <name>@<version> --force` to re-fetch. If the failure says `actual: <missing>`, the install was removed; the same `--force` re-install fixes it. |
+| `library: doctor: library_unhealthy` | 20 | One or more installed packages failed `validatePackage` or compat after a CLI upgrade. | `manta library show <name>` for details; then upgrade the CLI, install an older package version, or uninstall the offender. |
 
 ## Where to go next
 
 - **Building a library package:** the package layout mirrors the validator's `validatePackage` contract — top-level `manta-package.json` plus `skills/<name>/SKILL.md`, `commands/<name>.md`, `modes/<name>/mode.json`, `templates/<name>`. Drive-by files (on disk but undeclared) are rejected; declare everything in `contributes`.
-- **Phase 7a Chunk 2:** uninstall, library subcommands, install flag completeness, hash-pin verification, and the env-gated `MANTA_E2E=1` end-to-end install→cast→uninstall round trip.
-- **Phase 7b:** `manta share` builds a `.mantapkg.tar.gz` from a finalised cast, reusing the manifest schema and the bug #18 metadata sanitizer that landed alongside this chunk.
+- **`ModeRegistry` architecture note:** [`docs/internals/mode-registry.md`](../internals/mode-registry.md) covers the `basedOn` host-dispatcher inheritance model, the cast-manifest dual recording, and where to extend when richer library-mode semantics are wanted.
+- **Phase 7b:** `manta share` builds a `.mantapkg.tar.gz` from a finalised cast, reusing the manifest schema and the bug #18 metadata sanitizer that landed alongside Phase 7a.
 - **Phase 7c:** `manta trigger add/list <event> <action>` ships the auto-cast trigger taxonomy.

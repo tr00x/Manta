@@ -1,5 +1,6 @@
 # Manta runtime state — ephemeral, not source
 .manta/clones/
+last-gasp-report.md
 .manta/locks/
 .manta/state/
 .manta/reports/

@@ -1331,3 +1331,153 @@ describe('DAEMON_IDLE_STATES', () => {
     expect(DAEMON_IDLE_STATES.has('DEAD')).toBe(false);
   });
 });
+
+// Phase 7a Chunk 2 task 2.4 — hash-pin verification on every cast.
+// The integration sits between compat (exit 16) and the mode-lookup (exit 1),
+// so a lockfile entry whose on-disk content drifted must fail with exit 19
+// before the mode validation ever runs.
+describe('cast command — hash-pin verification (task 2.4)', () => {
+  let fx: RepoFixture | undefined;
+  let fakeHome: string | undefined;
+  let restoreHome: string | undefined;
+
+  afterEach(async () => {
+    if (restoreHome !== undefined) {
+      process.env.HOME = restoreHome;
+      restoreHome = undefined;
+    }
+    if (fakeHome) {
+      await fs.rm(fakeHome, { recursive: true, force: true });
+      fakeHome = undefined;
+    }
+    await fx?.cleanup();
+    fx = undefined;
+  });
+
+  it('refuses to cast with exit 19 when an installed library package is tampered on disk', async () => {
+    const { createLocalStore } = await import('../../src/library/local-store.js');
+    const { createLockfileStore } = await import('../../src/library/lockfile.js');
+    const { computeDirDigest } = await import('../../src/library/dir-digest.js');
+    const { MANTA_CLI_VERSION } = await import('../../src/library/cli-version.js');
+
+    fx = await makeRepoFixture();
+    fakeHome = await fs.mkdtemp(join(tmpdir(), 'manta-cast-tamper-'));
+    restoreHome = process.env.HOME;
+    process.env.HOME = fakeHome;
+
+    const localStore = createLocalStore({ homeDir: fakeHome });
+    const installDir = localStore.pathFor('@manta-library/tamper-victim', '0.1.0');
+    await fs.mkdir(installDir, { recursive: true });
+    await fs.writeFile(
+      join(installDir, 'manta-package.json'),
+      JSON.stringify({ schemaVersion: 1, name: '@manta-library/tamper-victim', version: '0.1.0' }),
+      'utf8',
+    );
+    await fs.writeFile(join(installDir, 'README.md'), '# original\n', 'utf8');
+    const recordedDigest = await computeDirDigest(installDir);
+
+    const lockfile = createLockfileStore({ repoRoot: fx.root });
+    await lockfile.write({
+      schemaVersion: 1,
+      mantaVersion: MANTA_CLI_VERSION,
+      generatedAt: '2026-05-28T11:30:00.000Z',
+      packages: {
+        '@manta-library/tamper-victim': {
+          version: '0.1.0',
+          resolved: 'file://fixture',
+          integrity: 'sha256-AAAaaa==',
+          directoryDigest: recordedDigest,
+          contributes: { modes: [], skills: [], commands: [], templates: [] },
+          mantaVersionCompat: '>=0.0.0',
+          installedAt: '2026-05-28T11:30:00.000Z',
+        },
+      },
+    });
+
+    // Now mutate one byte on disk — simulates a manual edit, a corrupted
+    // install, or an attacker's tampering after the lock was committed.
+    await fs.writeFile(join(installDir, 'README.md'), '# tampered\n', 'utf8');
+
+    const rt = await createRuntime({ repoRoot: fx.root, homeDir: fakeHome });
+    let caught: { message: string; exitCode?: number } | undefined;
+    try {
+      await runCastCommand(rt, {
+        mode: 'recon-swarm',
+        task: 't',
+        cloneCount: 1,
+        cycleIntervalMs: 50,
+        runner: runFakeCloneScript({ scriptPath: fixturePath }),
+        reporter: noopReporter,
+        tickBudgetMs: 1_000,
+        castId: 'cast-tampered',
+        budgetUsdPerClone: 5,
+        budgetUsdPerCast: 15,
+        verifyMcp: false,
+      });
+    } catch (err) {
+      caught = err as { message: string; exitCode?: number };
+    }
+    expect(caught).toBeDefined();
+    expect(caught!.exitCode).toBe(19);
+    expect(caught!.message).toContain('@manta-library/tamper-victim');
+    expect(caught!.message).toContain('0.1.0');
+    expect(caught!.message).toContain(recordedDigest);
+    expect(caught!.message).toContain('manta install');
+    expect(caught!.message).toContain('--force');
+  });
+
+  it('refuses to cast with exit 19 when the install directory is missing entirely', async () => {
+    const { createLockfileStore } = await import('../../src/library/lockfile.js');
+    const { MANTA_CLI_VERSION } = await import('../../src/library/cli-version.js');
+
+    fx = await makeRepoFixture();
+    fakeHome = await fs.mkdtemp(join(tmpdir(), 'manta-cast-missing-'));
+    restoreHome = process.env.HOME;
+    process.env.HOME = fakeHome;
+
+    // Lockfile claims an install that never landed on disk — handles the
+    // checked-in-lockfile-but-no-install case (e.g. fresh CI checkout that
+    // skipped `manta install`, or `rm -rf ~/.manta/library/`).
+    const lockfile = createLockfileStore({ repoRoot: fx.root });
+    await lockfile.write({
+      schemaVersion: 1,
+      mantaVersion: MANTA_CLI_VERSION,
+      generatedAt: '2026-05-28T11:30:00.000Z',
+      packages: {
+        '@manta-library/ghost': {
+          version: '0.1.0',
+          resolved: 'file://fixture',
+          integrity: 'sha256-AAAaaa==',
+          directoryDigest: 'sha256-EXPECTEDxxx==',
+          contributes: { modes: [], skills: [], commands: [], templates: [] },
+          mantaVersionCompat: '>=0.0.0',
+          installedAt: '2026-05-28T11:30:00.000Z',
+        },
+      },
+    });
+
+    const rt = await createRuntime({ repoRoot: fx.root, homeDir: fakeHome });
+    let caught: { message: string; exitCode?: number } | undefined;
+    try {
+      await runCastCommand(rt, {
+        mode: 'recon-swarm',
+        task: 't',
+        cloneCount: 1,
+        cycleIntervalMs: 50,
+        runner: runFakeCloneScript({ scriptPath: fixturePath }),
+        reporter: noopReporter,
+        tickBudgetMs: 1_000,
+        castId: 'cast-ghost',
+        budgetUsdPerClone: 5,
+        budgetUsdPerCast: 15,
+        verifyMcp: false,
+      });
+    } catch (err) {
+      caught = err as { message: string; exitCode?: number };
+    }
+    expect(caught).toBeDefined();
+    expect(caught!.exitCode).toBe(19);
+    expect(caught!.message).toContain('@manta-library/ghost');
+    expect(caught!.message).toContain('install directory is missing');
+  });
+});

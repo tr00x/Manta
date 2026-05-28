@@ -4,6 +4,33 @@ All notable changes to Manta. Format follows [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added — Phase 7a (Manta Library)
+
+- `manta install <spec>` — install a Manta library package. Supports three spec forms: scoped npm (`@manta-library/<name>[@<range>]`), git URLs (`git+https://…[#ref]`), and local tarballs (`./pkg.tgz`). Full flag matrix: `--force` (overwrite collision), `--offline` (refuse network), `--integrity sha256-<base64>` (pre-pinned tarball hash), `--json` (machine-readable summary), `--dry-run` (pipeline through validation; no commit), `--no-validate` (CI replay; warns loudly), `--no-hooks` (hard-refuse; hooks distribution deferred to Phase 8).
+- `manta uninstall <name>[@<version>]` — remove an installed package. Multi-version check (refuses without `@<version>` when >1 installed); in-use check (refuses when a non-DEAD clone is running a mode contributed by the package); `--force` covers the soft non-DEAD states (`IDLE`/`WAITING_FOR_TASK`/`WINDING_DOWN`) only, never the hot states (`STARTING`/`WORKING`/`BLOCKED`).
+- `manta library list|show|outdated|doctor` — read-only observability subcommands. `list` tables the install set; `show` pretty-prints one package's manifest + lockfile entry; `outdated` reports newer-version-satisfying-range candidates per npm-resolved package; `doctor` runs `validatePackage` + compat check across the install set (exit 20 `library_unhealthy` on failure — distinct from exit 19 tamper).
+- `MantaPackageManifest` Zod schema (in `@manta/skill-validator`) — strict validation of library packages; `contributes` table cross-checked against disk (no drive-bys, no danglers).
+- `ModeRegistry` (`@manta/cli`) — single seam for built-in + library-installed modes. `has()` is the only mode-validity predicate; library entries register against the host dispatcher named by `basedOn` (closed enum, threat-model-bounded). Name collisions (library/library, library/builtin) hard-fail with `ModeConflictError`.
+- `manta-lock.json` at repo root — atomic read/write under `proper-lockfile`, deterministic key ordering (alphabetical packages, sorted contributes arrays, trailing newline). Schema-version 1. Carries `directoryDigest` per entry for the per-cast hash-pin check.
+- Global library store at `~/.manta/library/<scope>/<name>/<version>/` with `~/.manta/library/index.json`. Multi-version coexistence by design.
+- `verifyMantaVersionCompat` preflight in `manta cast` — exit 16 `manta_version_compat_unmet` with a three-option recovery message (upgrade CLI / install older package / uninstall).
+- **Hash-pin verification on every `manta cast`** — exit 19 `library_tampered` on directory-digest mismatch (or `actual: <missing>` when the install dir vanished). Recovery hint: `manta install <name>@<version> --force` to re-fetch. Reuses `computeDirDigest`; ordering: load-registry → compat → integrity → mode-lookup so the operator sees the upgrade message before the tamper message before the unknown-mode message.
+- `docs/user/manta-library.md` — full user-facing reference (install, uninstall, library subcommands, flag matrix, hash-pin behaviour, lockfile schema, mode resolution at cast time, troubleshooting table with exit codes 0/11/12/13/14/15/16/18/19/20).
+- `docs/internals/mode-registry.md` — architecture note explaining the `basedOn` host-dispatcher inheritance model, the cast-manifest dual recording (`mode` + `libraryMode`), and why the richer `createDispatcher` registry was deferred.
+
+### Fixed — Phase 7a
+
+- Bug #18 (partial — layer a): post-mortem `record.metadata` is now allowlisted to `cast_id` and `cast_mode` only. Non-allowlisted keys are dropped with a single-line audit footer (`@manta/orchestrator/sanitize/metadata-allowlist`). The full enumeration sanitizer (snapshot, contract, timeline, ZK redaction pipeline — clone-A §4.3 + clone-C §1.4 tables) ships in Phase 7b.
+
+### Deferred to later phases (Phase 7a non-goals)
+
+- `manta share <cast-id>` — Phase 7b. Reuses the Phase 7a manifest schema + sanitizer + lockfile.
+- `manta trigger add|list <event> <action>` — Phase 7c.
+- Hook distribution from library packages — Phase 8 (the `--no-hooks` flag exists with hard-refuse semantics so the flip is a one-line change later).
+- Code signing, author reputation, runtime sandbox — Phase 8+.
+- Custom HTTP registry — Phase 8+ (only triggered if ≥100 published packages or a supply-chain incident).
+- `manta library search` + curated GitHub index — Phase 8.
+
 ### Added
 
 - Merge-review scoring engine + `/manta promote` command (Phase 2c). After a forking-realities cast, the CLI auto-collects metrics (test pass/fail, coverage delta, diff size, complexity, tsc errors, lint) per candidate, scores them with a composite weighted metric, and writes `docs/merge-reviews/<castId>.md`. Operator promotes the winner via `manta promote <castId>/<cloneId>` — merges the branch, graveyards losers.
