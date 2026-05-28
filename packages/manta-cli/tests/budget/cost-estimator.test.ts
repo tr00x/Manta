@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { estimateCost } from '../../src/budget/cost-estimator';
-import { BUDGET_DEFAULTS, type ResolvedBudgetConfig } from '../../src/config/budget-config';
+import { estimateCost } from '../../src/budget/cost-estimator.js';
+import { BUDGET_DEFAULTS, type ResolvedBudgetConfig } from '../../src/config/budget-config.js';
 
 function makeConfig(overrides: Partial<ResolvedBudgetConfig> = {}): ResolvedBudgetConfig {
   return { ...BUDGET_DEFAULTS, ...overrides };

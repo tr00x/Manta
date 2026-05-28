@@ -8,7 +8,7 @@ export interface DaemonStatusOptions {
 
 export async function runDaemonStatusCommand(
   rt: Runtime,
-  opts: DaemonStatusOptions,
+  _opts: DaemonStatusOptions,
 ): Promise<CommandResult> {
   const allClones = await rt.ctx.registry.list();
   const daemonClones = allClones.filter(

@@ -43,6 +43,7 @@ Manta — паттерн параллельной работы Claude Code, в �
 
 - "Тесты прошли" / "build green" — verify прогоном гейта **самостоятельно** перед коммитом, не на слово subagent'а. Имплементаторы уже врали про test pass (см. `feedback-impl-self-reports.md` в memory).
 - Spec-reviewer subagent должен независимо перепрогнать гейты, не доверять numerical claims.
+- **Канонический pre-merge гейт — `pnpm gate`** (= `pnpm typecheck && pnpm lint && pnpm test`, fail-fast по дешевизне). Bug #36 fix: до этого «гейт» был `pnpm -r build && pnpm -r test && pnpm -r lint` без typecheck'а — esbuild/vitest транспилируют без проверки типов, а `pnpm -r` падает на первом сломанном пакете и не доходит до остальных. Никогда не утверждать «гейт зелёный» без явного прогона `pnpm gate` (или ре-рана трёх скриптов поодиночке).
 
 При сомнении — кастуй `recon-swarm` чтобы проверить, не «пишу как помню».
 

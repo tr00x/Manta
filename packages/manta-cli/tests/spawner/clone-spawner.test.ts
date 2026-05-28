@@ -63,7 +63,7 @@ describe('clone-spawner', () => {
       registry: makeRegistryFake(),
       casts: makeFakeCasts().creator,
       castMode: 'recon-swarm',
-      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' },
       castRoster: [{ clone_id: 'A', assignment: null }],
     });
     expect(handle.cloneId).toBe('A');
@@ -86,7 +86,7 @@ describe('clone-spawner', () => {
       registry: makeRegistryFake(),
       casts: makeFakeCasts().creator,
       castMode: 'recon-swarm',
-      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' },
       castRoster: [{ clone_id: 'A', assignment: null }],
     });
     const result = await handle.exit;
@@ -106,7 +106,7 @@ describe('clone-spawner', () => {
       registry: makeRegistryFake(),
       casts: makeFakeCasts().creator,
       castMode: 'recon-swarm',
-      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' },
       castRoster: [{ clone_id: 'A', assignment: null }],
     });
     handle.kill('SIGTERM');
@@ -131,7 +131,7 @@ describe('clone-spawner', () => {
       registry: makeRegistryFake(),
       casts: makeFakeCasts().creator,
       castMode: 'recon-swarm',
-      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' },
       castRoster: [{ clone_id: 'A', assignment: null }],
     });
     await expect(handle.exit).rejects.toMatchObject({
@@ -157,7 +157,7 @@ describe('clone-spawner', () => {
       registry: makeRegistryFake(),
       casts: makeFakeCasts().creator,
       castMode: 'recon-swarm',
-      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' },
       castRoster: [{ clone_id: 'A', assignment: null }],
     });
     const result = await handle.terminate({ gracefulMs: 50 });
@@ -176,7 +176,7 @@ describe('clone-spawner', () => {
       registry: makeRegistryFake(),
       casts: makeFakeCasts().creator,
       castMode: 'recon-swarm',
-      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' },
       castRoster: [{ clone_id: 'A', assignment: null }],
     });
     expect(handle.snapshotPath).toMatch(/\.manta\/snapshots\/cast-1\/D\.snapshot\.json$/);
@@ -212,7 +212,7 @@ describe('clone-spawner', () => {
       registry: makeRegistryFake(),
       casts: makeFakeCasts().creator,
       castMode: 'recon-swarm',
-      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' },
       castRoster: [{ clone_id: 'A', assignment: null }],
     });
     await handle.exit;
@@ -241,7 +241,7 @@ describe('clone-spawner', () => {
       registry: makeRegistryFake(),
       casts: makeFakeCasts().creator,
       castMode: 'forking-realities',
-      castPolicy: { peer_messaging: 'denied', auto_merge_threshold: null },
+      castPolicy: { peer_messaging: 'denied', auto_merge_threshold: null, session_mode: 'batch' },
       castRoster: [{ clone_id: 'A', assignment: null }],
     });
     expect(capturedEnv?.MANTA_BUS_PEER_SCOPE).toBe('parent-only');
@@ -264,7 +264,7 @@ describe('clone-spawner', () => {
       registry: makeRegistryFake(),
       casts: makeFakeCasts().creator,
       castMode: 'recon-swarm',
-      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' },
       castRoster: [{ clone_id: 'A', assignment: null }],
     });
     expect(capturedEnv?.MANTA_BUS_PEER_SCOPE).toBe('siblings-allowed');
@@ -278,7 +278,7 @@ describe('clone-spawner', () => {
       { clone_id: 'A', assignment: null },
       { clone_id: 'B', assignment: null },
     ];
-    const policy = { peer_messaging: 'allowed' as const, auto_merge_threshold: null };
+    const policy = { peer_messaging: 'allowed' as const, auto_merge_threshold: null, session_mode: 'batch' as const };
     const snapA = makeSnapshotFor({ cloneId: 'A', castId: 'cast-spawn-1' });
     const snapB = makeSnapshotFor({ cloneId: 'B', castId: 'cast-spawn-1' });
     await spawnClone({
@@ -323,7 +323,7 @@ describe('clone-spawner', () => {
         registry: reg,
         casts: casts.creator,
         castMode: 'recon-swarm',
-        castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+        castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' },
         castRoster: [{ clone_id: 'A', assignment: null }],
       }),
     ).rejects.toMatchObject({ kind: 'register_failed' });
@@ -350,7 +350,7 @@ describe('clone-spawner', () => {
       registry: reg,
       casts: casts.creator,
       castMode: 'forking-realities',
-      castPolicy: { peer_messaging: 'denied', auto_merge_threshold: null },
+      castPolicy: { peer_messaging: 'denied', auto_merge_threshold: null, session_mode: 'batch' },
       castRoster: [{ clone_id: 'A', assignment: null }],
     });
     expect(captured).toHaveLength(1);
@@ -410,7 +410,7 @@ describe('clone-spawner', () => {
       registry: makeRegistryFake(),
       casts: makeFakeCasts().creator,
       castMode: 'recon-swarm',
-      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' },
       castRoster: [{ clone_id: 'A', assignment: null }],
     });
     expect(handle.isDaemon).toBe(false);

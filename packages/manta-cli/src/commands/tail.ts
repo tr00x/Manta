@@ -50,7 +50,9 @@ interface TailLoopOptions {
 }
 
 async function runTailLoop(opts: TailLoopOptions): Promise<void> {
-  let cursor = 0;
+  // Event-id cursor (not ts): '' sorts before any real id, so the first poll
+  // sees all history; advancing by id keeps same-ms events (bug #42).
+  let cursor = '';
   const deadline = opts.rt.ctx.clock.now() + opts.durationMs;
   let cloneSeenOnce = false;
   const notFoundGraceMs = 10_000;
@@ -68,7 +70,7 @@ async function runTailLoop(opts: TailLoopOptions): Promise<void> {
         ? formatTailEventRaw(event)
         : formatTailEvent(event);
       opts.onLine(line);
-      cursor = Math.max(cursor, event.ts);
+      if (event.id > cursor) cursor = event.id;
     }
 
     try {

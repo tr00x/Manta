@@ -193,6 +193,39 @@ describe('Registry', () => {
     await expect(registry.markDead('GHOST', 'why')).rejects.toBeInstanceOf(BusNotFoundError);
   });
 
+  it('markDead with stale observedLastHeartbeatAt throws BusConflictError (bug #38 liveness recheck)', async () => {
+    // Simulates: orchestrator's findDeadClones() read the registry at time T
+    // (observed = T), then the clone heartbeat'd at T+1, then the orchestrator
+    // tried to markDead with observed=T. The recheck inside markDead's mutex
+    // must catch the divergence and abort — without this, the clone would be
+    // permanently DEAD-locked despite being alive (heartbeat rejects DEAD).
+    await registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    const before = await registry.get('A');
+    const observedTs = before.last_heartbeat_at;
+    // Clone heartbeats — advances last_heartbeat_at past `observedTs`.
+    clock.advance(1);
+    await registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    const afterHb = await registry.get('A');
+    expect(afterHb.last_heartbeat_at).toBeGreaterThan(observedTs);
+    // Reaper attempts markDead with the stale observed ts — must abort.
+    await expect(
+      registry.markDead('A', 'reaper', undefined, observedTs),
+    ).rejects.toBeInstanceOf(BusConflictError);
+    // State unchanged: clone is still WORKING, not DEAD.
+    const still = await registry.get('A');
+    expect(still.state).toBe('WORKING');
+    expect(still.died_at).toBeUndefined();
+  });
+
+  it('markDead with matching observedLastHeartbeatAt succeeds (no false-positive aborts)', async () => {
+    await registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    const r = await registry.get('A');
+    // Observed value matches current state — no race, reaper proceeds.
+    await registry.markDead('A', 'reaper', undefined, r.last_heartbeat_at);
+    const dead = await registry.get('A');
+    expect(dead.state).toBe('DEAD');
+  });
+
   it('staleSince returns clones whose heartbeat is older than threshold', async () => {
     await registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
     clock.advance(5_000);
@@ -326,21 +359,43 @@ describe('Registry — cross-process safety', () => {
       const workerScript = path.join(__dirname, '..', 'helpers', 'registryHammerWorker.ts');
       const COUNT_PER_WORKER = 25;
 
+      // Pin fork cwd to the bus package root so `--import tsx` resolves the
+      // `tsx` loader from this package's node_modules. Workspace root has no
+      // `tsx` dep (it's a devDep of @manta/bus only), so under the full-suite
+      // vitest run (cwd = workspace root) the default-cwd fork dies with
+      // ERR_MODULE_NOT_FOUND before main() runs. Isolated `cd packages/manta-bus
+      // && vitest` happens to work because cwd already matches.
+      const pkgRoot = path.resolve(__dirname, '..', '..');
       const runWorker = (workerId: string): Promise<string[]> =>
         new Promise((resolve, reject) => {
           const child = fork(
             workerScript,
             [root, workerId, String(COUNT_PER_WORKER)],
-            { execArgv: ['--import', 'tsx'], stdio: ['ignore', 'pipe', 'pipe', 'ipc'] },
+            { cwd: pkgRoot, execArgv: ['--import', 'tsx'], stdio: ['ignore', 'pipe', 'pipe', 'ipc'] },
           );
           let result: { ok: boolean; registered?: string[]; error?: string } | null = null;
+          // Capture stderr/stdout so any pre-main crash (tsx loader error,
+          // top-level import throw, native abort, SIGKILL trace) reaches the
+          // parent. Without this, a worker dying outside main().catch leaves
+          // the parent with only "exit <code>" and no clue why.
+          const stderrChunks: Buffer[] = [];
+          const stdoutChunks: Buffer[] = [];
+          child.stderr?.on('data', (c: Buffer) => stderrChunks.push(c));
+          child.stdout?.on('data', (c: Buffer) => stdoutChunks.push(c));
           child.on('message', (m) => {
             result = m as typeof result;
           });
           child.on('error', reject);
-          child.on('exit', (code) => {
+          child.on('exit', (code, signal) => {
             if (code !== 0 || !result || !result.ok) {
-              reject(new Error(`worker ${workerId} failed: ${result?.error ?? `exit ${code}`}`));
+              const stderr = Buffer.concat(stderrChunks).toString('utf8').trim();
+              const stdout = Buffer.concat(stdoutChunks).toString('utf8').trim();
+              const tail = (s: string): string => s.split('\n').slice(-20).join('\n');
+              const parts = [`worker ${workerId} failed`];
+              parts.push(result?.error ? `error=${result.error}` : `exit=${code ?? 'null'} signal=${signal ?? 'null'}`);
+              if (stderr) parts.push(`stderr-tail:\n${tail(stderr)}`);
+              if (stdout) parts.push(`stdout-tail:\n${tail(stdout)}`);
+              reject(new Error(parts.join(' | ')));
               return;
             }
             resolve(result.registered ?? []);

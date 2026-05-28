@@ -22,7 +22,7 @@ describe('replay command', () => {
       cast_id: castId,
       mode: 'recon-swarm',
       clones: [{ clone_id: 'A', assignment: null }],
-      policy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      policy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' },
     });
     await rt.ctx.registry.register({
       clone_id: 'A',
@@ -77,7 +77,7 @@ describe('replay command', () => {
         { clone_id: 'A', assignment: null },
         { clone_id: 'B', assignment: null },
       ],
-      policy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      policy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' },
     });
     await rt.ctx.registry.register({
       clone_id: 'A',

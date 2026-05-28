@@ -11,6 +11,8 @@ import {
   ContractsStore,
   CastsStore,
   EventsLog,
+  ChargeStore,
+  DailySpendLedger,
   fsMemoryWriters,
   type BusContext,
 } from '@manta/bus';
@@ -23,6 +25,8 @@ import {
 } from '@manta/orchestrator';
 import { runDaemonStatusCommand, runDaemonStopCommand } from '../../src/commands/daemon.js';
 import type { Runtime } from '../../src/runtime.js';
+import { createLockfileStore } from '../../src/library/lockfile.js';
+import { createLocalStore } from '../../src/library/local-store.js';
 
 function makeRuntime(ctx: BusContext, root: string): Runtime {
   return {
@@ -36,6 +40,8 @@ function makeRuntime(ctx: BusContext, root: string): Runtime {
     }),
     thresholds: defaultThresholds,
     mergeReviewWriter: fsMergeReviewWriter({ repoRoot: root, mergeReviewDir: 'docs/merge-reviews' }),
+    lockfile: createLockfileStore({ repoRoot: root }),
+    localStore: createLocalStore({ homeDir: root }),
     dispose: async () => {},
   };
 }
@@ -63,6 +69,8 @@ describe('daemon status command', () => {
       contracts: new ContractsStore(paths, clock),
       casts: new CastsStore(paths, clock),
       events: new EventsLog(paths, clock),
+      charges: new ChargeStore(paths, clock),
+      dailySpend: new DailySpendLedger(paths, clock),
       memoryWriters: fsMemoryWriters({ repoRoot: root, clock }),
     };
   });
@@ -122,6 +130,8 @@ describe('daemon stop command', () => {
       contracts: new ContractsStore(paths, clock),
       casts: new CastsStore(paths, clock),
       events: new EventsLog(paths, clock),
+      charges: new ChargeStore(paths, clock),
+      dailySpend: new DailySpendLedger(paths, clock),
       memoryWriters: fsMemoryWriters({ repoRoot: root, clock }),
     };
   });

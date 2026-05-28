@@ -39,8 +39,8 @@ describe('DailySpendLedger', () => {
     const s = await ledger.recordCastStart(entry);
     expect(s.spent_usd).toBe(4.5);
     expect(s.entries).toHaveLength(1);
-    expect(s.entries[0].cast_id).toBe('cast-1');
-    expect(s.entries[0].started_at).toBe(clock.now());
+    expect(s.entries[0]!.cast_id).toBe('cast-1');
+    expect(s.entries[0]!.started_at).toBe(clock.now());
   });
 
   it('recordCastStart() auto-resets when date changes', async () => {
@@ -66,7 +66,7 @@ describe('DailySpendLedger', () => {
     const s = await ledger.recordCastStart(entry2);
     expect(s.spent_usd).toBe(6.0);
     expect(s.entries).toHaveLength(1);
-    expect(s.entries[0].cast_id).toBe('cast-2');
+    expect(s.entries[0]!.cast_id).toBe('cast-2');
   });
 
   it('getRemaining() returns dailyCapUsd - spent_usd', async () => {

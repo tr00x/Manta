@@ -67,6 +67,52 @@ describe('Orchestrator', () => {
     expect(result.deadClones[0]!.reason).toMatch(/parent/);
   });
 
+  it('runCycle skips post-mortem when a stale-detected clone heartbeats mid-cycle (bug #38 — no DEAD-lock of live clones)', async () => {
+    // Race scenario the bug describes: findDeadClones() reads the registry
+    // outside any lock (sees `last_heartbeat=T0`, decides the clone is
+    // stale). Before runPostMortem's markDead executes its mutator, the
+    // clone resumes and heartbeats (T1 > T0). Pre-fix: markDead unconditionally
+    // overwrote state → live clone permanently DEAD-locked (heartbeat rejects
+    // DEAD). Post-fix: markDead's inside-mutex liveness recheck throws
+    // BusConflictError; runPostMortem propagates; orchestrator's per-iteration
+    // catch swallows it; cycle continues; clone stays WORKING.
+    await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    ctx.clock.advance(defaultThresholds.heartbeatTimeoutMs + 1_000);
+
+    // Inject the race: when post-mortem calls registry.get to fetch the
+    // record, fire a heartbeat (clone resumes) just before returning. The
+    // record returned reflects pre-resumption state, so runPostMortem passes
+    // the stale `observedLastHeartbeatAt` into markDead.
+    const realRegistry = ctx.registry;
+    const racingRegistry = new Proxy(realRegistry, {
+      get(target, prop) {
+        if (prop === 'get') {
+          return async (id: string) => {
+            const r = await target.get(id);
+            await target.heartbeat({ clone_id: id, state: 'WORKING' });
+            return r;
+          };
+        }
+        return (target as unknown as Record<PropertyKey, unknown>)[prop as string];
+      },
+    });
+    const racingCtx = { ...ctx, registry: racingRegistry };
+    const writer = inMemoryPostMortemWriter();
+    const o = new Orchestrator({ ctx: racingCtx, thresholds: defaultThresholds, probe: makeProbe({ alive: () => true }), writer });
+
+    const result = await o.runCycle(); // must NOT throw — the catch swallows BusConflictError
+    expect(result.deadClones.map((d) => d.clone_id)).toEqual(['A']); // detector still flagged it
+    expect(result.postMortems).toEqual([]); // ...but post-mortem skipped
+    expect(writer.captured).toEqual([]); // no doc written for a live clone
+
+    // Clone remains alive: state WORKING, no death recorded.
+    const r = await realRegistry.get('A');
+    expect(r.state).toBe('WORKING');
+    expect(r.died_at).toBeUndefined();
+    expect(r.death_reason).toBeUndefined();
+  });
+
   it('runCycle is idempotent when called twice on the same state', async () => {
     await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
     await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });

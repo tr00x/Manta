@@ -104,8 +104,7 @@ describe('renderInspect', () => {
         path: 'src/index.ts',
         owner_clone_id: 'A',
         acquired_at: now - 20_000,
-        heartbeat_at: now - 3_000,
-        stale: false,
+        last_heartbeat_at: now - 3_000,
       }],
       claims: [{
         item: 'task-1',

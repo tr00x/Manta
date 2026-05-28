@@ -3,15 +3,20 @@ import type { BusEvent } from '@manta/bus';
 let _seq = 0;
 
 export function makeEvent(
-  overrides: Partial<BusEvent> & Pick<BusEvent, 'type' | 'ts'>,
+  overrides: Partial<Omit<BusEvent, 'clone_id' | 'id'>> &
+    Pick<BusEvent, 'type' | 'ts'> & { clone_id?: string | undefined; id?: string },
 ): BusEvent {
   const seq = _seq++;
-  return {
-    id: `${String(overrides.ts).padStart(13, '0')}-${String(seq).padStart(6, '0')}-test00`,
-    clone_id: undefined,
-    payload: null,
-    ...overrides,
+  const { clone_id, id, payload, ...rest } = overrides;
+  // exactOptionalPropertyTypes: omit clone_id entirely when undefined rather
+  // than assigning `undefined` to the optional property.
+  const event: BusEvent = {
+    id: id ?? `${String(overrides.ts).padStart(13, '0')}-${String(seq).padStart(6, '0')}-test00`,
+    payload: payload ?? null,
+    ...rest,
   };
+  if (clone_id !== undefined) event.clone_id = clone_id;
+  return event;
 }
 
 export interface CastEventSequenceOptions {

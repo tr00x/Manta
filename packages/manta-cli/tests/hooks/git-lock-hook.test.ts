@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { checkGitLock } from '../../src/hooks/git-lock-hook';
+import { spawn } from 'node:child_process';
+import { checkGitLock, buildGitLockHookScript } from '../../src/hooks/git-lock-hook.js';
 
 describe('gitLockHook', () => {
   let tmpDir: string;
@@ -154,5 +155,29 @@ describe('gitLockHook', () => {
       locksPath: path.join(tmpDir, 'nonexistent.json'),
     });
     expect(result.blocked).toBe(true);
+  });
+
+  it('generated .cjs fails CLOSED on malformed stdin (bug #39 regression)', async () => {
+    // Pre-fix the outer catch returned { continue: true }, letting a malformed
+    // PreToolUse payload bypass the git serialization mutex entirely → two
+    // clones could `git commit` concurrently and corrupt the shared index.
+    const scriptPath = path.join(tmpDir, 'git-lock-hook.cjs');
+    await fs.writeFile(scriptPath, buildGitLockHookScript(locksPath, 'A'), 'utf8');
+
+    const result = await new Promise<{ stdout: string; exitCode: number | null }>((resolve, reject) => {
+      const child = spawn('node', [scriptPath], { stdio: ['pipe', 'pipe', 'pipe'] });
+      let stdout = '';
+      child.stdout.on('data', (c: Buffer) => { stdout += c.toString('utf8'); });
+      child.on('error', reject);
+      child.on('exit', (code) => resolve({ stdout, exitCode: code }));
+      // Malformed JSON payload — outer JSON.parse will throw.
+      child.stdin.write('{"tool_name": "Bash", "tool_input": {');
+      child.stdin.end();
+    });
+
+    expect(result.exitCode).toBe(0);
+    const decision = JSON.parse(result.stdout) as { continue: boolean; reason?: string };
+    expect(decision.continue).toBe(false);
+    expect(decision.reason).toMatch(/could not be parsed|safety/i);
   });
 });

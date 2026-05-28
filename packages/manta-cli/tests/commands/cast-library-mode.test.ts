@@ -147,7 +147,7 @@ describe('cast command — library mode integration', () => {
       packages: {
         ...existing!.packages,
         '@manta-library/sample-mode-pack': {
-          ...existing!.packages['@manta-library/sample-mode-pack'],
+          ...existing!.packages['@manta-library/sample-mode-pack']!,
           mantaVersionCompat: '>=99.0.0',
         },
       },

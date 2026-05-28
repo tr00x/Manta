@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { FakeClock, busPaths, Registry, LocksStore, ClaimsStore, ContractsStore, CastsStore, EventsLog, fsMemoryWriters } from '@manta/bus';
+import { FakeClock, busPaths, Registry, LocksStore, ClaimsStore, ContractsStore, CastsStore, EventsLog, fsMemoryWriters, ChargeStore, DailySpendLedger } from '@manta/bus';
 import type { BusContext } from '@manta/bus';
 
 export interface TestBusContext extends BusContext {
@@ -26,6 +26,8 @@ export async function buildBusContext(epoch = 1_000_000): Promise<TestBusContext
     contracts: new ContractsStore(paths, clock),
     casts: new CastsStore(paths, clock),
     events: new EventsLog(paths, clock),
+    charges: new ChargeStore(paths, clock),
+    dailySpend: new DailySpendLedger(paths, clock),
     memoryWriters: fsMemoryWriters({ repoRoot: root, clock }),
     cleanup: async () => fs.rm(root, { recursive: true, force: true }),
   };

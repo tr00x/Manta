@@ -162,8 +162,6 @@ describe('death-detector', () => {
   it('daemon clone killed when session exceeds daemonMaxLifetimeMs', async () => {
     await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
     await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
-    const r = await ctx.registry.get('A');
-    (r as Record<string, unknown>).session_mode = 'daemon';
     const fs = await import('node:fs/promises');
     const regPath = ctx.paths.registry;
     const regFile = JSON.parse(await fs.readFile(regPath, 'utf8')) as { clones: Record<string, unknown> };

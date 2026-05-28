@@ -237,7 +237,7 @@ describe('TestStormDispatcher pipeline integration', () => {
   it('fix cycle: tester fails → coder fixes → tester re-tests → pass', async () => {
     const d = new TestStormDispatcher(config);
     const enqueued: Array<{ target: string; priority?: string }> = [];
-    const enqueuer = { enqueue: async (target: string, _prompt: string, priority?: string) => { enqueued.push({ target, priority }); } };
+    const enqueuer = { enqueue: async (target: string, _prompt: string, priority?: string) => { enqueued.push({ target, ...(priority !== undefined ? { priority } : {}) }); } };
 
     await d.onCycleComplete({
       idleClones: [],

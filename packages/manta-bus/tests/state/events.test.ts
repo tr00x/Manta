@@ -67,14 +67,32 @@ describe('EventsLog', () => {
     expect(all.map((e) => e.type)).toEqual(['register', 'broadcast', 'broadcast']);
   });
 
-  it('readSince returns events after a timestamp', async () => {
-    await events.append({ type: 'register', clone_id: 'A', payload: {} });
+  it('readSince returns events strictly after the given id', async () => {
+    const e0 = await events.append({ type: 'register', clone_id: 'A', payload: {} });
     clock.advance(10);
     await events.append({ type: 'broadcast', clone_id: 'A', payload: { e: 1 } });
     clock.advance(10);
     await events.append({ type: 'broadcast', clone_id: 'A', payload: { e: 2 } });
-    const since = await events.readSince(1_000_005);
+    const since = await events.readSince(e0.id);
     expect(since.map((e) => e.payload)).toEqual([{ e: 1 }, { e: 2 }]);
+  });
+
+  it('readSince does not drop same-millisecond events (regression: bug #42)', async () => {
+    // No clock.advance — all three events share ts=1_000_000. A ts cursor
+    // (e.ts > cursor) would return [] because nothing is strictly newer than
+    // the first event's ts. The id cursor keeps the two later appends.
+    const e0 = await events.append({ type: 'broadcast', clone_id: 'A', payload: { e: 0 } });
+    await events.append({ type: 'broadcast', clone_id: 'A', payload: { e: 1 } });
+    await events.append({ type: 'broadcast', clone_id: 'A', payload: { e: 2 } });
+    const since = await events.readSince(e0.id);
+    expect(since.map((e) => e.payload)).toEqual([{ e: 1 }, { e: 2 }]);
+  });
+
+  it('readSince("") returns all events from the start', async () => {
+    await events.append({ type: 'register', clone_id: 'A', payload: {} });
+    await events.append({ type: 'broadcast', clone_id: 'A', payload: { e: 1 } });
+    const since = await events.readSince('');
+    expect(since.map((e) => e.payload)).toEqual([{}, { e: 1 }]);
   });
 
   it('readAll returns empty array when log file is missing', async () => {

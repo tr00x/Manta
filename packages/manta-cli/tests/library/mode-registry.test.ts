@@ -100,7 +100,7 @@ describe('ModeRegistry', () => {
     r.registerLibrary(megaRefactor());
     const list = r.list();
     expect(list.library).toHaveLength(1);
-    expect(list.library[0].name).toBe('mega-refactor');
+    expect(list.library[0]!.name).toBe('mega-refactor');
   });
 
   it('resolveLibrary returns the entry for a library mode', () => {

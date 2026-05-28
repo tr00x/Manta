@@ -85,7 +85,7 @@ async function applyEslintAdjustments(
   for (const name of candidates) {
     try {
       const raw = await readFile(join(repoRoot, name), 'utf-8');
-      const rulePattern = /["'][\w/@-]+["']\s*:\s*["'\[]/g;
+      const rulePattern = /["'][\w/@-]+["']\s*:\s*["'[]/g;
       const matches = raw.match(rulePattern);
       if (matches && matches.length > 100) {
         const oldLint = weights.lint!;

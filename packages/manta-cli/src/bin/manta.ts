@@ -364,7 +364,7 @@ async function main(): Promise<void> {
     .description('Show budget config (all or specific key)')
     .action(async (key?: string) => {
       await runWithRuntime((rt) =>
-        runLimitCommand(rt, { subcommand: 'get', key, reporter }),
+        runLimitCommand(rt, { subcommand: 'get', ...(key !== undefined ? { key } : {}), reporter }),
       );
     });
 

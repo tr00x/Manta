@@ -12,7 +12,7 @@ import { makeRepoFixture, type RepoFixture } from '../helpers/repoFixture.js';
 import { makeRegistryFake } from '../helpers/registryFake.js';
 import { makeSnapshotFor } from '../helpers/snapshotFixture.js';
 
-const RECON_POLICY = { peer_messaging: 'allowed' as const, auto_merge_threshold: null };
+const RECON_POLICY = { peer_messaging: 'allowed' as const, auto_merge_threshold: null, session_mode: 'batch' as const };
 
 function noopCasts(): CastsCreator {
   return {

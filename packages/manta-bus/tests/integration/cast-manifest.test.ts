@@ -36,7 +36,7 @@ describe('cast-manifest integration', () => {
         cast_id: 'cast-int-2',
         mode: 'recon-swarm' as const,
         clones: [{ clone_id: 'A', assignment: null }],
-        policy: { peer_messaging: 'allowed' as const, auto_merge_threshold: null },
+        policy: { peer_messaging: 'allowed' as const, auto_merge_threshold: null, session_mode: 'batch' as const },
       };
       const [a, b] = await Promise.all([
         h.context.casts.create(input),

@@ -1,2 +1,14 @@
 packages:
   - 'packages/*'
+  # Bug #35: exclude clone worktrees from workspace membership. Each
+  # `.manta/worktrees/clone-X/` is a git worktree of this repo and therefore
+  # contains a copy of every `packages/*/package.json` under it. Without the
+  # exclude, pnpm running in main repo (or any tool that walks the workspace
+  # glob without anchoring) can treat those duplicates as additional workspace
+  # members, then dedupe via the shared `.pnpm/` store and rewrite main-repo
+  # symlinks to point inside a worktree (which may not yet have completed its
+  # own install, or may be deleted between casts → ERR_MODULE_NOT_FOUND on
+  # `zod` etc. from main-repo CLI). Hard-exclude prevents the discovery in
+  # both directions; works even if a future pnpm version makes its glob more
+  # aggressive.
+  - '!.manta/worktrees/**'

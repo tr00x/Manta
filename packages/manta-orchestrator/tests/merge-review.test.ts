@@ -20,6 +20,7 @@ function makeManifest(castId: string, cloneIds: string[], opts?: { mode?: string
     policy: {
       peer_messaging: 'denied',
       auto_merge_threshold: opts?.autoMergeThreshold !== undefined ? opts.autoMergeThreshold : 0.6,
+      session_mode: 'batch',
     },
     created_at: Date.now(),
   };
@@ -46,7 +47,7 @@ interface MockBusContext extends BusContext {
 function mockBusContext(
   manifests: CastManifest[],
   clones: CloneRecord[],
-  events: Array<{ type: string; payload?: Record<string, unknown> }>,
+  events: Array<{ type: string; clone_id?: string; payload?: Record<string, unknown> }>,
 ): MockBusContext {
   const appendedEvents: unknown[] = [];
   return {
@@ -60,7 +61,7 @@ function mockBusContext(
     },
     registry: { list: () => Promise.resolve(clones) },
     events: {
-      readAll: () => Promise.resolve(events),
+      readAll: () => Promise.resolve(events.map((e) => ({ ...e, payload: e.payload ?? null }))),
       append: (r) => { appendedEvents.push(r); return Promise.resolve(); },
     },
     _appendedEvents: appendedEvents,

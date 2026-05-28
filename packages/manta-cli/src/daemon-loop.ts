@@ -53,7 +53,7 @@ export async function runDaemonLoop(
 
     const runner = opts.runner ?? runClaudeResume({
       sessionId: opts.sessionId,
-      claudeBin: opts.claudeBin,
+      ...(opts.claudeBin !== undefined ? { claudeBin: opts.claudeBin } : {}),
     });
     const proc = runner.run({
       cwd: opts.worktree,
@@ -71,6 +71,20 @@ export async function runDaemonLoop(
 
     if (exitResult.failed && exitResult.exitCode == null) {
       consecutiveFailures++;
+      // Bug #27 fix: release the claimed item back to the queue so it can be
+      // retried (by this clone on next poll or by another daemon clone).
+      // Pre-fix, `continue` left the item with `claimed_at` set forever —
+      // `dequeue` filters claimed items out, so the work was silently lost.
+      // `release` clears `claimed_at`, increments `attempts`, and after
+      // `maxAttempts` (default 3) marks the item `dead_letter: true` so a
+      // genuinely-broken work item doesn't loop forever.
+      try {
+        await opts.workQueue.release(item.id);
+      } catch {
+        // Best-effort release: a failure here means the next poll sees the
+        // item still claimed and waits it out via the existing `consecutive
+        // Failures` budget. Don't mask the original runner failure.
+      }
       if (consecutiveFailures >= opts.maxResumeFailures) {
         return { resumeCycles, itemsCompleted, exitReason: 'max_failures' };
       }

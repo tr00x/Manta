@@ -47,7 +47,7 @@ export function renderInspect(data: InspectOutput): string {
     lines.push(`  scope:         allowed=[${c.scope.allowed_paths.join(', ')}] forbidden=[${c.scope.forbidden_paths.join(', ')}] maxFiles=${c.scope.max_files_changed}`);
     lines.push(`  deadline:      ${c.deadline_ms}ms`);
     lines.push(`  siblings:      ${c.sibling_clones.length > 0 ? c.sibling_clones.join(', ') : '(none)'}`);
-    lines.push(`  ack:           ${contract.ack ? `${contract.ack.status} at ${new Date(contract.ack.acked_at).toISOString()}` : '(not acked)'}`);
+    lines.push(`  ack:           ${contract.ack ? `acked at ${new Date(contract.ack.acked_at).toISOString()} — ${truncate(contract.ack.interpretation, 100)}` : '(not acked)'}`);
   }
   lines.push('');
 
@@ -58,7 +58,7 @@ export function renderInspect(data: InspectOutput): string {
   } else {
     for (const lock of locks) {
       const held = formatRelativeTime(Date.now() - lock.acquired_at);
-      lines.push(`  ${lock.path}  held=${held}  heartbeat=${formatRelativeTime(Date.now() - lock.heartbeat_at)}`);
+      lines.push(`  ${lock.path}  held=${held}  heartbeat=${formatRelativeTime(Date.now() - lock.last_heartbeat_at)}`);
     }
   }
   lines.push('');

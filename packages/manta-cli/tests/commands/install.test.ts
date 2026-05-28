@@ -85,12 +85,12 @@ describe('runInstallCommand — happy path', () => {
     expect(await rt.localStore.isInstalled(result.packageName, result.version)).toBe(true);
     const idx = await rt.localStore.readIndex();
     expect(idx.installs).toHaveLength(1);
-    expect(idx.installs[0].integrity).toMatch(/^sha256-/);
+    expect(idx.installs[0]!.integrity).toMatch(/^sha256-/);
 
     const lock = await rt.lockfile.read();
     expect(lock).not.toBeNull();
     expect(Object.keys(lock!.packages)).toEqual(['@manta-library/sample-package']);
-    const entry = lock!.packages['@manta-library/sample-package'];
+    const entry = lock!.packages['@manta-library/sample-package']!;
     expect(entry.version).toBe('0.1.0');
     expect(entry.integrity).toMatch(/^sha256-/);
     expect(entry.directoryDigest).toMatch(/^sha256-/);

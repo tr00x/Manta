@@ -1,17 +1,31 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { createRequire } from 'node:module';
+
+const require_ = createRequire(import.meta.url);
+// Resolve proper-lockfile through @manta/bus's dep chain. The generated .cjs
+// hook runs from inside a clone's worktree, where pnpm hoisting may differ
+// from the main repo, so we embed the absolute host-path resolved at install
+// time. @manta/bus is a direct dep of this package; proper-lockfile is a
+// direct dep of @manta/bus, so chained resolve always lands on the workspace
+// copy that the bus itself uses.
+const PROPER_LOCKFILE_PATH = createRequire(require_.resolve('@manta/bus'))
+  .resolve('proper-lockfile');
 
 /**
  * Write a `.claude/settings.local.json` into the clone's worktree that
- * installs a PostToolUse hook. The hook touches the clone's
+ * installs PreToolUse + PostToolUse hooks. The hook touches the clone's
  * `last_heartbeat_at` in the shared registry on every tool call — including
  * Claude Code built-in tools (Read, Write, Edit, Bash) that do NOT go
  * through MCP. This closes the gap where the bus auto-touch (bug #9 fix)
  * only fires on `manta.*` MCP calls but implementation clones spend most
  * of their time in non-MCP tools.
  *
- * Uses proper-lockfile for safe concurrent access to registry.json (same
- * locking primitive as `atomicMutateJson` in `@manta/bus`).
+ * The hook locks via `proper-lockfile` on `${registry}.lock` — the **same**
+ * lock path and same locker library used by the bus's `atomicMutateJson`
+ * (bug #37 fix). Mutual exclusion with the bus is guaranteed because both
+ * sides use the same primitive on the same path. Writes go through
+ * tmp+rename so a crashed hook cannot leave torn JSON behind.
  */
 const installedWorktrees = new Set<string>();
 
@@ -26,9 +40,7 @@ export async function installHeartbeatHook(
   await fs.mkdir(claudeDir, { recursive: true });
 
   const registryPath = path.join(repoRoot, '.manta', 'state', 'registry.json');
-  const lockDir = path.join(repoRoot, '.manta', 'state', '.locks');
-
-  const touchScript = buildTouchScript(registryPath, lockDir, cloneId);
+  const touchScript = buildTouchScript(registryPath, cloneId);
   const scriptPath = path.join(worktree, '.manta', 'heartbeat-touch.cjs');
   await fs.mkdir(path.dirname(scriptPath), { recursive: true });
   await fs.writeFile(scriptPath, touchScript, 'utf8');
@@ -67,53 +79,46 @@ export function _resetInstalledWorktrees(): void {
   installedWorktrees.clear();
 }
 
-function buildTouchScript(
-  registryPath: string,
-  lockDir: string,
-  cloneId: string,
-): string {
+function buildTouchScript(registryPath: string, cloneId: string): string {
   return `#!/usr/bin/env node
 'use strict';
 const fs = require('fs');
-const path = require('path');
+const lockfile = require(${JSON.stringify(PROPER_LOCKFILE_PATH)});
 
 const REGISTRY = ${JSON.stringify(registryPath)};
-const LOCK_DIR = ${JSON.stringify(lockDir)};
 const CLONE_ID = process.env.MANTA_CLONE_ID || ${JSON.stringify(cloneId)};
-const LOCK_FILE = path.join(LOCK_DIR, 'registry.json.lock');
+// Mirror @manta/bus's atomic-fs LOCK_OPTS verbatim so hook + bus share the
+// same retry budget and stale-steal threshold on the same lock file.
+const LOCK_OPTS = {
+  retries: { retries: 50, minTimeout: 5, maxTimeout: 50, factor: 1.2 },
+  stale: 30000,
+  realpath: false,
+};
 
-// Minimal lock: mkdir-based (same as proper-lockfile's stale check).
-// We use a simpler approach: try mkdir, retry once after 50ms, give up.
-// This is a best-effort touch — missing one is fine, the threshold is 300s.
-function tryLock() {
-  try { fs.mkdirSync(LOCK_FILE); return true; } catch { return false; }
-}
-function unlock() {
-  try { fs.rmdirSync(LOCK_FILE); } catch { /* already removed */ }
-}
-
-let locked = tryLock();
-if (!locked) {
-  // One retry after 50ms
-  setTimeout(() => {
-    locked = tryLock();
-    if (locked) run();
-  }, 50);
-} else {
-  run();
-}
-
-function run() {
+async function run() {
+  let release;
   try {
-    const raw = fs.readFileSync(REGISTRY, 'utf8');
-    const data = JSON.parse(raw);
+    release = await lockfile.lock(REGISTRY, LOCK_OPTS);
+  } catch {
+    return; // could not acquire lock under retry budget — best-effort skip
+  }
+  try {
+    let raw;
+    try { raw = fs.readFileSync(REGISTRY, 'utf8'); } catch { return; }
+    if (!raw) return; // empty placeholder, bus has not initialized yet
+    let data;
+    try { data = JSON.parse(raw); } catch { return; }
     const clone = data.clones && data.clones[CLONE_ID];
-    if (clone && clone.state !== 'DEAD') {
-      clone.last_heartbeat_at = Date.now();
-      fs.writeFileSync(REGISTRY, JSON.stringify(data, null, 2));
-    }
-  } catch { /* registry missing or corrupt — skip */ }
-  unlock();
+    if (!clone || clone.state === 'DEAD') return;
+    clone.last_heartbeat_at = Date.now();
+    const tmp = REGISTRY + '.tmp.' + process.pid + '.' + Date.now();
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+    fs.renameSync(tmp, REGISTRY);
+  } finally {
+    try { await release(); } catch { /* already released or stolen */ }
+  }
 }
+
+run().catch(() => { /* best-effort: missing one heartbeat is fine */ });
 `;
 }

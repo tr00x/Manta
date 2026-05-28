@@ -151,6 +151,7 @@ export class Registry {
     cloneId: string,
     reason: string,
     auditAppend?: () => Promise<void>,
+    observedLastHeartbeatAt?: number,
   ): Promise<CloneRecord> {
     return atomicMutateJson<RegistryFile>(
       this.paths.registry,
@@ -158,6 +159,17 @@ export class Registry {
       (current) => {
         const r = current.clones[cloneId];
         if (!r) throw new BusNotFoundError('clone', cloneId);
+        // Bug #38 fix: liveness recheck INSIDE the file mutex. The detector
+        // read `observedLastHeartbeatAt` outside the lock; if a heartbeat
+        // landed between detection and this mutator, the clone is alive and
+        // we must abort — marking it DEAD now would permanently lock it off
+        // the bus (heartbeat rejects DEAD at registry.ts:75-90). The recheck
+        // runs under the same lock as heartbeat, closing the window.
+        if (observedLastHeartbeatAt !== undefined && r.last_heartbeat_at !== observedLastHeartbeatAt) {
+          throw new BusConflictError(
+            `clone ${cloneId} revived: last_heartbeat_at advanced from ${observedLastHeartbeatAt} to ${r.last_heartbeat_at} since detection — aborting markDead`,
+          );
+        }
         r.state = 'DEAD';
         r.death_reason = reason;
         r.died_at = this.clock.now();

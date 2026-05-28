@@ -1,4 +1,4 @@
-import type { BusContext, BusEvent, LockLease, WorkClaim } from '@manta/bus';
+import { BusConflictError, type BusContext, type BusEvent, type LockLease, type WorkClaim } from '@manta/bus';
 import type { Thresholds } from './thresholds';
 import type { PidProbe } from './parent-pid';
 import type { PostMortemWriter } from './post-mortem-writer';
@@ -42,13 +42,23 @@ export class Orchestrator {
       const claimResult = await reapClaims(this.opts.ctx);
       const postMortems: RunPostMortemResult[] = [];
       for (const dead of deadClones) {
-        const pm = await runPostMortem(this.opts.ctx, {
-          cloneId: dead.clone_id,
-          reason: dead.reason,
-          writer: this.opts.writer,
-          thresholds: this.opts.thresholds,
-        });
-        postMortems.push(pm);
+        try {
+          const pm = await runPostMortem(this.opts.ctx, {
+            cloneId: dead.clone_id,
+            reason: dead.reason,
+            writer: this.opts.writer,
+            thresholds: this.opts.thresholds,
+          });
+          postMortems.push(pm);
+        } catch (err) {
+          // Bug #38 fix: a BusConflictError here means the clone heartbeated
+          // between findDeadClones() (lock-free read) and markDead's mutator
+          // (under lock). It is no longer eligible for the reaper; skip
+          // silently and let the next cycle re-evaluate. Any other error is
+          // a real failure and propagates.
+          if (err instanceof BusConflictError) continue;
+          throw err;
+        }
       }
       const events = [
         ...lockResult.events,

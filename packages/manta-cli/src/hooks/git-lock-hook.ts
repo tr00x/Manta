@@ -101,9 +101,17 @@ process.stdin.on('end', () => {
         reason: 'GIT_OPERATIONS lock held by ' + holder + ', not ' + CLONE_ID + '. Acquire lock first.',
       }));
     }
-  } catch {
-    // Parse error — allow through (fail-open for non-standard input)
-    process.stdout.write(JSON.stringify({ continue: true }));
+  } catch (err) {
+    // Outer parse failed (truncated frame, encoding error, harness bug, or
+    // an attacker probing the hook). Bug #39 fix: fail **closed**. The hook
+    // is installed with matcher 'Bash' only, so a parse failure means we
+    // cannot tell whether the would-be Bash command is git-mutating. A
+    // blocked benign \`pnpm test\` is recoverable noise; an unlocked
+    // \`git commit\` corrupts the shared index. Default to safety.
+    process.stdout.write(JSON.stringify({
+      continue: false,
+      reason: 'manta git-lock hook: PreToolUse input could not be parsed (' + (err && err.message ? err.message : 'unknown') + '). Blocking for safety — acquire the GIT_OPERATIONS lock and retry, or investigate hook input format.',
+    }));
   }
   process.exit(0);
 });

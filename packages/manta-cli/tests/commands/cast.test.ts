@@ -278,6 +278,57 @@ describe('cast command (recon-swarm)', () => {
     expect(events).toContain('cast.done');
   });
 
+  it('force-terminates wedged OS processes after reaper marks DEAD (bug #40)', async () => {
+    // The orchestrator's reaper only updates registry state (DEAD); it does
+    // NOT signal the OS process. Pre-fix, a wedged `claude --print` (hang
+    // fake) would be marked DEAD by the heartbeat detector, allDone() would
+    // return true (all DEAD), the loop would exit, and then the cast's
+    // `await h.exit` would hang forever waiting on the still-running child
+    // — orphan zombie holding the worktree and emitting rejected bus calls.
+    // Post-fix, cast.ts walks the registry after the loop, finds the DEAD
+    // clone, and force-terminates its handle before reap. The test pins
+    // this by using a budget large enough that the budget-abort path
+    // CANNOT be what stops the cast — only the DEAD-terminate branch can.
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: {
+        heartbeatTimeoutMs: 500,    // reaper marks DEAD fast
+        startupGraceMs: 5_000,
+        parentPidCheckEnabled: false,
+      },
+    });
+    const sink = new MemorySink();
+    const start = Date.now();
+    const result = await runCastCommand(rt, {
+      mode: 'recon-swarm',
+      task: 't',
+      cloneCount: 1,
+      cycleIntervalMs: 50,
+      runner: runFakeCloneScript({
+        scriptPath: fixturePath,
+        env: { MANTA_FAKE_CLONE_STATE: 'hang' },
+      }),
+      reporter: createReporter({ sink }),
+      tickBudgetMs: 60_000,  // 60s — far longer than the DEAD-terminate path
+      castId: 'cast-bug40',
+      budgetUsdPerClone: 5,
+      budgetUsdPerCast: 15,
+      verifyMcp: false,
+    });
+    const elapsed = Date.now() - start;
+    // Expected timeline: ~500ms heartbeat stale → DEAD → next cycle allDone
+    // true → loop exit → my fix terminates DEAD handle (SIGTERM, 1s grace)
+    // → exit resolves → cast returns. ~2s typical, generous 15s bound for CI.
+    expect(elapsed).toBeLessThan(15_000);
+    expect(result.exitCode).toBe(0);
+    const events = sink.lines.map((l) => l.event);
+    expect(events).toContain('cast.done');
+    // Critical: the DEAD-terminate branch — NOT the budget-abort — is what
+    // stopped the cast. If budget_abort fired, the bug is not fixed.
+    expect(events).not.toContain('cast.budget_abort');
+  });
+
   it('writes the task contract (translated to bus snake_case schema) before spawning', async () => {
     fx = await makeRepoFixture();
     const rt = await createRuntime({

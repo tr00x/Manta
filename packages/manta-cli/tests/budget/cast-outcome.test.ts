@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyCastOutcome } from '../../src/budget/cast-outcome';
+import { classifyCastOutcome } from '../../src/budget/cast-outcome.js';
 import type { CloneRecord } from '@manta/bus';
 
 function makeClone(overrides: Partial<CloneRecord> = {}): CloneRecord {
@@ -89,7 +89,7 @@ describe('classifyCastOutcome', () => {
 
   it('death_reason is undefined → treat as normal completion', () => {
     const result = classifyCastOutcome({
-      clones: [makeClone({ death_reason: undefined })],
+      clones: [makeClone({})],
       budgetAborted: false,
     });
     expect(result).toBe('success');

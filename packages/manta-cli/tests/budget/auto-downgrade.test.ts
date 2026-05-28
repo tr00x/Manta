@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { computeDowngradeOptions } from '../../src/budget/auto-downgrade';
-import { BUDGET_DEFAULTS, type ResolvedBudgetConfig } from '../../src/config/budget-config';
+import { computeDowngradeOptions } from '../../src/budget/auto-downgrade.js';
+import { BUDGET_DEFAULTS, type ResolvedBudgetConfig } from '../../src/config/budget-config.js';
 
 function makeConfig(overrides: Partial<ResolvedBudgetConfig> = {}): ResolvedBudgetConfig {
   return { ...BUDGET_DEFAULTS, ...overrides };

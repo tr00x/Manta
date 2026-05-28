@@ -37,9 +37,36 @@ export async function runPostMortem(
   const record = await ctx.registry.get(opts.cloneId);
 
   // Mark DEAD if not already; preserves the original death_reason on idempotent re-runs.
+  // Bug #41 fix: pass an auditAppend closure so the `reaped` event is appended
+  // INSIDE the same file mutex as the markDead state mutation. Without this,
+  // a crash between markDead's rename and the post_mortem event append would
+  // leave the registry showing DEAD with no corresponding death event in
+  // events.jsonl — the exact "state ahead of audit" inconsistency #24 was
+  // built to prevent. We use `reaped` (not `death`) to distinguish
+  // orchestrator-initiated termination from clone-self-reported death (which
+  // the lifecycle handler emits as `death`).
   let final: CloneRecord = record;
   if (record.state !== 'DEAD') {
-    final = await ctx.registry.markDead(opts.cloneId, opts.reason);
+    // Bug #38 fix: pass the observed last_heartbeat_at so markDead can
+    // re-check inside its mutex. If a heartbeat landed between the orchestrator's
+    // findDeadClones() (which read `record` outside any lock) and this call,
+    // markDead throws BusConflictError — `runPostMortem` propagates it and
+    // the orchestrator's per-iteration catch skips both the DEAD-mark and
+    // the post-mortem doc. Marking a live clone DEAD locks it off the bus
+    // permanently (heartbeats reject DEAD), so the conservative path on any
+    // detection-vs-mutation race is to abort.
+    final = await ctx.registry.markDead(
+      opts.cloneId,
+      opts.reason,
+      async () => {
+        await ctx.events.append({
+          type: 'reaped',
+          clone_id: opts.cloneId,
+          payload: { reason: opts.reason },
+        });
+      },
+      record.last_heartbeat_at,
+    );
   }
 
   const allEvents = await ctx.events.readAll();
@@ -103,9 +130,92 @@ function renderMarkdown(input: RenderInput): string {
     lines.push('- (no events recorded)');
   } else {
     for (const e of input.events) {
-      lines.push(`- \`${e.ts}\` [${e.type}] ${JSON.stringify(e.payload)}`);
+      const summary = renderEventPayload(e);
+      lines.push(`- \`${e.ts}\` [${e.type}]${summary ? ' ' + summary : ''}`);
     }
   }
   lines.push('');
   return lines.join('\n');
+}
+
+/**
+ * Type-aware payload projection for the post-mortem event timeline (bug #29).
+ *
+ * Pre-fix, `JSON.stringify(e.payload)` dumped the entire payload verbatim —
+ * `broadcast.body`, `message.body`, `drift_report.evidence`,
+ * `feedback.feedback`, `contract_ack.interpretation` are all unconstrained
+ * free-form strings any clone can stuff with stderr, secrets, or arbitrary
+ * exfil. Post-mortems are then bundled by `manta share` (Phase 7), so a leak
+ * here ships externally.
+ *
+ * Fix: per-type allowlist of safe metadata fields. Free-form fields are
+ * dropped unconditionally. Unknown event types render as `<payload omitted>`
+ * (default-deny) so the safety contract holds even when new event types are
+ * added without explicitly extending this projection.
+ */
+function renderEventPayload(e: BusEvent): string {
+  const p = e.payload as Record<string, unknown> | null;
+  if (!p || typeof p !== 'object') return '';
+  switch (e.type) {
+    case 'register':
+      return summarize(p, ['mode']);
+    case 'heartbeat':
+      // `progress` is short status text by convention but still bus-input;
+      // include it because operators read post-mortems for the failure shape
+      // and progress trail. Schema-side length bound (BusContext) caps blast.
+      return summarize(p, ['state', 'progress']);
+    case 'broadcast':
+      return summarize(p, ['event_type']); // body omitted
+    case 'message':
+      return summarize(p, ['to', 'channel']); // body omitted
+    case 'drift_report':
+      return summarize(p, ['drift_score']); // evidence omitted
+    case 'feedback':
+      return summarize(p, ['severity']); // feedback text omitted
+    case 'claim':
+    case 'release':
+    case 'enqueue_work':
+      return summarize(p, ['item', 'target']);
+    case 'lock':
+    case 'unlock':
+    case 'renew_lock':
+      return summarize(p, ['path']);
+    case 'death':
+    case 'reaped':
+      return summarize(p, ['reason', 'last_gasp_report_path']);
+    case 'post_mortem':
+      return summarize(p, ['path', 'reason']);
+    case 'retask':
+      // task summary is operator-supplied free-form — drop.
+      return '';
+    case 'contract_write':
+    case 'contract_ack':
+    case 'contract_refresh':
+      // interpretation/contract body is free-form — drop.
+      return '';
+    case 'suicide_intent':
+    case 'pause':
+    case 'resume':
+    case 'request_task':
+      return ''; // control events with no operator-needed payload surface
+    case 'zk_write':
+    case 'para_append':
+      // note content is free-form — only structural markers safe to surface.
+      return summarize(p, ['note_id', 'folder']);
+    case 'cast_start':
+    case 'cast_success':
+    case 'cast_fail':
+    case 'cast_neutral':
+      return summarize(p, ['cast_id', 'mode', 'amount']);
+    default:
+      return '<payload omitted>';
+  }
+}
+
+function summarize(p: Record<string, unknown>, keys: string[]): string {
+  const projection: Record<string, unknown> = {};
+  for (const k of keys) {
+    if (k in p) projection[k] = p[k];
+  }
+  return Object.keys(projection).length === 0 ? '' : JSON.stringify(projection);
 }

@@ -22,6 +22,7 @@ function makeCastManifest(overrides: Partial<CastManifest> = {}): CastManifest {
     policy: {
       peer_messaging: 'denied',
       auto_merge_threshold: null,
+      session_mode: 'batch',
     },
     created_at: 1000,
     ...overrides,

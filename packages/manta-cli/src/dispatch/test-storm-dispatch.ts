@@ -197,7 +197,7 @@ function buildFixPrompt(ctx: {
     'Failures:',
   ];
   for (const f of ctx.failures) {
-    lines.push(`- ${f.test ?? '?'}: ${f.error ?? 'unknown error'}`);
+    lines.push(`- ${String(f.test ?? '?')}: ${String(f.error ?? 'unknown error')}`);
   }
   lines.push('', 'Fix the root cause, re-run tests locally, then broadcast code_ready.');
   return lines.join('\n');

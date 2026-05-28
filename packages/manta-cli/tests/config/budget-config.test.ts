@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { loadBudgetConfig, BUDGET_DEFAULTS, type ResolvedBudgetConfig } from '../../src/config/budget-config';
+import { loadBudgetConfig, BUDGET_DEFAULTS, type ResolvedBudgetConfig } from '../../src/config/budget-config.js';
 
 let tmpDir: string;
 

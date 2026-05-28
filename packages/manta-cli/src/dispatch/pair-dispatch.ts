@@ -105,7 +105,7 @@ function buildFixPrompt(ctx: {
   ];
   for (const c of ctx.comments) {
     const sev = String(c.severity ?? 'info').toUpperCase();
-    lines.push(`- [${sev}] ${c.file ?? '?'}:${c.line ?? '?'} — ${c.comment ?? ''}`);
+    lines.push(`- [${sev}] ${String(c.file ?? '?')}:${String(c.line ?? '?')} — ${String(c.comment ?? '')}`);
   }
   lines.push('', 'Apply CORRECTION and BLOCKER fixes. Re-run tests, commit, broadcast commit_ready.');
   return lines.join('\n');

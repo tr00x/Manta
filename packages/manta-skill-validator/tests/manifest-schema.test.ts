@@ -66,7 +66,7 @@ describe('MantaPackageManifestSchema', () => {
     expect(r.success).toBe(true);
     if (r.success) {
       expect(r.data.contributes.modes.length).toBe(1);
-      expect(r.data.contributes.hooks[0].requiresApproval).toBe(true);
+      expect(r.data.contributes.hooks[0]!.requiresApproval).toBe(true);
     }
   });
 

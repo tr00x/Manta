@@ -28,7 +28,7 @@ afterEach(async () => {
 
 function fakeRunner(opts: {
   npmPack?: (spec: string, opts: { cwd: string }) => Promise<string>;
-  gitClone?: (opts: { url: string; ref?: string; dest: string }) => Promise<void>;
+  gitClone?: (opts: { url: string; ref?: string | undefined; dest: string }) => Promise<void>;
 }): NetworkRunner {
   return {
     async npmPack(spec, options) {

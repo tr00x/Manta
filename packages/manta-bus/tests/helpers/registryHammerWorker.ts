@@ -52,6 +52,12 @@ async function main(): Promise<void> {
 
 main().catch((err: unknown) => {
   const msg = err instanceof Error ? err.message : String(err);
-  if (process.send) process.send({ ok: false, error: msg });
-  process.exit(1);
+  // process.send is async; exiting immediately can drop the not-yet-flushed
+  // IPC frame, leaving the parent with a bare "exit 1" and no error. Exit only
+  // from the flush callback so the diagnostic always reaches the parent.
+  if (process.send) {
+    process.send({ ok: false, error: msg }, () => process.exit(1));
+  } else {
+    process.exit(1);
+  }
 });

@@ -9,9 +9,9 @@ import {
   FakeClock,
   type ChargeStoreConfig,
 } from '@manta/bus';
-import { runPreSpawnGate, type PreSpawnGateOptions } from '../../src/budget/pre-spawn-gate';
-import { BUDGET_DEFAULTS, type ResolvedBudgetConfig } from '../../src/config/budget-config';
-import { createReporter, MemorySink } from '../../src/output/reporter';
+import { runPreSpawnGate, type PreSpawnGateOptions } from '../../src/budget/pre-spawn-gate.js';
+import { BUDGET_DEFAULTS, type ResolvedBudgetConfig } from '../../src/config/budget-config.js';
+import { createReporter, MemorySink } from '../../src/output/reporter.js';
 
 let tmpDir: string;
 let clock: FakeClock;

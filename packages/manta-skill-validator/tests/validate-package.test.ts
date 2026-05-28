@@ -11,7 +11,7 @@ describe('validatePackage', () => {
     const result = await validatePackage(path.join(FIXTURES, 'good'));
     expect(result.fatal).toBe(false);
     expect(result.contributesCrossCheck.ok).toBe(true);
-    expect(result.manifest.name).toBe('@manta-library/good');
+    expect(result.manifest!.name).toBe('@manta-library/good');
   });
 
   it('reports fatal when manta-package.json is missing', async () => {

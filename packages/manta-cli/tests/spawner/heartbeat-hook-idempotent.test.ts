@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { installHeartbeatHook, _resetInstalledWorktrees } from '../../src/spawner/heartbeat-hook';
+import { installHeartbeatHook, _resetInstalledWorktrees } from '../../src/spawner/heartbeat-hook.js';
 
 describe('heartbeat-hook idempotency (shared worktree)', () => {
   beforeEach(() => {

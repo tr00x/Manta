@@ -39,7 +39,7 @@ describe('merge-review integration', () => {
         { clone_id: 'B', assignment: null },
         { clone_id: 'C', assignment: null },
       ],
-      policy: { peer_messaging: 'denied', auto_merge_threshold: null },
+      policy: { peer_messaging: 'denied', auto_merge_threshold: null, session_mode: 'batch' },
     });
 
     for (const id of ['A', 'B', 'C']) {
@@ -162,7 +162,7 @@ describe('merge-review integration', () => {
       cast_id: castId,
       mode: 'forking-realities',
       clones: [{ clone_id: 'A', assignment: null }],
-      policy: { peer_messaging: 'denied', auto_merge_threshold: null },
+      policy: { peer_messaging: 'denied', auto_merge_threshold: null, session_mode: 'batch' },
     });
 
     const candidates: RawCandidateMetrics[] = [

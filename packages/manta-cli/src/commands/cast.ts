@@ -654,13 +654,13 @@ export async function runCastCommand(
         daemonMode: sessionMode === 'daemon',
         onCycleComplete: (broadcastReader && dispatchEnqueuer && (pairDispatcher || stormDispatcher))
           ? async (result) => {
-              const broadcasts = await broadcastReader!.readNew();
+              const broadcasts = await broadcastReader.readNew();
               const input = { idleClones: result.idleClones, broadcasts };
               if (pairDispatcher) {
-                await pairDispatcher.onCycleComplete(input, dispatchEnqueuer!);
+                await pairDispatcher.onCycleComplete(input, dispatchEnqueuer);
               }
               if (stormDispatcher) {
-                await stormDispatcher.onCycleComplete(input, dispatchEnqueuer!);
+                await stormDispatcher.onCycleComplete(input, dispatchEnqueuer);
               }
             }
           : undefined,
@@ -714,6 +714,36 @@ export async function runCastCommand(
           }
         }),
       );
+    } else {
+      // Bug #40 fix: loop ended cleanly (allDone returned true), but the
+      // orchestrator's reaper only marks DEAD in registry state — it does
+      // NOT kill OS processes. A wedged `claude --print` that crossed
+      // heartbeatTimeoutMs ends up DEAD-in-registry with the OS child still
+      // running, so the unconditional `await h.exit` below would hang on
+      // it forever (orphan zombie holding the worktree and emitting bus
+      // calls that get rejected as DEAD). Walk the registry, find clones
+      // owned by this cast whose state is DEAD, and force-terminate their
+      // handles before the reap. h.terminate is idempotent on already-
+      // exited children, so the live IDLE siblings are untouched.
+      const allClones = await rt.ctx.registry.list();
+      const deadIds = new Set(
+        allClones
+          .filter((c) => c.state === 'DEAD' && cloneIds.includes(c.clone_id))
+          .map((c) => c.clone_id),
+      );
+      if (deadIds.size > 0) {
+        await Promise.all(
+          handles
+            .filter((h) => deadIds.has(h.cloneId))
+            .map(async (h) => {
+              try {
+                await h.terminate({ gracefulMs: 1_000 });
+              } catch {
+                /* already exited */
+              }
+            }),
+        );
+      }
     }
 
     // Final reap regardless of how the loop exited. The exit promise might
@@ -858,6 +888,26 @@ export async function runCastCommand(
     );
     if (err instanceof CliError) throw err;
     throw new CliError('cast failed', { kind: 'cast_failed', cause: err });
+  } finally {
+    // Bug #40 defensive last line: every cast exit path — happy return,
+    // catch-rethrow, or any exception escaping both — must leave zero live
+    // child processes behind. The catch above already terminates on error
+    // (and does so BEFORE worktree removal, which order matters). The
+    // happy-path block above terminates DEAD-but-OS-running clones. This
+    // finally is the belt-and-suspenders pass that catches anything those
+    // two paths missed (defensive guarantee, not a primary mechanism).
+    // h.terminate is idempotent on already-exited children, so re-running
+    // it on already-cleaned handles is a cheap no-op. Errors are swallowed
+    // because finally must not throw and mask the original outcome.
+    await Promise.all(
+      handles.map(async (h) => {
+        try {
+          await h.terminate({ gracefulMs: 500 });
+        } catch {
+          /* already exited or termination raced */
+        }
+      }),
+    );
   }
   // Note: worktree cleanup is deliberately NOT done here. Phase 0 keeps the
   // `clone-${id}` worktrees on disk so the operator can `cd` in and inspect
@@ -947,7 +997,7 @@ export function validateDisjointPartitions(
       allPaths.set(p, cloneId);
     }
   }
-  const norm = (p: string) => p.endsWith('/') ? p : `${p}/`;
+  const norm = (p: string): string => p.endsWith('/') ? p : `${p}/`;
   for (const [p1, c1] of allPaths) {
     for (const [p2, c2] of allPaths) {
       if (p1 !== p2 && c1 !== c2 && (norm(p1).startsWith(norm(p2)) || norm(p2).startsWith(norm(p1)))) {

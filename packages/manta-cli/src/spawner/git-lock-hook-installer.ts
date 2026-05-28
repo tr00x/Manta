@@ -39,7 +39,7 @@ export async function installGitLockHook(
   }
 
   const hooks = (settings.hooks ?? {}) as Record<string, unknown[]>;
-  const preToolUse = (hooks.PreToolUse ?? []) as unknown[];
+  const preToolUse = hooks.PreToolUse ?? [];
   preToolUse.push(hookEntry);
   hooks.PreToolUse = preToolUse;
   settings.hooks = hooks;

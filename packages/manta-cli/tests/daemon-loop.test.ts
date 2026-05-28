@@ -16,12 +16,13 @@ function makeWorkItem(overrides: Partial<WorkItem> = {}): WorkItem {
   };
 }
 
-function makeFakeWorkQueue(items: WorkItem[] = []): WorkQueueStore {
+function makeFakeWorkQueue(items: WorkItem[] = []): WorkQueueStore & { released: string[] } {
   const queue = [...items];
-  return {
+  const released: string[] = [];
+  const fake = {
     async dequeue(targetCloneId: string): Promise<WorkItem | null> {
       const idx = queue.findIndex(
-        (i) => i.target_clone_id === targetCloneId && !i.claimed_at,
+        (i) => i.target_clone_id === targetCloneId && !i.claimed_at && !i.dead_letter,
       );
       if (idx === -1) return null;
       queue[idx]!.claimed_at = Date.now();
@@ -31,13 +32,29 @@ function makeFakeWorkQueue(items: WorkItem[] = []): WorkQueueStore {
       const item = queue.find((i) => i.id === itemId);
       if (item) item.completed_at = Date.now();
     },
+    async release(itemId: string, opts?: { maxAttempts?: number }): Promise<{ deadLettered: boolean }> {
+      released.push(itemId);
+      const item = queue.find((i) => i.id === itemId);
+      if (!item) return { deadLettered: false };
+      const max = opts?.maxAttempts ?? 3;
+      const next = (item.attempts ?? 0) + 1;
+      item.attempts = next;
+      delete item.claimed_at;
+      if (next >= max) {
+        item.dead_letter = true;
+        return { deadLettered: true };
+      }
+      return { deadLettered: false };
+    },
     async enqueue() {
       throw new Error('not used in test');
     },
     async pending() {
-      return queue.filter((i) => !i.claimed_at);
+      return queue.filter((i) => !i.claimed_at && !i.dead_letter);
     },
-  } as unknown as WorkQueueStore;
+    released,
+  };
+  return fake as unknown as WorkQueueStore & { released: string[] };
 }
 
 const successRunner: CloneRunner = {
@@ -129,6 +146,33 @@ describe('runDaemonLoop', () => {
     );
     expect(result.exitReason).toBe('max_failures');
     expect(result.resumeCycles).toBe(0);
+  });
+
+  it('releases claimed item back to queue on runner failure (bug #27)', async () => {
+    // Pre-fix: a runner failure left the item with claimed_at set forever —
+    // dequeue's `!claimed_at` filter then skipped it, silently losing work.
+    // Post-fix: daemon-loop calls workQueue.release(item.id) before continuing,
+    // which clears claimed_at and increments attempts so the item is eligible
+    // for re-dispatch. After maxAttempts the queue's release marks dead-letter.
+    const item = makeWorkItem({ id: 'wq-release-test', target_clone_id: 'A' });
+    const wq = makeFakeWorkQueue([item]);
+    const result = await runDaemonLoop(
+      makeOpts({
+        workQueue: wq,
+        runner: failRunner,
+        maxResumeFailures: 1, // exit after the single failure for assertion clarity
+      }),
+    );
+    expect(result.exitReason).toBe('max_failures');
+    // The critical bug-#27 contract: release was called for the failed item.
+    expect(wq.released).toContain('wq-release-test');
+    // And the item is no longer in claimed-but-orphaned state — it's
+    // re-dequeueable (the daemon exited, but the queue state proves work
+    // was preserved, not lost).
+    const reclaimable = await wq.dequeue('A');
+    expect(reclaimable).not.toBeNull();
+    expect(reclaimable!.id).toBe('wq-release-test');
+    expect(reclaimable!.attempts).toBe(1);
   });
 
   it('resets empty poll counter when item is found', async () => {

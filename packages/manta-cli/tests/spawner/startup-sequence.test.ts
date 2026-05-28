@@ -48,7 +48,7 @@ describe('spawn → register → state-transition behavioural fixture (Phase-1 l
       registry: rt.ctx.registry,
       casts: rt.ctx.casts,
       castMode: 'recon-swarm',
-      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' },
       castRoster: [{ clone_id: 'clone-A', assignment: null }],
     });
 
@@ -90,7 +90,7 @@ describe('spawn → register → state-transition behavioural fixture (Phase-1 l
       registry: rt.ctx.registry,
       casts: rt.ctx.casts,
       castMode: 'recon-swarm',
-      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null },
+      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' },
       castRoster: [{ clone_id: 'clone-B', assignment: null }],
     });
 

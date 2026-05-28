@@ -28,131 +28,136 @@
 
 **Discovered:** 2026-05-28, full 9-dimension audit (correctness agent `a2e8bab4`). See `docs/audits/2026-05-28-full-audit.md` C2.
 **Severity:** Catastrophic — concurrent clobbering of the bus-owned registry + torn-write that takes the whole bus down.
-**Status:** Open.
+**Status:** Fixed 2026-05-28 (`packages/manta-cli/src/spawner/heartbeat-hook.ts`).
 **Reproducer:**
 1. A clone fires its PostToolUse `heartbeat-touch.cjs` hook, which reads→parses→mutates→`writeFileSync`s `.manta/state/registry.json` directly.
 2. Concurrently the bus runs `markDead`/`heartbeat` under `proper-lockfile` on `.manta/state/registry.json.lock`, doing tmp+rename.
 3. The hook guards with a *different* lock path — `.manta/state/.locks/registry.json.lock` (`heartbeat-hook.ts:83`) — so the two never exclude each other.
 4. The hook's `writeFileSync` of its stale in-memory copy lands on top of the bus's committed write → resurrects a just-DEAD clone or drops a just-registered sibling. A crash mid-write leaves torn JSON; every subsequent `atomicReadJson` throws → bus down.
 **Root cause:** The generated heartbeat-touch hook hand-rolls a writer instead of going through the bus, and locks a path incompatible with `proper-lockfile`'s `${file}.lock` convention. No shared mutex between hook and bus.
-**Fix (proposed):** The hook must not hand-roll a writer. Route through `Registry.touch` via a tiny `manta __touch <cloneId>` subcommand (atomicMutateJson). At minimum: lock the *same* path proper-lockfile uses (`${registry}.lock`) AND write via tmp+rename.
-**Lessons:** Any out-of-bus writer to bus-owned state must use the bus's exact lock path + tmp+rename, or (better) call back into the bus API. Two lock schemes on one file = no lock.
+**Fix:** Hook installer now resolves `proper-lockfile`'s absolute host path via `@manta/bus`'s dep chain (`createRequire` chain) and embeds it into the generated `.cjs`. The generated script `require`s the same locker library the bus uses, calls `lockfile.lock(REGISTRY, ...)` (so the lock dir is `${registry}.lock` — identical to the bus's `atomicMutateJson` path), and commits its mutation via tmp+rename. `LOCK_OPTS` mirrors `atomic-fs.ts` verbatim (50 retries, 5→50ms backoff, 30 s stale). The old `LOCK_DIR`/`.locks/registry.json.lock` mkdir scheme is gone. Regression test `tests/spawner/heartbeat-hook.test.ts` adds a true cross-process race (12 concurrent hook .cjs runs + 12 bus `register` calls) that asserts registry parses cleanly and every bus-registered sibling survives.
+**Lessons:** Any out-of-bus writer to bus-owned state must use the bus's exact lock path + tmp+rename, or (better) call back into the bus API. Two lock schemes on one file = no lock. For sub-process consumers, embed the absolute host path of the shared locker at generation time rather than relying on the sub-process's own module resolution.
 
 ### #38 — Reaper can post-mortem a LIVE clone (detect→markDead is non-atomic, no liveness recheck)
 
 **Discovered:** 2026-05-28, full audit (correctness agent `a2e8bab4`). See full-audit C3.
 **Severity:** High — a transiently-quiet but live clone is permanently locked off the bus; its locks/claims reaped from under it → silent data race on files it holds.
-**Status:** Open.
+**Status:** Fixed 2026-05-28 (`packages/manta-bus/src/state/registry.ts:150-175`, `packages/manta-orchestrator/src/post-mortem.ts:40-60`, `packages/manta-orchestrator/src/orchestrator.ts:43-60`).
 **Reproducer:**
 1. A clone goes briefly quiet (GC pause / long Bash tool) and crosses `heartbeatTimeoutMs` exactly as the orchestrator cycle reads the registry list (`orchestrator.ts:37-52` → `death-detector.ts:50-55`).
 2. Mid-cycle the clone resumes and heartbeats.
 3. `runPostMortem` still calls `registry.markDead` (`post-mortem.ts:41-42`), which sets `state='DEAD'` unconditionally (`registry.ts:158-164`) with no liveness recheck.
 4. Death is terminal (`registry.ts:87-90` rejects later heartbeats) → live clone locked out forever; its leases reaped.
 **Root cause:** Detection (read list) and mutation (`markDead`) are separated by the cycle; `markDead` does not re-check the heartbeat it was triggered on, inside the file mutex.
-**Fix (proposed):** Pass the `last_heartbeat_at` observed during detection into the `markDead` mutator and re-check inside the mutex (`if r.last_heartbeat_at !== observed → abort, clone revived`). The recheck runs under the same lock as heartbeat, closing the window. Also guard the `parent_pid` liveness probe against PID reuse.
+**Fix:** Three coordinated changes:
+- `Registry.markDead` adds an optional `observedLastHeartbeatAt?: number` 4th param. Inside the `atomicMutateJson` mutator (under the same file lock as `heartbeat`), if the stored `r.last_heartbeat_at` differs from `observedLastHeartbeatAt`, it throws `BusConflictError('clone revived: last_heartbeat_at advanced from X to Y since detection — aborting markDead')`. Optional param keeps existing call sites (lifecycle `report_death`, manual recovery) unchanged.
+- `runPostMortem` reads `ctx.registry.get(opts.cloneId)` (via `record`) and now passes `record.last_heartbeat_at` as the observation. If the clone heartbeated between the detector's lock-free read and the mutator running under the lock, the conflict is caught.
+- `Orchestrator.runCycle`'s per-clone loop wraps `runPostMortem` in `try/catch`. `BusConflictError` → skip silently (live clone, next cycle will re-evaluate). Any other error propagates as `OrchestratorError`.
+
+Two regression layers: registry-level (`tests/state/registry.test.ts` — markDead with stale observed throws, with matching observed succeeds) and orchestrator-level (`tests/orchestrator.test.ts` — Proxy-wrapped registry injects a heartbeat between `get` and `markDead`; cycle completes, post-mortem skipped, clone stays WORKING with no `died_at`/`death_reason`).
 **Lessons:** Any detect-then-act on bus state must re-validate the triggering condition inside the mutating mutex; a read outside the lock is stale by definition.
 
 ### #39 — git-lock PreToolUse hook fails OPEN on malformed input
 
 **Discovered:** 2026-05-28, full audit (security agent `ae716ad5`). See full-audit H1.
 **Severity:** High — the git serialization mutex (test-storm / concurrent-cast safety) can be bypassed, allowing concurrent `git` mutations in the shared repo → index corruption / lost commits.
-**Status:** Open.
+**Status:** Fixed 2026-05-28 (`packages/manta-cli/src/hooks/git-lock-hook.ts:104-114`).
 **Reproducer:**
 1. `packages/manta-cli/src/hooks/git-lock-hook.ts` wraps its logic in a `try`; the outer `catch` writes `{continue:true}`.
 2. A clone (or a corrupted harness payload) emits non-JSON on the hook's stdin.
 3. Parse throws → outer catch → `{continue:true}` → the git-affecting tool call proceeds without the lock.
 **Root cause:** Fail-open default in a hook whose entire purpose is to *block* unsafe concurrent git access. A safety gate that fails open is not a gate.
-**Fix (proposed):** Fail **closed** on parse error for git-affecting tool calls (`{continue:false}` / block). Only fail open for events clearly unrelated to git.
+**Fix:** Outer catch now emits `{continue: false, reason: 'manta git-lock hook: PreToolUse input could not be parsed... Blocking for safety'}`. The hook is installed with `matcher: 'Bash'` only (`git-lock-hook-installer.ts:22`), so failing closed only impacts Bash invocations — a blocked benign `pnpm test` is recoverable noise; an unlocked `git commit` corrupts the shared index. Regression test `tests/hooks/git-lock-hook.test.ts` spawns the generated `.cjs` script with a truncated JSON payload on stdin and asserts the response is `continue: false` with a parse-failure reason.
 **Lessons:** Enforcement hooks must fail closed. This is the hard-hook half of the CLAUDE.md rule "never bake enforcement into priming" — the hook exists precisely because priming is soft, so it must not itself degrade to permissive on error.
 
 ### #40 — Orphan/zombie clone processes never force-killed by the reaper
 
 **Discovered:** 2026-05-28, full audit (correctness agent `a2e8bab4`). See full-audit H2.
 **Severity:** High — DEAD-marked clones keep running as orphaned OS processes still holding their worktree, while every MCP call they make is rejected (bus identity DEAD) → spinning zombies + held worktrees.
-**Status:** Open.
+**Status:** Fixed 2026-05-28 (`packages/manta-cli/src/commands/cast.ts:703-748` happy-path DEAD-terminate + new defensive `finally` at the cast level).
 **Reproducer:**
 1. A clone wedges (real `claude --print` hang). The reaper marks it DEAD and reaps its locks (`orchestrator.ts`), but never terminates the `execa` child.
 2. On `tick-loop` budget abort (`cast.ts:647`), `runTickLoop` breaks the loop but `tick-loop.ts` never calls `terminate` on outstanding handles — that's left to `cast.ts` teardown.
 3. If an exception escapes before teardown, the child processes orphan.
 **Root cause:** The orchestrator's death model is state-only (mark DEAD); OS-process termination lives in a separate `CloneHandle.terminate` ladder driven only from `cast.ts`. The two are not connected on the reaper path.
-**Fix (proposed):** When the reaper marks a clone DEAD, signal the corresponding handle's `terminate()` (orchestrator needs a handle registry, or `cast.ts` subscribes to the DEAD event and kills). Ensure `cast.ts` teardown runs in a `finally` that always terminates every spawned handle.
+**Fix:** Two coordinated changes in `cast.ts`:
+- **Happy-path DEAD-terminate.** Pre-fix: when the loop ended cleanly via `allDone` returning true (all clones DEAD-or-IDLE), the subsequent `await h.exit` hung forever on any clone the reaper marked DEAD whose OS process was still wedged. Post-fix: an `else` branch (sibling to the existing budget-abort `if`) walks the registry after the loop, filters cast-owned clones in `state === 'DEAD'`, and calls `h.terminate({ gracefulMs: 1_000 })` (SIGTERM → SIGKILL ladder) on each before the reap. `h.terminate` is idempotent on already-exited children so live IDLE siblings are untouched.
+- **Defensive `finally`-kill.** The cast's top-level try-catch now has a `finally` that re-runs `h.terminate({ gracefulMs: 500 })` on every handle, regardless of exit path. The catch's existing terminate-before-worktree-removal order is preserved (catch terminates, removes worktrees, rethrows; finally then runs as a belt-and-suspenders idempotent pass). This makes "no orphan child survives a cast" a hard contract at the cast boundary.
+
+Regression test `tests/commands/cast.test.ts` ("force-terminates wedged OS processes after reaper marks DEAD (bug #40)") runs a `hang` fake clone with `heartbeatTimeoutMs=500ms` and `tickBudgetMs=60_000ms` — budget cannot be what stops the cast. Asserts `elapsed < 15_000ms`, `cast.done` emitted, `cast.budget_abort` NOT emitted (proves the DEAD-terminate branch is responsible).
 **Lessons:** "Marked DEAD in state" ≠ "process stopped." For a process-spawning orchestrator, every state-death transition needs a paired OS-kill, and teardown must be exception-safe.
 
 ### #41 — `markDead` in post-mortem bypasses the audit-trail invariant (regression of #24)
 
 **Discovered:** 2026-05-28, full audit (correctness agent `a2e8bab4`). See full-audit H3.
 **Severity:** High — registry can show DEAD with no corresponding death event in `events.jsonl`, the exact "state ahead of audit" inconsistency bug #24 was built to prevent.
-**Status:** Open.
+**Status:** Fixed 2026-05-28 (`packages/manta-orchestrator/src/post-mortem.ts:40-50`).
 **Reproducer:**
 1. `runPostMortem` calls `markDead(cloneId, reason)` (`post-mortem.ts:42`) with **no** `auditAppend` closure — unlike lifecycle handlers (`lifecycle.ts:89-99`) which append the event *inside* the file mutex.
 2. The `post_mortem` event is appended separately (`post-mortem.ts:55`) *after* the rename.
 3. Crash between the `markDead` rename and the append → DEAD registry, no death/post_mortem event.
 **Root cause:** The orchestrator-initiated death path regressed the bug #24 invariant (audit append must be coupled inside the same mutex as the state mutation). The lifecycle `report_death` path is still correct.
-**Fix (proposed):** Pass an `auditAppend` closure to this `markDead` that appends a `death`/`reaped` event inside the mutex, matching the lifecycle handlers.
+**Fix:** `runPostMortem` now passes an `auditAppend` closure to `markDead` that appends a `reaped` event inside the file mutex (mirroring lifecycle's `death` pattern at `lifecycle.ts:89-99`). The event type is `reaped` (not `death`) to distinguish orchestrator-initiated termination from clone-self-reported death — useful for forensics. The post-fact `post_mortem` event (which references the written doc path) stays after the writer call. Regression test in `tests/post-mortem.test.ts` asserts: (a) a `reaped` event with the death reason is present after `runPostMortem`, and (b) its index in `readAll()` precedes the `post_mortem` event — proving audit-coupling order.
 **Lessons:** The audit-before-commit invariant must hold on *every* `markDead` call site, not just the lifecycle one — add a test that asserts append-ordering on the orchestrator path too.
 
 ### #42 — `EventsLog.readSince` drops same-millisecond events (regression of #25 lesson)
 
 **Discovered:** 2026-05-28, full audit (bug-log-verify agent `a1f3bfbd`). See full-audit M1.
 **Severity:** Medium — any `readSince` consumer silently loses events sharing a millisecond timestamp with the cursor boundary.
-**Status:** Open.
+**Status:** Fixed (verified 2026-05-28 — fix was already in `packages/manta-bus/src/state/events.ts:95-107`; audit bug log status was stale).
 **Reproducer:** `EventsLog.readSince` (`packages/manta-bus/src/state/events.ts`) filters `e.ts > tsExclusive` — strict `>` on the millisecond `ts`. Two events written in the same ms as the cursor: one is dropped.
 **Root cause:** Same class as bug #25, which fixed `broadcast-reader.ts` by switching tie-breaking to the lex-sortable event `id`. `readSince` still cursors on `ts`.
-**Fix (proposed):** Cursor on the lex-sortable `id` (or `(ts, id)` tuple), mirroring the #25 fix in `broadcast-reader.ts`.
-**Lessons:** The #25 fix should have been applied to *all* event-cursor consumers, not just the broadcast reader. Audit for other `ts`-based cursors.
+**Fix:** `readSince` already takes `idExclusive: string` and filters `e.id > idExclusive` (lex-sortable id = padded-ts + seq + rand → same-ms events stay distinguishable). Empty string sorts before any real id so `readSince('')` returns all events. Regression test at `tests/state/events.test.ts:80` ('readSince does not drop same-millisecond events') appends three events with no clock advance (all share ts=1_000_000) and asserts `readSince(e0.id)` returns `[e1, e2]` — a `ts > cursor` filter would have returned `[]`. Verified passing in the green-gate run.
+**Lessons:** The #25 fix should have been applied to *all* event-cursor consumers, not just the broadcast reader. Audit for other `ts`-based cursors. Bug-log discipline: when a fix lands, update the audit entry's status — leaving `Status: Open` on already-fixed entries pollutes triage signal.
 
 ### #43 — Orphan-worktree GC gap (graveyard/recover never reconcile against live worktrees)
 
 **Discovered:** 2026-05-28, full audit (bug-log-verify agent `a1f3bfbd`). See full-audit M2.
 **Severity:** Medium — a manually-deleted or orphaned worktree under `.manta/worktrees/` is never reaped; disk + git-worktree-metadata leak accumulates across casts.
-**Status:** Open.
+**Status:** Fixed 2026-05-28 (`packages/manta-cli/src/spawner/graveyard.ts:sweepOrphanWorktrees`, wired into `packages/manta-cli/src/commands/recover.ts`).
 **Reproducer:**
 1. `graveyard.ts:47 listGraveyard` only `readdir`s `.manta/graveyard` and reads each `info.json` — it never reconciles against live git worktrees or the registry.
 2. `recover.ts:24` runs one orchestrator cycle = reaps locks/claims/dead clones only; no worktree GC.
 3. No `git worktree prune` / orphan scan anywhere → an orphaned worktree persists indefinitely.
 **Root cause:** GC was designed around the graveyard directory and the registry; orphaned worktrees that never made it to graveyard (or were partially removed) fall outside both.
-**Fix (proposed):** Add an orphan-worktree sweep (`git worktree list --porcelain` ∖ registry) into `recover.ts` / the orchestrator cycle or `graveyard.ts`. Medium difficulty (new reconciliation pass + tests).
-**Lessons:** Reconciliation GC must diff the *physical* resource list (git worktrees on disk) against the *logical* one (registry), not just iterate the logical one.
+**Fix:** New `sweepOrphanWorktrees({ repoRoot, isKnown })` in `graveyard.ts`. Runs `git worktree prune` first (clears stale metadata for worktrees whose dirs were deleted out-of-band), then enumerates `git worktree list --porcelain`, keeps only entries under `<repoRoot>/.manta/worktrees/` (canonical and symlinked prefix both checked for macOS /tmp ↔ /private/tmp), and calls `removeWorktree` on any whose path is not in `isKnown`. Returns `{ removed: string[], failed: Array<{path,error}> }`. `runRecoverCommand` builds `isKnown` from `registry.list()` (matching by full path; DEAD clones count as known so operator post-mortem inspection is preserved) and reports counts via the reporter + stdout. Sweep failures are warned, not fatal — bus state was already recovered above. Regression tests in `tests/spawner/graveyard.test.ts` cover the four core cases: orphan removal, external (user-owned) worktree preservation, stale-metadata pruning for deleted dirs, and clean-repo no-op.
+**Lessons:** Reconciliation GC must diff the *physical* resource list (git worktrees on disk) against the *logical* one (registry), not just iterate the logical one. macOS path canonicalisation (`/tmp` ↔ `/private/tmp`) bites any path-equality check across `git` and `mkdtemp` — handle both forms or canonicalise at the boundary.
 
-### #36 — `tsc --noEmit` never in exit-criteria gate; `pnpm -r lint` never green (dies at first failing package) → ~360 type-aware-lint errors in `manta-cli` undetected
+### #36 — `tsc --noEmit` never in exit-criteria gate; `pnpm -r lint` never green (dies at first failing package) → 76 type errors in `manta-cli` undetected
 
 **Discovered:** 2026-05-28, cast-1779997703425 (Phase 7a Chunk 2 refactor-wave) merge ceremony — running `pnpm -r lint` as part of the post-merge sweep surfaced that the lint gate fails in `@manta/cli` and that no typecheck step exists at all.
-**Severity:** High — the project quality bar is PROD-only, yet a whole class of type errors ships undetected. The exit-criteria gate is `pnpm -r build && pnpm -r test && pnpm -r lint`. `build` uses tsup/esbuild (transpile-only, no type-check). `test` uses vitest (transpile-only). `lint` is the only type-aware step, but `pnpm -r` stops at the first package that exits non-zero, so packages ordered after the first failure are never linted. Net: no command in the gate ever ran `tsc --noEmit` across the workspace, and `pnpm -r lint` was never actually green. Prior INDEX claims of "lint/typecheck clean" for Phase 0-6 were therefore unverified.
-**Status:** Open — debt isolated to `@manta/cli`; other 4 packages (snapshot, bus, orchestrator, skill-validator) are lint-clean as of this ceremony.
-**Reproducer:**
-1. `cd /Users/timur/projectos/manta && pnpm --filter @manta/cli exec tsc --noEmit` → ~360 errors.
-2. `pnpm --filter @manta/cli lint` → fails on the type-aware rules (`no-unsafe-*`, `no-floating-promises` cascade) driven by the same real type errors.
-3. `pnpm -r lint` → exits non-zero at `@manta/cli` (or earlier), so any package after it is silently skipped — the run never reaches green and no aggregate "all clean" is possible.
+**Severity:** High — the project quality bar is PROD-only, yet a whole class of type errors ships undetected. The exit-criteria gate was `pnpm -r build && pnpm -r test && pnpm -r lint`. `build` uses tsup/esbuild (transpile-only, no type-check). `test` uses vitest (transpile-only). `lint` is the only type-aware step, but `pnpm -r` stops at the first package that exits non-zero, so packages ordered after the first failure are never linted. Net: no command in the gate ever ran `tsc --noEmit` across the workspace, and `pnpm -r lint` was never actually green. Prior INDEX claims of "lint/typecheck clean" for Phase 0-6 were therefore unverified.
+**Status:** Fixed 2026-05-28 (gate script + claim correction + all 76 errors driven to zero).
+**Reproducer (now obsolete — kept for forensics):**
+1. `cd /Users/timur/projectos/manta && pnpm --filter @manta/cli exec tsc --noEmit` → 76 errors at audit time (NOT the ~360 the original audit entry claimed — see "claim correction" below).
+2. `pnpm --filter @manta/cli lint` → 16 errors + 1 warning in src/ (no tests/, the lint glob is `src/**`).
+3. `pnpm -r lint` → exits non-zero at `@manta/cli` (or earlier), so any package after it is silently skipped.
 **Root cause:** Two compounding gaps:
 - **(a) No typecheck in the gate.** `exactOptionalPropertyTypes: true` is on in `packages/manta-cli/tsconfig.json`, surfacing real `string | undefined` → `string` mismatches and missing-property accesses that esbuild/vitest happily transpile past. Representative real errors: `bin/manta.ts:367`, `limit.ts:113-118`, `daemon-loop.ts:54`, `inspect-renderer.ts:50/61` (`Property 'status' on ContractAck`, `'heartbeat_at' on LockLease`), plus several test files missing `.js` ESM extensions + implicit `any`. These are genuine type errors, NOT module-resolution artifacts.
 - **(b) `pnpm -r` fail-fast masks downstream packages.** Because the run aborts at the first non-zero package, "lint passed" was only ever observed for the packages that happened to be ordered before `@manta/cli`.
-**Fix (proposed):**
-- Add a `typecheck` script (`tsc --noEmit`) to every package and a root `pnpm -r typecheck` step in the exit-criteria gate (and CI).
-- Use `pnpm -r --no-bail lint` (or `pnpm -r --workspace-concurrency=1 --no-bail`) so all packages are linted and the aggregate failure is visible, rather than fail-fast hiding downstream packages.
-- Fix the ~360 `@manta/cli` type errors via a focused `bug-hunt` / `refactor-wave` cast (too large + cross-file for inline main fix per curator-not-coder rule).
-- Recommended sequencing: land the gate change FIRST (so the debt is visible and can't regress), then cast the cli fix against the now-red gate.
+**Fix:** Three parts:
+- New canonical pre-merge gate: root `package.json` now exposes `"gate": "pnpm typecheck && pnpm lint && pnpm test"` (fail-fast from cheapest → slowest). The root `typecheck` script (already present, `tsc -b`) is project-mode and aggregates across all workspace references — it ALSO checks test files (lint's `src/**` glob misses them, so typecheck is the only signal for test-file type errors). Root `lint` is a single eslint invocation across all packages, not `pnpm -r` — no fail-fast.
+- CLAUDE.md "Verification before claiming done" section now mandates `pnpm gate` as the canonical pre-merge check; explicitly cites bug #36 to keep the rationale present in every session's loaded context.
+- All 76 cli typecheck errors + 16 lint errors fixed in the same session (`exactOptionalPropertyTypes` exact-omit pattern, `noUncheckedIndexedAccess` `!`-asserts, ESM `.js` extension audit on test imports, `String()` wraps on `unknown`-typed template-literal expressions, removed two real production bugs in `inspect-renderer.ts` (read non-existent `ContractAck.status` and `LockLease.heartbeat_at`)). Verified end-to-end via `pnpm gate` exit=0: 142 test files / 1136 tests / 0 typecheck errors / 0 lint errors.
+- **Claim correction:** the original audit entry asserted "~360 type-aware-lint errors". Independent re-run during this fix measured exactly 76 `tsc --noEmit` errors and 16 lint errors. The "~360" figure was unverified at write time and is corrected here per "без вранья": numerical claims about gate state must be independently re-run before being recorded.
 **Lessons:**
-- "Build green + tests green" ≠ "type-clean". esbuild/vitest transpile-only toolchains never type-check; a separate `tsc --noEmit` is mandatory in the gate. Encode in spec Sec 14 (quality bar) + CLAUDE.md.
+- "Build green + tests green" ≠ "type-clean". esbuild/vitest transpile-only toolchains never type-check; a separate `tsc --noEmit` is mandatory in the gate. Encoded in CLAUDE.md.
 - `pnpm -r` is fail-fast by default — an aggregate "lint clean" claim across the workspace is meaningless unless `--no-bail` is used or every package is run individually. Past "lint clean" reports were structurally unable to be true.
-- Validation discipline: re-run the FULL gate unfiltered before any "clean" claim in INDEX/post-mortems; never trust a per-package green as workspace-green.
+- Validation discipline: re-run the FULL gate unfiltered (`pnpm gate`) before any "clean" claim in INDEX/post-mortems; never trust a per-package green as workspace-green. Numerical claims (error counts) require their own re-run, not estimation.
 
 ### #35 — Concurrent casts corrupt main-repo `node_modules` symlinks (pnpm rewrites paths to point inside worktree pnpm store)
 
 **Discovered:** 2026-05-28, attempting to launch refactor-wave + forking-realities casts in parallel.
 **Severity:** High — blocks concurrent-cast workflows; any cast launched while a prior cast's worktree's pnpm install is mid-flight will rewrite main-repo `packages/*/node_modules/<dep>` symlinks to point into the prior worktree's `.pnpm` store. Main repo's CLI invocation (`node packages/manta-cli/dist/bin/manta.js`) then fails to load `zod` etc. because the worktree-local pnpm store does not yet contain the package, or the worktree was deleted after the symlink swap.
-**Status:** Open — workaround is `pnpm install` in main repo to restore symlinks before re-launching a second cast.
+**Status:** Fixed 2026-05-28 (`pnpm-workspace.yaml`).
 **Reproducer:**
 1. `node packages/manta-cli/dist/bin/manta.js cast refactor-wave --clones 2 --tasks <path>` (succeeds; spawner runs `git worktree add` + pnpm install inside the worktree)
 2. Immediately: `node packages/manta-cli/dist/bin/manta.js cast forking-realities --clones 2 --task <task>`
 3. Second `node` invocation fails with `ERR_MODULE_NOT_FOUND: Cannot find package 'zod' imported from .../packages/manta-bus/dist/index.js`
 4. Inspect: `readlink packages/manta-bus/node_modules/zod` → points into the first worktree's `.pnpm/zod@.../node_modules/zod`, which may not yet exist.
 **Root cause:** pnpm workspace resolution treats added git worktrees as workspace members (the worktree path's `package.json` matches `packages/*` glob via `.manta/worktrees/clone-A/packages/...`). When the spawner runs pnpm install inside the worktree, pnpm sees a "new" workspace project and updates the shared `.pnpm` symlinks across all packages to deduplicate — including main-repo's `packages/*/node_modules/<dep>`. Net effect: worktree's pnpm install pollutes main-repo's symlinks.
-**Fix (proposed):**
-- **(a)** Spawner-side: use `pnpm install --frozen-lockfile --ignore-workspace` inside the worktree, or use a per-worktree separate pnpm store via `PNPM_HOME` / `pnpm install --store-dir <worktree>/.pnpm-store`.
-- **(b)** Add the worktree path to `.pnpmworkspace.yaml`'s exclusion list so pnpm doesn't treat it as workspace member.
-- **(c)** Use a different package manager strategy for worktrees (npm install / yarn install) that doesn't reuse the parent repo's pnpm store.
-- **Recommended:** (b) — cheapest, least invasive. `.manta/worktrees/**` should be a hard-exclude in pnpm-workspace.yaml.
-**Lessons:** pnpm's workspace auto-discovery is aggressive. Anything in the repo that has a `package.json` under a recognised glob is implicitly a workspace member, and any pnpm install run inside it can rewrite parent symlinks. **Workaround in CLAUDE.md:** between concurrent casts, run `pnpm install` in main repo if the parent's CLI fails to load a dep.
+**Fix:** Recommended option (b) applied — `pnpm-workspace.yaml` now declares `'!.manta/worktrees/**'` as a hard-exclude after the `packages/*` glob. Any tool walking the workspace glob (including pnpm itself, even under future versions that broaden recursion) sees worktree-checked-out copies of `packages/*/package.json` as out-of-workspace and won't dedupe-symlink them into the central `.pnpm` store. Full gate (`pnpm -s typecheck && pnpm -s lint && pnpm -s test`) re-ran green (1125/1125) after the exclude landed — confirms main-repo workspace resolution is unaffected.
+**Lessons:** pnpm's workspace auto-discovery is aggressive. Anything in the repo that has a `package.json` under a recognised glob is implicitly a workspace member, and any pnpm install run inside it can rewrite parent symlinks. The yaml exclude is the cheapest defense and works even if pnpm's globbing logic changes; spawner-side `--ignore-workspace` is a backup if more aggressive isolation is ever needed.
 
 ### #34 — `parseTasksFile` Zod `z.record(keySchema, valueSchema)` 2-arg form silently drops value schema → 4 tasks-file tests + 1 cast.ts test fail on YAML/JSON parsing
 
@@ -227,17 +232,15 @@
 
 **Discovered:** 2026-05-28, bug-hunt cast `cast-1779980048361` clone A audit of orchestrator render-to-string paths.
 **Severity:** Low currently (clones don't broadcast sensitive content today), **High by Phase 7 ship** (post-mortems land in `/manta share` bundles).
-**Status:** Open — should be folded into Phase 7a plan task 1.10 sanitization module scope (the module already targets `record.metadata`; extending to event payloads is one extra context tag).
+**Status:** Fixed 2026-05-28 (`packages/manta-orchestrator/src/post-mortem.ts` `renderEventPayload` + `summarize`).
 **Reproducer:**
 1. Clone A calls `manta.broadcast({clone_id:'A', event_type:'blocker', payload:{stderr:'... AWS_SECRET_ACCESS_KEY=AKIAxxxxx ...'}})` after a failing shell call.
 2. Clone A dies; orchestrator writes `docs/post-mortems/<date>-<cast>-A.md`.
 3. Line 101 of `packages/manta-orchestrator/src/post-mortem.ts` does `JSON.stringify(e.payload)` — verbatim payload rendered. Secret lands in post-mortem.
 4. Next `/manta share` (Phase 7) bundles the post-mortem and ships it externally.
 **Root cause:** identical pattern to bug #18 — render-to-string with no allowlist. `BroadcastInputSchema.payload`, `MessageInputSchema.payload`, `DriftReportInputSchema.evidence`, `FeedbackInputSchema.feedback`, `AckContractInputSchema.interpretation` are all unconstrained free-form fields. Phase 7a sanitizer (task 1.10) was scoped only to `record.metadata`.
-**Fix (proposed):**
-- **Couple to Phase 7a sanitization:** add render context tag `'post-mortem-event-payload'` and route the payload-render through the same allowlist/redact pipeline as `record.metadata`.
-- **Short-term (~10 LOC):** replace `JSON.stringify(e.payload)` with type-aware projection — `'broadcast' → e.payload.event_type`, `'lock' → e.payload.path`, `'message' → '<from→to>'` — omits free-form fields entirely.
-**Lessons:** Every render-to-string of free-form input is a leak surface. Audit found 4 such paths (post-mortem, merge-review, merge-all-writer, forensic-timeline). For every `render*Markdown` / `JSON.stringify(...)` against user-controlled input, verify upstream schema is closed or allowlist applies.
+**Fix:** The event-timeline renderer now routes every `e.payload` through `renderEventPayload(e)`, a type-aware per-event-type allowlist projection. Each known event type maps to a small `summarize(payload, keys)` projection of only safe metadata: `broadcast → event_type`, `message → to,channel`, `drift_report → drift_score`, `feedback → severity`, `lock/unlock/renew_lock → path`, `death/reaped → reason,last_gasp_report_path`, `claim/release/enqueue_work → item,target`, etc. Free-form text surfaces (`body`, `evidence`, `feedback`, `interpretation`, `task_summary`, `note content`, `stderr`) are unconditionally dropped. Unknown event types fall through to `<payload omitted>` (default-deny) so adding a new event type without explicitly extending the projection preserves the safety contract. Regression test in `tests/post-mortem.test.ts` ('drops free-form event payload bodies from the rendered timeline (bug #29)') seeds the event stream with secrets across all 7 free-form surfaces (`AKIA-FAKE-SECRET-XYZ123`, `oauth-token-CONFIDENTIAL-789`, `customer-email-leak@example.com`) and asserts NONE appear in the rendered markdown — while structural metadata (`event_type`, `to`, `severity`, `drift_score`) is preserved for operator usefulness.
+**Lessons:** Every render-to-string of free-form input is a leak surface. Audit found 4 such paths (post-mortem, merge-review, merge-all-writer, forensic-timeline) — `post-mortem` is now closed; the other 3 still need the same treatment. For every `render*Markdown` / `JSON.stringify(...)` against user-controlled input, verify upstream schema is closed or allowlist applies. The default-deny fall-through (`<payload omitted>` for unknown types) is the cheapest way to make new event types safe-by-default.
 
 ### #28 — `manta.lock` / `manta.unlock` / `manta.renew_lock` not refused for `forking-realities` clones — analogous gap to `manta.claim_work` FR-isolation
 
@@ -264,14 +267,14 @@ if (r.metadata.cast_mode === 'forking-realities') {
 
 **Discovered:** 2026-05-28, bug-hunt cast `cast-1779980048361` clone B audit.
 **Severity:** Medium currently (no CLI command wires `runDaemonLoop` yet — only tests). Graduates to High the moment a `manta daemon run` lands.
-**Status:** Open — by-design or bug determined by Phase 5+ plan author. Investigating.
+**Status:** Fixed 2026-05-28 (`packages/manta-bus/src/state/work-queue.ts` `release` + `dead_letter` field; `packages/manta-cli/src/daemon-loop.ts:72-95` calls release on runner failure).
 **Reproducer (forward-looking):**
 1. `runDaemonLoop` is wired into a `manta daemon run` command.
 2. Daemon dequeues an item (`work-queue.json` flips `claimed_at`).
 3. Resume runner fails to start (`exitResult.failed && exitCode == null`) — e.g. `claude` binary missing, sandbox blocked.
 4. Daemon increments `consecutiveFailures` and `continue`s. **Item stays in queue forever with `claimed_at` set**; subsequent `dequeue` calls filter it out (`work-queue.ts:60` requires `!i.claimed_at`).
 **Root cause:** `packages/manta-cli/src/daemon-loop.ts:65-78` treats runner failures as "skip this item" without redrive or terminal state. `WorkQueueStore` has no `release` (requeue) API.
-**Recommended fix:** Either (a) add `WorkQueueStore.release(itemId)` to reset `claimed_at` and increment `attempts` counter; OR (b) `complete(item.id)` with synthetic `failed: true` audit event plus structured `daemon.work_failed` event. (a) preserves work, (b) loses it but is observable. Phase 5 plan author decides.
+**Fix:** Option (a) applied — `WorkQueueStore.release(itemId, opts?)` added, plus three new optional `WorkItem` fields: `attempts`, `last_failed_at`, `dead_letter`. Release clears `claimed_at`, increments `attempts`, sets `last_failed_at`; when `attempts >= maxAttempts` (default 3), marks `dead_letter: true` and returns `{ deadLettered: true }`. `dequeue` and `pending` both skip `dead_letter` entries (kept in the file for forensics + future dashboard surfacing, never re-dispatched). `runDaemonLoop` now calls `await opts.workQueue.release(item.id)` on `failed && exitCode == null`, wrapped in try/catch so a release-time failure doesn't mask the original runner error. Test coverage: 4 new tests in `tests/state/work-queue.test.ts` (release-clears-and-rerun, dead-letter after 3 attempts, custom maxAttempts, unknown-id no-op) + 1 in `tests/daemon-loop.test.ts` ('releases claimed item back to queue on runner failure (bug #27)') which exercises the fake-queue's release-tracker and asserts the item is reclaimable with `attempts=1` after the daemon exits.
 
 ### #26 — `TestStormDispatcher.handleCodeReady` resets stage on duplicate `code_ready` while testing
 

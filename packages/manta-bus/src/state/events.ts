@@ -92,8 +92,17 @@ export class EventsLog {
     return out;
   }
 
-  async readSince(tsExclusive: number): Promise<BusEvent[]> {
+  /**
+   * Events appended strictly after `idExclusive`, in file (authoritative) order.
+   *
+   * The cursor is an event *id*, not a ts: ids are lex-sortable
+   * `<padded-ts>-<seq>-<rand>`, so same-ms events stay distinguishable. A ts
+   * cursor (`e.ts > cursor`) drops every event that ties the cursor on the
+   * millisecond (bug #42). Empty string sorts before any real id, so
+   * `readSince('')` returns all events. Mirrors `BroadcastReader`'s cursor.
+   */
+  async readSince(idExclusive: string): Promise<BusEvent[]> {
     const all = await this.readAll();
-    return all.filter((e) => e.ts > tsExclusive);
+    return all.filter((e) => e.id > idExclusive);
   }
 }

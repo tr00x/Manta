@@ -91,7 +91,7 @@ describe('TestStormDispatcher', () => {
         },
       }],
     }, {
-      enqueue: async (target, prompt, priority) => { enqueued.push({ target, prompt, priority }); },
+      enqueue: async (target, prompt, priority) => { enqueued.push({ target, prompt, ...(priority !== undefined ? { priority } : {}) }); },
     });
     expect(d.stages.get('feat-1')!.status).toBe('fixing');
     expect(d.stages.get('feat-1')!.fixCycles).toBe(1);
