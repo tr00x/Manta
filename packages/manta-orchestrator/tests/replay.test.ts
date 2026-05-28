@@ -62,21 +62,21 @@ function makeCtx(opts: {
 
   return {
     casts: {
-      read: async (id: string): Promise<CastManifest> => {
-        if (opts.castError) throw opts.castError;
-        if (id !== manifest.cast_id) throw new BusNotFoundError('cast', id);
-        return manifest;
+      read: (id: string): Promise<CastManifest> => {
+        if (opts.castError) return Promise.reject(opts.castError);
+        if (id !== manifest.cast_id) return Promise.reject(new BusNotFoundError('cast', id));
+        return Promise.resolve(manifest);
       },
     },
     registry: {
-      get: async (id: string): Promise<CloneRecord> => {
+      get: (id: string): Promise<CloneRecord> => {
         const r = records[id];
-        if (!r) throw new BusNotFoundError('clone', id);
-        return r;
+        if (!r) return Promise.reject(new BusNotFoundError('clone', id));
+        return Promise.resolve(r);
       },
     },
     events: {
-      readAll: async (): Promise<BusEvent[]> => events,
+      readAll: (): Promise<BusEvent[]> => Promise.resolve(events),
     },
   };
 }

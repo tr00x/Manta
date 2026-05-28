@@ -290,7 +290,7 @@ describe('manta library install + cast + uninstall round-trip (MANTA_E2E=1, real
       if (castR.exitCode !== 0) {
         // eslint-disable-next-line no-console -- diagnosis aid on real-claude failure
         console.error('cast stdout:\n', castR.stdout);
-        // eslint-disable-next-line no-console
+        // eslint-disable-next-line no-console -- diagnosis aid on real-claude failure
         console.error('cast stderr:\n', castR.stderr);
       }
       expect(castR.exitCode).toBe(0);

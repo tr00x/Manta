@@ -1,7 +1,7 @@
 import { atomicMutateJson, atomicReadJson, appendJsonLine } from '../atomic-fs';
 import type { Clock } from '../clock';
 import type { ChargeState, ChargeEvent, Mode } from '../schema';
-import { ChargeStateSchema, ChargeEventSchema, MODE_CHARGE_COST } from '../schema';
+import { ChargeEventSchema, MODE_CHARGE_COST } from '../schema';
 import { BusConflictError } from '../errors';
 import type { BusPaths } from './paths';
 

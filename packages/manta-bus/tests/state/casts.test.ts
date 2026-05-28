@@ -393,7 +393,7 @@ describe('CastsStore.create', () => {
         policy: { peer_messaging: 'allowed' as const, auto_merge_threshold: null, session_mode: 'batch' as const },
       };
       const calls: string[] = [];
-      const audit = () => { calls.push('audit'); return Promise.resolve(); };
+      const audit = (): Promise<void> => { calls.push('audit'); return Promise.resolve(); };
       await store.create(input, audit);
       await store.create(input, audit);
       await store.create(input, audit);

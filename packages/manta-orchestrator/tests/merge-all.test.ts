@@ -2,7 +2,10 @@ import { describe, it, expect, vi } from 'vitest';
 import type { MergeAllOptions, QualityGateResult } from '../src/merge-all';
 import { runMergeAll } from '../src/merge-all';
 
-function makeDeadClone(id: string, exitTime: number) {
+function makeDeadClone(
+  id: string,
+  exitTime: number,
+): { cloneId: string; worktreePath: string; exitTime: number } {
   return { cloneId: id, worktreePath: `/tmp/wt-${id}`, exitTime };
 }
 

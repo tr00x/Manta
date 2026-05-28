@@ -39,14 +39,14 @@ function makeCtx(opts: {
 
   return {
     registry: {
-      get: async (id: string): Promise<CloneRecord> => {
+      get: (id: string): Promise<CloneRecord> => {
         const r = records[id];
-        if (!r) throw new BusNotFoundError('clone', id);
-        return r;
+        if (!r) return Promise.reject(new BusNotFoundError('clone', id));
+        return Promise.resolve(r);
       },
     },
     events: {
-      readAll: async (): Promise<BusEvent[]> => events,
+      readAll: (): Promise<BusEvent[]> => Promise.resolve(events),
     },
   };
 }
