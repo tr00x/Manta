@@ -186,6 +186,87 @@ describe('TestStormDispatcher', () => {
     expect(enqueued).toHaveLength(0);
   });
 
+  // Bug #26 regression: status 'testing' fell through to the fresh-stage
+  // ladder, silently wiping fixCycles and stage state on a duplicate
+  // code_ready broadcast (e.g. coder retry, daemon redelivery). The fix
+  // adds an explicit no-op branch for in-flight stages: only the
+  // codeCommitRef is replaced — fixCycles, status, and any other in-flight
+  // refs survive.
+  it('does not wipe in-flight testing stage on duplicate code_ready (bug #26)', async () => {
+    const d = new TestStormDispatcher(baseConfig);
+    d.stages.set('feat-1', {
+      featureId: 'feat-1',
+      status: 'testing',
+      fixCycles: 2,
+      codeCommitRef: 'original-abc',
+    });
+    const enqueued: Array<{ target: string }> = [];
+    await d.onCycleComplete({
+      idleClones: [],
+      broadcasts: [{
+        clone_id: 'A',
+        event_type: 'code_ready',
+        payload: { feature_id: 'feat-1', commit_ref: 'newer-def', summary: 'duplicate' },
+      }],
+    }, { enqueue: async (target) => { enqueued.push({ target }); } });
+
+    const stage = d.stages.get('feat-1')!;
+    expect(stage.status).toBe('testing'); // not reset
+    expect(stage.fixCycles).toBe(2);      // not reset to 0
+    expect(stage.codeCommitRef).toBe('newer-def'); // only codeCommitRef replaced
+    expect(enqueued).toHaveLength(0);     // no duplicate tester enqueue
+  });
+
+  // Bug #26 regression: same anti-wipe rule for status 'fuzzing'. A
+  // duplicate code_ready while the fuzzer is running used to reset the
+  // whole stage to fresh-testing, abandoning the in-flight fuzz cycle.
+  it('does not wipe in-flight fuzzing stage on duplicate code_ready (bug #26)', async () => {
+    const d = new TestStormDispatcher(baseConfig);
+    d.stages.set('feat-1', {
+      featureId: 'feat-1',
+      status: 'fuzzing',
+      fixCycles: 1,
+      codeCommitRef: 'orig-abc',
+      testCommitRef: 'test-def',
+    });
+    const enqueued: Array<{ target: string }> = [];
+    await d.onCycleComplete({
+      idleClones: [],
+      broadcasts: [{
+        clone_id: 'A',
+        event_type: 'code_ready',
+        payload: { feature_id: 'feat-1', commit_ref: 'newer-xyz', summary: 'late' },
+      }],
+    }, { enqueue: async (target) => { enqueued.push({ target }); } });
+
+    const stage = d.stages.get('feat-1')!;
+    expect(stage.status).toBe('fuzzing');
+    expect(stage.fixCycles).toBe(1);
+    expect(stage.testCommitRef).toBe('test-def'); // preserved
+    expect(stage.codeCommitRef).toBe('newer-xyz');
+    expect(enqueued).toHaveLength(0);
+  });
+
+  // Bug #26 second leg: buildFixPrompt hard-coded `/3` instead of
+  // `config.maxFixCycles`. Casts running with maxFixCycles != 3 would
+  // show the wrong cycle budget in the fix-prompt, misleading the coder.
+  it('uses config.maxFixCycles (not hard-coded /3) in fix prompt (bug #26)', async () => {
+    const d = new TestStormDispatcher({ ...baseConfig, maxFixCycles: 5 });
+    d.stages.set('feat-1', { featureId: 'feat-1', status: 'testing', fixCycles: 0, codeCommitRef: 'abc' });
+    const enqueued: Array<{ target: string; prompt: string }> = [];
+    await d.onCycleComplete({
+      idleClones: [],
+      broadcasts: [{
+        clone_id: 'B',
+        event_type: 'tests_ready',
+        payload: { feature_id: 'feat-1', verdict: 'fail', failures: [{ test: 't', error: 'e' }] },
+      }],
+    }, { enqueue: async (target, prompt) => { enqueued.push({ target, prompt: prompt as string }); } });
+    expect(enqueued).toHaveLength(1);
+    expect(enqueued[0]!.prompt).toContain('cycle 1/5');
+    expect(enqueued[0]!.prompt).not.toContain('/3');
+  });
+
   it('handles multiple features concurrently', async () => {
     const d = new TestStormDispatcher(baseConfig);
     const enqueued: Array<{ target: string; prompt: string }> = [];

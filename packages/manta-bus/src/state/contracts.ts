@@ -42,23 +42,25 @@ export class ContractsStore {
       file,
       empty,
       (current) => {
-        // If the contract body is byte-equal to the prior one, preserve the ack
-        // (idempotent rewrite). Otherwise clear it: per spec Sec 5.1 the ack is
-        // the clone's interpretation of its CURRENT scope; a new contract body
-        // requires a fresh ack so scope conflicts are caught against the new
-        // contract, not the old one.
+        // If the contract body is byte-equal to the prior one, this is a no-op
+        // rewrite. Return `current` unchanged so atomicMutateJson sees a
+        // byte-identical snapshot and suppresses both the audit-append callback
+        // and the tmp+rename. Parallel to CastsStore.create's idempotency
+        // (state/casts.ts:70-72). Otherwise clear the ack: per spec Sec 5.1
+        // the ack is the clone's interpretation of its CURRENT scope; a new
+        // contract body requires a fresh ack so scope conflicts are caught
+        // against the new contract, not the old one.
         const sameBody =
           current.written_at !== 0 &&
           JSON.stringify(canonicalize(current.contract)) ===
             JSON.stringify(canonicalize(contract));
-        const next: StoredContract = {
+        if (sameBody) {
+          return current;
+        }
+        return {
           contract,
           written_at: this.clock.now(),
         };
-        if (sameBody && current.ack) {
-          next.ack = current.ack;
-        }
-        return next;
       },
       auditAppend,
     );

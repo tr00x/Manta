@@ -50,30 +50,62 @@ export class TestStormDispatcher {
     const summary = String(payload.summary ?? '');
     const existing = this.stages.get(featureId);
 
-    if (existing && (existing.status === 'complete' || existing.status === 'escalated')) {
-      return;
-    }
-
-    if (existing && existing.status === 'fixing') {
-      existing.codeCommitRef = commitRef;
-      existing.status = 'testing';
+    if (!existing) {
+      // First sighting of this feature — create a fresh stage and dispatch
+      // the initial test run.
+      this.stages.set(featureId, {
+        featureId,
+        codeCommitRef: commitRef,
+        fixCycles: 0,
+        status: 'testing',
+      });
       await enqueuer.enqueue(
         this.config.testerCloneId,
-        buildTestPrompt({ featureId, commitRef, summary, fixCycle: existing.fixCycles }),
+        buildTestPrompt({ featureId, commitRef, summary, fixCycle: 0 }),
       );
       return;
     }
 
-    this.stages.set(featureId, {
-      featureId,
-      codeCommitRef: commitRef,
-      fixCycles: 0,
-      status: 'testing',
-    });
-    await enqueuer.enqueue(
-      this.config.testerCloneId,
-      buildTestPrompt({ featureId, commitRef, summary, fixCycle: 0 }),
-    );
+    // Bug #26: every reachable status needs an explicit branch. Before the
+    // fix, `testing` / `fuzzing` fell through to a fresh-stage create which
+    // silently reset fixCycles and wiped any in-flight refs. The `never`
+    // arm at the end now forces future status additions to either handle
+    // their own case or fail at compile time.
+    const status: TestStormStage['status'] = existing.status;
+    switch (status) {
+      case 'complete':
+      case 'escalated':
+        // Terminal — ignore late duplicates entirely.
+        return;
+      case 'fixing': {
+        // Coder shipped a fix; promote to testing and dispatch the tester.
+        existing.codeCommitRef = commitRef;
+        existing.status = 'testing';
+        await enqueuer.enqueue(
+          this.config.testerCloneId,
+          buildTestPrompt({ featureId, commitRef, summary, fixCycle: existing.fixCycles }),
+        );
+        return;
+      }
+      case 'coding':
+      case 'testing':
+      case 'fuzzing': {
+        // In-flight stage: a duplicate `code_ready` (coder retry, daemon
+        // redelivery, race with broadcast settling). Only refresh the
+        // codeCommitRef; do not reset fixCycles, status, or any refs we've
+        // already collected. No new enqueue — the relevant worker is
+        // already running.
+        existing.codeCommitRef = commitRef;
+        return;
+      }
+      default: {
+        // Exhaustiveness guard: if a new status is added to the union, TS
+        // will fail to compile this assignment, forcing the author to
+        // handle it explicitly above.
+        const _exhaustive: never = status;
+        throw new Error(`unreachable test-storm status: ${String(_exhaustive)}`);
+      }
+    }
   }
 
   private async handleTestsReady(
@@ -106,7 +138,12 @@ export class TestStormDispatcher {
     const failures = (payload.failures as Array<Record<string, unknown>>) ?? [];
     await enqueuer.enqueue(
       this.config.coderCloneId,
-      buildFixPrompt({ featureId, failures, fixCycle: stage.fixCycles }),
+      buildFixPrompt({
+        featureId,
+        failures,
+        fixCycle: stage.fixCycles,
+        maxFixCycles: this.config.maxFixCycles,
+      }),
       'high',
     );
   }
@@ -152,10 +189,10 @@ function buildFuzzPrompt(ctx: {
 }
 
 function buildFixPrompt(ctx: {
-  featureId: string; failures: Array<Record<string, unknown>>; fixCycle: number;
+  featureId: string; failures: Array<Record<string, unknown>>; fixCycle: number; maxFixCycles: number;
 }): string {
   const lines = [
-    `Fix failures for feature "${ctx.featureId}" (fix cycle ${ctx.fixCycle}/${3}).`,
+    `Fix failures for feature "${ctx.featureId}" (fix cycle ${ctx.fixCycle}/${ctx.maxFixCycles}).`,
     '',
     'Failures:',
   ];

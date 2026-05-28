@@ -285,6 +285,14 @@ export async function runCastCommand(
     );
   }
 
+  // Bug #31: every operator-typo guard belongs before any state-committing call.
+  // `runPreSpawnGate` below debits charges and records daily-spend; if a
+  // refactor-wave partition typo trips later it would leak that budget. Pull
+  // the partition check up here alongside the other input validators.
+  if (opts.mode === 'refactor-wave' && assignments) {
+    validateDisjointPartitions(assignments);
+  }
+
   // Phase 3: Pre-spawn gate (charge + daily budget + dry-run)
   const budgetConfig = await loadBudgetConfig(rt.repoRoot);
   const gateResult = await runPreSpawnGate({
@@ -318,13 +326,10 @@ export async function runCastCommand(
   }
 
   // MCP pre-flight unless explicitly skipped (tests with fake runners pass
-  // verifyMcp=false). Defaults to ON for production safety.
+  // verifyMcp=false). Defaults to ON for production safety. (Partition check
+  // already ran above, before the pre-spawn gate — bug #31.)
   if (opts.verifyMcp !== false) {
     await verifyMantaBusRegistered();
-  }
-
-  if (opts.mode === 'refactor-wave' && assignments) {
-    validateDisjointPartitions(assignments);
   }
 
   const handles: CloneHandle[] = [];

@@ -1184,6 +1184,109 @@ describe('cast command — Wave 2 daemon modes', () => {
   });
 });
 
+// Bug #31 regression — `validateDisjointPartitions` ran AFTER
+// `runPreSpawnGate`, which had already debited the charge and recorded the
+// daily spend. An operator-typo overlapping partition surfaced as a thrown
+// CliError, but the unwind path didn't refund — so the cast budget leaked
+// on a pure validation failure. Fix: move the partition check above the
+// gate so every operator-typo guard runs before any state-committing call.
+describe('cast command — refactor-wave operator-typo guards run before state commit (bug #31)', () => {
+  let fx: RepoFixture | undefined;
+  afterEach(async () => {
+    await fx?.cleanup();
+    fx = undefined;
+  });
+
+  it('overlapping partitions throw without debiting charges or daily spend', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({ repoRoot: fx.root });
+
+    const chargesBefore = await rt.ctx.charges.read();
+    const spendBefore = await rt.ctx.dailySpend.read();
+
+    await expect(
+      runCastCommand(rt, {
+        mode: 'refactor-wave' as unknown as 'recon-swarm',
+        task: 'migrate errors',
+        cloneCount: 2,
+        cycleIntervalMs: 50,
+        tickBudgetMs: 5_000,
+        castId: 'cast-rw-bug31',
+        budgetUsdPerClone: 5,
+        budgetUsdPerCast: 15,
+        cloneAssignments: {
+          A: {
+            task: 'migrate src/auth',
+            scope: { allowed_paths: ['src/auth'], forbidden_paths: ['.manta/state', 'secrets/'], max_files_changed: 10 },
+          },
+          // Same allowed_paths as A — operator-typo overlap.
+          B: {
+            task: 'migrate src/auth',
+            scope: { allowed_paths: ['src/auth'], forbidden_paths: ['.manta/state', 'secrets/'], max_files_changed: 10 },
+          },
+        },
+        runner: runFakeCloneScript({ scriptPath: fixturePath }),
+        reporter: createReporter({ sink: new MemorySink() }),
+        verifyMcp: false,
+      }),
+    ).rejects.toMatchObject({
+      name: 'CliError',
+      kind: 'invalid_input',
+      message: expect.stringContaining('Overlapping partition') as unknown as string,
+    });
+
+    const chargesAfter = await rt.ctx.charges.read();
+    const spendAfter = await rt.ctx.dailySpend.read();
+
+    expect(chargesAfter.current_charges).toBe(chargesBefore.current_charges);
+    expect(spendAfter.spent_usd).toBe(spendBefore.spent_usd);
+  });
+
+  it('nested partitions throw without debiting charges or daily spend', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({ repoRoot: fx.root });
+
+    const chargesBefore = await rt.ctx.charges.read();
+    const spendBefore = await rt.ctx.dailySpend.read();
+
+    await expect(
+      runCastCommand(rt, {
+        mode: 'refactor-wave' as unknown as 'recon-swarm',
+        task: 'migrate errors',
+        cloneCount: 2,
+        cycleIntervalMs: 50,
+        tickBudgetMs: 5_000,
+        castId: 'cast-rw-bug31-nested',
+        budgetUsdPerClone: 5,
+        budgetUsdPerCast: 15,
+        cloneAssignments: {
+          A: {
+            task: 'migrate src/auth',
+            scope: { allowed_paths: ['src/auth/'], forbidden_paths: ['.manta/state'], max_files_changed: 10 },
+          },
+          B: {
+            task: 'migrate src/auth/login',
+            scope: { allowed_paths: ['src/auth/login/'], forbidden_paths: ['.manta/state'], max_files_changed: 10 },
+          },
+        },
+        runner: runFakeCloneScript({ scriptPath: fixturePath }),
+        reporter: createReporter({ sink: new MemorySink() }),
+        verifyMcp: false,
+      }),
+    ).rejects.toMatchObject({
+      name: 'CliError',
+      kind: 'invalid_input',
+      message: expect.stringContaining('Nested partition overlap') as unknown as string,
+    });
+
+    const chargesAfter = await rt.ctx.charges.read();
+    const spendAfter = await rt.ctx.dailySpend.read();
+
+    expect(chargesAfter.current_charges).toBe(chargesBefore.current_charges);
+    expect(spendAfter.spent_usd).toBe(spendBefore.spent_usd);
+  });
+});
+
 describe('validateDisjointPartitions', () => {
   it('accepts non-overlapping partitions', () => {
     expect(() =>

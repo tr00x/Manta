@@ -116,4 +116,44 @@ describe('ContractsStore', () => {
     const all = await contracts.list();
     expect(all.map((c) => c.contract.clone_id).sort()).toEqual(['A', 'B']);
   });
+
+  // Bug #30 regression: ContractsStore.write used to stamp a fresh
+  // `written_at = clock.now()` even on byte-identical re-writes. That
+  // changed the JSON snapshot every time, so atomicMutateJson's "changed"
+  // check fired and the contract_write audit event was emitted on every
+  // call — flooding events.jsonl with no-op rewrites. The fix is the
+  // CastsStore.create pattern: detect sameBody and return `current`
+  // unchanged so the snapshot is byte-equal and auditAppend is suppressed.
+  it('byte-identical re-write does not emit a second contract_write audit event (bug #30)', async () => {
+    let auditCalls = 0;
+    const auditAppend = (): Promise<void> => {
+      auditCalls++;
+      return Promise.resolve();
+    };
+    const c = sample();
+    await contracts.write(c, auditAppend);
+    expect(auditCalls).toBe(1);
+
+    // Advance the clock so a fresh `written_at: this.clock.now()` would
+    // still differ — proving the suppression doesn't depend on clock
+    // staying static.
+    clock.advance(5_000);
+    await contracts.write(c, auditAppend);
+    expect(auditCalls).toBe(1); // unchanged — no second audit event
+
+    // A real body change still emits.
+    await contracts.write(sample({ task: 'changed' }), auditAppend);
+    expect(auditCalls).toBe(2);
+  });
+
+  it('byte-identical re-write preserves prior written_at (bug #30)', async () => {
+    await contracts.write(sample());
+    const first = await contracts.read('A');
+    expect(first.written_at).toBe(1_000_000);
+
+    clock.advance(7_777);
+    await contracts.write(sample()); // identical body
+    const second = await contracts.read('A');
+    expect(second.written_at).toBe(1_000_000); // unchanged
+  });
 });
