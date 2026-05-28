@@ -7,7 +7,10 @@ export type IssueCode =
   | 'missing_section'
   | 'duplicate_name'
   | 'unsafe_path'
-  | 'parse_error';
+  | 'parse_error'
+  | 'manifest_missing'
+  | 'manifest_parse_error'
+  | 'manifest_invalid';
 
 export interface ValidationIssue {
   severity: Severity;
