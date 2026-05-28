@@ -34,6 +34,8 @@ import { createLocalStore, type LocalStore } from './library/local-store.js';
 export interface CreateRuntimeOptions {
   repoRoot: string;
   thresholdOverrides?: Partial<Thresholds>;
+  /** Override the global library home — defaults to os.homedir(). Tests use a sandbox dir. */
+  homeDir?: string;
 }
 
 export interface Runtime {
@@ -106,7 +108,7 @@ export async function createRuntime(opts: CreateRuntimeOptions): Promise<Runtime
   });
 
   const lockfile = createLockfileStore({ repoRoot });
-  const localStore = createLocalStore();
+  const localStore = createLocalStore(opts.homeDir !== undefined ? { homeDir: opts.homeDir } : {});
 
   return {
     repoRoot,

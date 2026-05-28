@@ -28,11 +28,19 @@ import { PairDispatcher } from '../dispatch/pair-dispatch.js';
 import { DocChaseDispatcher } from '../dispatch/doc-chase-dispatch.js';
 import { TestStormDispatcher } from '../dispatch/test-storm-dispatch.js';
 import { BroadcastReader } from '../dispatch/broadcast-reader.js';
+import { ModeRegistry } from '../library/mode-registry.js';
+import { verifyMantaVersionCompat, buildCompatErrorMessage } from '../library/compat.js';
+import { getMantaCliVersion } from '../library/cli-version.js';
+import type { Lockfile } from '../library/lockfile.js';
+import type { LocalStore } from '../library/local-store.js';
+import { promises as fsPromises } from 'node:fs';
 
 // Phase 2a: forking-realities joins recon-swarm. Spec Sec 2 #2; see
 // docs/research/phase-2-codepath-map.md §1.1 for the per-mode capability
-// table deferral note (Phase 4+).
-const SUPPORTED_MODES: ReadonlySet<Mode> = new Set<Mode>([
+// table deferral note (Phase 4+). Renamed in Phase 7a from SUPPORTED_MODES
+// to BUILTIN_MODES — these are now the seed set passed into ModeRegistry,
+// which augments them with library-installed modes at cast invocation time.
+const BUILTIN_MODES: ReadonlySet<Mode> = new Set<Mode>([
   'recon-swarm',
   'forking-realities',
   'bug-hunt',
@@ -91,6 +99,59 @@ export async function allocateCloneIds(
   return available.slice(0, count);
 }
 const DEFAULT_DEADLINE_MS = 1_200_000; // 20 min per spec Sec 6.2
+
+/**
+ * Build a ModeRegistry seeded with built-ins + every library mode declared
+ * in the lockfile. Reads each library package's `manta-package.json` from
+ * `~/.manta/library/<scope>/<name>/<version>/` to discover the host
+ * dispatcher (`basedOn`) for each `contributes.modes[]` entry. Lockfile-only
+ * (and lockfile-without-localstore) cases are tolerated — a missing install
+ * dir is surfaced by the hash-pin verification path (Chunk 2 task 2.4), not
+ * by mode registration.
+ */
+async function loadModeRegistry(
+  rt: Pick<Runtime, 'lockfile' | 'localStore'>,
+): Promise<ModeRegistry> {
+  const registry = new ModeRegistry(BUILTIN_MODES);
+  const lock = await rt.lockfile.read();
+  if (!lock) return registry;
+  for (const [packageName, entry] of Object.entries(lock.packages)) {
+    if (entry.contributes.modes.length === 0) continue;
+    const installDir = rt.localStore.pathFor(packageName, entry.version);
+    let manifestRaw: string;
+    try {
+      manifestRaw = await fsPromises.readFile(join(installDir, 'manta-package.json'), 'utf8');
+    } catch {
+      // Install dir missing — leave library modes unregistered. Hash-pin
+      // verification (Chunk 2) surfaces the missing-install case explicitly.
+      continue;
+    }
+    let manifest: { contributes?: { modes?: Array<{ name?: string; basedOn?: Mode }> } };
+    try {
+      manifest = JSON.parse(manifestRaw);
+    } catch {
+      continue;
+    }
+    const modes = manifest.contributes?.modes ?? [];
+    for (const modeName of entry.contributes.modes) {
+      const match = modes.find((m) => m.name === modeName);
+      if (!match || !match.basedOn) continue;
+      registry.registerLibrary({
+        name: modeName,
+        basedOn: match.basedOn,
+        packageName,
+        packageVersion: entry.version,
+      });
+    }
+  }
+  return registry;
+}
+
+// Keep TypeScript happy: Lockfile and LocalStore are surface types reused by
+// loadModeRegistry; ensure they aren't flagged as unused if the function
+// shrinks in a future commit.
+export type CastLockfile = Lockfile;
+export type CastLocalStore = LocalStore;
 
 export interface CastScopeOptions {
   /** Paths the clone may read/write within (relative to repo root). */
@@ -171,12 +232,50 @@ export async function runCastCommand(
   rt: Runtime,
   opts: RunCastOptions,
 ): Promise<CommandResult> {
-  if (!SUPPORTED_MODES.has(opts.mode)) {
+  // Phase 7a: build the registry from built-ins + library entries in the
+  // lockfile (if any), then check compat *before* validating the mode name.
+  // Library modes register against the host dispatcher named by `basedOn`;
+  // see docs/internals/mode-registry.md (Chunk 2 architecture note).
+  const modeRegistry = await loadModeRegistry(rt);
+  const lock = await rt.lockfile.read();
+  const compat = verifyMantaVersionCompat(lock, getMantaCliVersion());
+  if (!compat.ok) {
     throw new CliError(
-      `mode "${opts.mode}" is not supported (allowed: ${[...SUPPORTED_MODES].join(', ')})`,
+      buildCompatErrorMessage({
+        offendingPackage: compat.offendingPackage,
+        offendingPackageRange: compat.offendingPackageRange,
+        currentVersion: compat.currentVersion,
+      }),
+      { kind: 'invalid_input', exitCode: 16 },
+    );
+  }
+  if (!modeRegistry.has(opts.mode)) {
+    const allModes = [
+      ...modeRegistry.list().builtins,
+      ...modeRegistry.list().library.map((e) => e.name),
+    ];
+    throw new CliError(
+      `mode "${opts.mode}" is not supported (allowed: ${allModes.join(', ')})`,
       { kind: 'invalid_input' },
     );
   }
+  // Library modes route through their host dispatcher (basedOn) — record the
+  // library origin so the cast manifest captures both layers, then rewrite
+  // the effective opts to use the host dispatcher mode for the rest of this
+  // function. This is the minimum integration per the Phase 7a plan; richer
+  // per-mode dispatcher overrides are deferred (clone-C §4.4).
+  const libraryEntry = modeRegistry.resolveLibrary(opts.mode);
+  const libraryModeName: string | null = libraryEntry ? opts.mode : null;
+  if (libraryEntry) {
+    opts.reporter.info('cast.library_mode_resolved', {
+      libraryMode: opts.mode,
+      basedOn: libraryEntry.basedOn,
+      packageName: libraryEntry.packageName,
+      packageVersion: libraryEntry.packageVersion,
+    });
+    opts = { ...opts, mode: libraryEntry.basedOn };
+  }
+  void libraryModeName;
   if (
     !Number.isInteger(opts.cloneCount) ||
     opts.cloneCount < 1 ||
