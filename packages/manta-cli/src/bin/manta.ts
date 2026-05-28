@@ -603,7 +603,15 @@ async function main(): Promise<void> {
     .command('library')
     .description('Inspect installed Manta Library packages (list/show/outdated/doctor)');
 
-  function buildLibraryRuntime(rt: Awaited<ReturnType<typeof createRuntime>>) {
+  function buildLibraryRuntime(
+    rt: Awaited<ReturnType<typeof createRuntime>>,
+  ): {
+    repoRoot: string;
+    lockfile: typeof rt.lockfile;
+    localStore: typeof rt.localStore;
+    network: ReturnType<typeof createDefaultLibraryNetworkRunner>;
+    mantaCliVersion: string;
+  } {
     return {
       repoRoot: rt.repoRoot,
       lockfile: rt.lockfile,

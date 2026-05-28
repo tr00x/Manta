@@ -1,0 +1,7 @@
+{
+  "name": "e2e-sample-mode",
+  "description": "Library mode that inherits the recon-swarm host dispatcher — used by the e2e test to prove cast resolves a library mode end-to-end.",
+  "basedOn": "recon-swarm",
+  "cloneCount": { "min": 1, "max": 2 },
+  "sessionMode": "batch"
+}

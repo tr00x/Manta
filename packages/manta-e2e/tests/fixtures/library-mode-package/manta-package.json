@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "name": "@manta-library/e2e-sample",
+  "version": "0.1.0",
+  "description": "Self-contained library package fixture used by the Phase 7a end-to-end test (install + cast + uninstall round-trip).",
+  "author": "Manta E2E fixture",
+  "license": "MIT",
+  "mantaVersionCompat": ">=0.0.0 <2.0.0",
+  "contributes": {
+    "skills": [
+      {
+        "name": "e2e-sample-skill",
+        "description": "Sample skill carried by the e2e library fixture to exercise validator cross-checks during install."
+      }
+    ],
+    "modes": [
+      {
+        "name": "e2e-sample-mode",
+        "description": "Library mode that inherits the recon-swarm host dispatcher — used by the e2e test to prove cast resolves a library mode end-to-end.",
+        "basedOn": "recon-swarm",
+        "cloneCount": { "min": 1, "max": 2 },
+        "sessionMode": "batch"
+      }
+    ]
+  }
+}

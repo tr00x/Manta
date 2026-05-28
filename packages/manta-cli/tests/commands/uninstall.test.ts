@@ -62,7 +62,7 @@ interface FakeRegistryShape {
 }
 
 function makeRegistryStub(records: Array<Record<string, unknown>>): FakeRegistryShape {
-  return { list: async () => records };
+  return { list: () => Promise.resolve(records) };
 }
 
 async function makeBusCtx(): Promise<BusContext> {

@@ -183,9 +183,9 @@ describe('runLibraryOutdatedCommand', () => {
       localStore,
       lockfile,
       network: {
-        async npmView(name) {
+        npmView: (name: string) => {
           expect(name).toBe('@manta-library/sample-package');
-          return ['0.1.0', '0.2.0'];
+          return Promise.resolve(['0.1.0', '0.2.0']);
         },
       },
     });
