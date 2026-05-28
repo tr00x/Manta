@@ -48,6 +48,31 @@ const DAEMON_MODES: ReadonlySet<Mode> = new Set<Mode>([
   'documentation-chase',
 ]);
 const CLONE_NAMES: readonly string[] = ['A', 'B', 'C', 'D', 'E']; // Phase 0 ceiling = 5
+
+/**
+ * Bug #19: clone-name allocation must skip slots currently held by live clones
+ * from concurrent casts. Without this, two parallel casts both try to register
+ * `A` first and the second one fails on pre-register. Live = state !== 'DEAD'.
+ * DEAD slots are overwritten by Registry.register (bug #16 fix).
+ */
+export async function allocateCloneIds(
+  registry: { list(): Promise<Array<{ clone_id: string; state: string }>> },
+  count: number,
+): Promise<string[]> {
+  const all = await registry.list();
+  const taken = new Set(all.filter((r) => r.state !== 'DEAD').map((r) => r.clone_id));
+  const available = CLONE_NAMES.filter((id) => !taken.has(id));
+  if (available.length < count) {
+    const liveDetail = Array.from(taken).join(', ') || '(none)';
+    throw new CliError(
+      `cannot allocate ${count} clone slot(s): only ${available.length} of ${CLONE_NAMES.length} ` +
+        `letters are free (live: ${liveDetail}). Wait for the other cast to finish, ` +
+        `or run \`manta abort\` to stop it.`,
+      { kind: 'concurrent_cast_limit_reached' },
+    );
+  }
+  return available.slice(0, count);
+}
 const DEFAULT_DEADLINE_MS = 1_200_000; // 20 min per spec Sec 6.2
 
 export interface CastScopeOptions {
@@ -170,7 +195,7 @@ export async function runCastCommand(
     );
   }
 
-  const cloneIds = CLONE_NAMES.slice(0, opts.cloneCount);
+  const cloneIds = await allocateCloneIds(rt.ctx.registry, opts.cloneCount);
   const assignments = opts.cloneAssignments ?? {};
 
   // Reject any assignment key not in the roster — operator typo guard. The

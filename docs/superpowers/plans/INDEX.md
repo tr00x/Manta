@@ -67,11 +67,20 @@
 |---|---|---|
 | `2026-05-27-phase-6-wave2-modes.md` | **Executed** — Chunk 1 (cast-1779904972889, 2 clones, merged + 3 post-merge fixes) + Chunk 2 (cast-1779906432547, 2 clones, merged + 1 post-merge fix). 928 tests workspace-wide green; build+lint clean. | 2 chunks, ~2000 LOC. Chunk 1: shared dispatch infra (DispatchCycleInput/DispatchEnqueuer types, BroadcastReader with sinceTs tracking, PairDispatcher state machine, DocChaseDispatcher), tick-loop onCycleComplete hook, BroadcastEventTypeSchema Wave-2 types, CloneAssignment role field, cast.ts wiring (pair-programming + documentation-chase), 3 role skills (manta-pair-writer, manta-pair-reviewer, manta-doc-chase), priming blocks (DOC_CHASE_BLOCK + PAIR_PROTOCOL_BLOCK update), user docs, integration tests. Chunk 2: shared worktree spawner for test-storm, heartbeat hook idempotency guard, GIT_OPERATIONS virtual lock + PreToolUse enforcement hook (git-lock-hook.ts), TestStormDispatcher pipeline stage manager (coding→testing→fuzzing with fix-cycle loop), cast.ts wiring, 3 storm skills (manta-storm-coder, manta-storm-tester, manta-storm-fuzzer), integration tests (happy path + fix cycle + escalation), user docs, skill count updates. Research-backed: 3-clone recon-swarm (cast-1779903737920). |
 
-## Phase 7+ — TBD
+## Phase 7 — Manta Library + auto-cast triggers + community
+
+Цель: реализация Manta Library (install / uninstall / lockfile / ModeRegistry / manifest schema), auto-cast triggers, и community-layer (share bundle + discovery). Каждая sub-фаза = отдельный план-файл. Build by **heavy dogfood** — клоны строят Phase 7 sub-фазы. Research-backed: 3-clone recon-swarm `cast-1779977834212` (`docs/research/phase-7-manta-library.md`, `docs/research/phase-7-community-share-trust.md`, `docs/research/phase-7-auto-cast-triggers.md`).
+
+| План | Статус | Содержит |
+|---|---|---|
+| `2026-05-28-phase-7a-manta-library.md` | **TODO** | 2 chunks, 17 tasks, ~1400 LOC. Chunk 1 (foundation + happy-path install): `MantaPackageManifest` Zod schema (`@manta/skill-validator`), `ModeRegistry` seam, `manta-lock.json` read/write (atomic, deterministic key order), `LocalStore` for `~/.manta/library/<scope>/<name>/<version>/` + `index.json`, `NpmClient`/`GitClient`/`LocalTarball` `RegistryClient` abstraction, `validatePackage(packageRoot)` validator extension cross-checking manifest `contributes` against disk, `manta install <spec>` happy-path command, `cast.ts` integration replacing `SUPPORTED_MODES.has` with `modeRegistry.has` + `verifyMantaVersionCompat` preflight (exit 16), user-doc draft, bug #18 layer-(a) post-mortem `record.metadata` allowlist redactor (sanitizer module reused by Phase 7b). Chunk 2 (uninstall + library CLI + flag completeness + e2e): `manta install` full flag matrix (`--no-validate`/`--no-hooks`/`--force`/`--offline`/`--integrity`/`--json`/`--dry-run`; `--no-hooks` ships with hard-refuse semantics — hooks deferred to Phase 8 with the flag in place to avoid a future CLI API break), `manta uninstall` with multi-version + in-use safety checks, `manta library list\|show\|outdated\|doctor` observability subcommands, hash-pin verification on every cast (exit 19 `library_tampered`), env-gated e2e test (install + cast + uninstall round-trip), complete user doc + `docs/internals/mode-registry.md` architecture note, INDEX + CHANGELOG. Defers: `manta share` → 7b; `manta trigger` → 7c; hooks distribution + custom registry + signing + reputation + runtime sandbox → Phase 8+. |
+| `2026-05-28-phase-7b-manta-share.md` | TODO (not yet written) | `/manta share <cast-id>` bundling + full sanitization enumeration (snapshot, contract, post-mortem, ZK notes, timeline — 20+ redaction rules per clone-A §4.3 + clone-C §1.4), bundle integrity, `--publish` flow to npm with threat-model gates. Reuses Phase 7a's manifest schema, sanitizer module, and lockfile. |
+| `2026-05-28-phase-7c-auto-triggers.md` | TODO (not yet written) | `/manta trigger add/list <event> <action>` — trigger taxonomy (git-pull, failing-tests, file-watch), watcher safety, infinite-loop prevention, hook execution policy review (informs Phase 8 hook distribution). Independent of Phase 7a/7b implementation surface. |
+
+## Phase 8+ — TBD
 
 Per spec Sec 15.1. Each phase = separate plan file:
-- Phase 7: Manta Library + auto-cast triggers + community
-- Phase 8: Aghs-locked modes (`council`, `phantom-lance`, `decoy`)
+- Phase 8: Aghs-locked modes (`council`, `phantom-lance`, `decoy`); hooks distribution from library packages; custom HTTP registry (only triggered if ≥100 published packages OR a supply-chain incident); code signing; author reputation; runtime sandbox for library-installed modes.
 
 ## Naming convention
 

@@ -24,36 +24,33 @@
 
 ## Open bugs
 
-### #19 — Cannot run two concurrent casts: clone-name allocation collides on WORKING clone
-
-**Discovered:** 2026-05-28, attempting to run Phase 7a plan-cast and Phase 7 bug-hunt cast in parallel.
-**Severity:** Medium — blocks parallel multi-cast workflows. Workaround is serialization (manual or via `manta status` poll). Becomes High once Phase 7 auto-cast triggers ship (Phase 7c): a triggered cast that fires while another cast is mid-flight will silently fail unless the trigger fire path is concurrency-aware.
-**Status:** Open.
-**Reproducer:**
-1. Run `manta cast recon-swarm --clones 1` → clone A spawns, state WORKING.
-2. While A is still WORKING, run `manta cast bug-hunt --clones 2` → exits with `BusConflictError: clone A already registered` at `packages/manta-bus/dist/index.js:517` from `spawnClone` pre-register at `packages/manta-cli/dist/bin/manta.js:411`.
-**Root cause:** `clone-spawner.ts` allocates clone IDs alphabetically starting from A, with no awareness of other casts' live allocations. The pre-register call hits `Registry.register()` which allows overwrite only of DEAD clones (per bug #16 fix), not WORKING. When the first letter is taken by an alive clone from another cast, spawn fails the whole second cast rather than rolling to B/C/D/E.
-**Fix (proposed):** Two options:
-- (a) Make the spawner skip-ahead: when pre-register fails with `BusConflictError` because the target is WORKING (not DEAD), allocate the next letter and retry. Cap at E; if all five are WORKING in other casts, fail with a clear `concurrent_cast_limit_reached` exit code. Surgical, ~30 LOC.
-- (b) Re-key clone identifiers from `A`/`B`/`C` to `<cast-id-suffix>-A` so collisions across casts are structurally impossible. Cleaner but breaks every existing skill/test that references clone names directly. High blast radius.
-- **Recommended:** (a). Option (b) is correct long-term but should wait for a major version bump.
-**Lessons:**
-- Phase 7c auto-cast triggers MUST account for this — a triggered cast that fires mid-cast under (a) silently downgrades to fewer clones if A-E are saturated; under current code it just dies. Plan-phase decision required.
-- "Clone names are a fixed alphabet" (bug #16 lesson) implies global allocation contention. We knew bug #16 was the DEAD case; the WORKING case is the symmetric counterpart we missed.
-
 ### #18 — `post-mortem.ts` emits raw `record.metadata` unsanitized — latent leak surface for Phase 7 share bundles
 
 **Discovered:** 2026-05-28, Phase 7 research cast `cast-1779977834212` (clone C codebase audit).
 **Severity:** Low currently (metadata fields are minimal), High by Phase 7 ship (becomes a publication leak path).
-**Status:** Open — fix scoped to Phase 7 plan.
+**Status:** Open — fix scoped to Phase 7a plan task 1.10 (sanitization module + post-mortem allowlist redactor).
 **Reproducer (forward-looking):** Any caller that adds a metadata field (e.g. `triggered_by: <trigger-name>` from auto-cast triggers, or `user_email: <stamp>`) — `packages/manta-orchestrator/src/post-mortem.ts:69-106` renders every key=value pair in `record.metadata` unconditionally (lines 83-87). The rendered post-mortem then ships in `/manta share` bundles.
 **Root cause:** No allowlist, no redactor, no schema-driven filtering. The pattern mirrors `BroadcastInputSchema` `.strict()` discipline at `packages/manta-bus/src/schema.ts:165` but is not applied to the post-mortem render path.
-**Fix (proposed for Phase 7 plan):** Two layers (defense in depth) —
+**Fix (proposed for Phase 7a plan):** Two layers (defense in depth) —
 - (a) Allowlist redactor at post-mortem render time: only render whitelisted metadata keys, drop the rest. Cheapest fix.
 - (b) Separate publish-sanitization pass before share-bundle creation: enumerates every artifact path (post-mortems, ZK notes, snapshot fields, registry state) and applies per-field redaction policy. Required regardless of (a).
 **Lessons:** "Pre-existing pattern" is not "correct pattern" — post-mortems were build-to-disk-locally infra; Phase 7's share command changes the threat model retroactively. Any infra that newly ships off-machine needs a sanitization review pass.
 
 ## Recently fixed
+
+### #19 — Cannot run two concurrent casts: clone-name allocation collides on WORKING clone
+
+**Discovered:** 2026-05-28, attempting to run Phase 7a plan-cast and Phase 7 bug-hunt cast in parallel.
+**Severity:** Medium — blocked parallel multi-cast workflows. Workaround was serialization. Would have become High once Phase 7c auto-cast triggers shipped: a triggered cast firing mid-cast would have silently failed.
+**Status:** Fixed in this commit (`packages/manta-cli/src/commands/cast.ts` — new `allocateCloneIds` helper + integration). Eight regression tests in `tests/commands/allocate-clone-ids.test.ts`.
+**Reproducer:**
+1. Run `manta cast recon-swarm --clones 1` → clone A spawns, state WORKING.
+2. While A is WORKING, run `manta cast bug-hunt --clones 2` → exited with `BusConflictError: clone A already registered`.
+**Root cause:** `cast.ts:173` allocated clone IDs alphabetically starting from A (`CLONE_NAMES.slice(0, opts.cloneCount)`) with no awareness of other casts' live allocations. The pre-register call hit `Registry.register()` which allows overwrite only of DEAD clones (per bug #16 fix), not WORKING. When the first letter was taken by an alive clone from another cast, spawn failed the whole second cast.
+**Fix:** New `allocateCloneIds(registry, count)` helper reads the registry, builds a set of live clone_ids (state !== 'DEAD'), and returns the first N letters from `CLONE_NAMES` not in that set. Throws `CliError(kind: 'concurrent_cast_limit_reached')` with a diagnostic message listing the live clones when fewer than N slots are free. Caller (line 173 of cast.ts) now `await`s the helper.
+**Lessons:**
+- Phase 7c auto-cast triggers must account for saturation: a triggered cast finding all five slots WORKING should either (a) defer-and-retry with backoff, (b) queue, or (c) skip the fire with a structured "skipped:saturated" event. Plan-phase decision when 7c is written.
+- "Clone names are a fixed alphabet" (bug #16 lesson) implies global allocation contention. Bug #16 was the DEAD case; #19 is the symmetric WORKING case. There's a class lesson: **alphabet allocators with cross-process contenders need registry-aware allocation, period.** Catalog this with bug #16 as a paired class.
 
 ### #17 — Orphan `last-gasp-report.md` tracked in HEAD leaked stale data into clone worktrees
 

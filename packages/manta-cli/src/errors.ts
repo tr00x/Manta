@@ -9,7 +9,8 @@ export type CliErrorKind =
   | 'budget_gate_failed'
   | 'daemon_failed'
   | 'retask_failed'
-  | 'feedback_failed';
+  | 'feedback_failed'
+  | 'concurrent_cast_limit_reached';
 
 export interface CliErrorOptions {
   kind: CliErrorKind;
