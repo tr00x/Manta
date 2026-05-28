@@ -24,6 +24,24 @@
 
 ## Open bugs
 
+### #35 — Concurrent casts corrupt main-repo `node_modules` symlinks (pnpm rewrites paths to point inside worktree pnpm store)
+
+**Discovered:** 2026-05-28, attempting to launch refactor-wave + forking-realities casts in parallel.
+**Severity:** High — blocks concurrent-cast workflows; any cast launched while a prior cast's worktree's pnpm install is mid-flight will rewrite main-repo `packages/*/node_modules/<dep>` symlinks to point into the prior worktree's `.pnpm` store. Main repo's CLI invocation (`node packages/manta-cli/dist/bin/manta.js`) then fails to load `zod` etc. because the worktree-local pnpm store does not yet contain the package, or the worktree was deleted after the symlink swap.
+**Status:** Open — workaround is `pnpm install` in main repo to restore symlinks before re-launching a second cast.
+**Reproducer:**
+1. `node packages/manta-cli/dist/bin/manta.js cast refactor-wave --clones 2 --tasks <path>` (succeeds; spawner runs `git worktree add` + pnpm install inside the worktree)
+2. Immediately: `node packages/manta-cli/dist/bin/manta.js cast forking-realities --clones 2 --task <task>`
+3. Second `node` invocation fails with `ERR_MODULE_NOT_FOUND: Cannot find package 'zod' imported from .../packages/manta-bus/dist/index.js`
+4. Inspect: `readlink packages/manta-bus/node_modules/zod` → points into the first worktree's `.pnpm/zod@.../node_modules/zod`, which may not yet exist.
+**Root cause:** pnpm workspace resolution treats added git worktrees as workspace members (the worktree path's `package.json` matches `packages/*` glob via `.manta/worktrees/clone-A/packages/...`). When the spawner runs pnpm install inside the worktree, pnpm sees a "new" workspace project and updates the shared `.pnpm` symlinks across all packages to deduplicate — including main-repo's `packages/*/node_modules/<dep>`. Net effect: worktree's pnpm install pollutes main-repo's symlinks.
+**Fix (proposed):**
+- **(a)** Spawner-side: use `pnpm install --frozen-lockfile --ignore-workspace` inside the worktree, or use a per-worktree separate pnpm store via `PNPM_HOME` / `pnpm install --store-dir <worktree>/.pnpm-store`.
+- **(b)** Add the worktree path to `.pnpmworkspace.yaml`'s exclusion list so pnpm doesn't treat it as workspace member.
+- **(c)** Use a different package manager strategy for worktrees (npm install / yarn install) that doesn't reuse the parent repo's pnpm store.
+- **Recommended:** (b) — cheapest, least invasive. `.manta/worktrees/**` should be a hard-exclude in pnpm-workspace.yaml.
+**Lessons:** pnpm's workspace auto-discovery is aggressive. Anything in the repo that has a `package.json` under a recognised glob is implicitly a workspace member, and any pnpm install run inside it can rewrite parent symlinks. **Workaround in CLAUDE.md:** between concurrent casts, run `pnpm install` in main repo if the parent's CLI fails to load a dep.
+
 ### #34 — `parseTasksFile` Zod `z.record(keySchema, valueSchema)` 2-arg form silently drops value schema → 4 tasks-file tests + 1 cast.ts test fail on YAML/JSON parsing
 
 **Discovered:** 2026-05-28, post-bug-hunt verification by main (workspace test sweep after cherry-picking Clone B's #20/#21 fixes).
