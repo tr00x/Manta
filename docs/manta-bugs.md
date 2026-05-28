@@ -24,9 +24,34 @@
 
 ## Open bugs
 
-None. All known bugs resolved as of 2026-05-27.
+### #18 — `post-mortem.ts` emits raw `record.metadata` unsanitized — latent leak surface for Phase 7 share bundles
+
+**Discovered:** 2026-05-28, Phase 7 research cast `cast-1779977834212` (clone C codebase audit).
+**Severity:** Low currently (metadata fields are minimal), High by Phase 7 ship (becomes a publication leak path).
+**Status:** Open — fix scoped to Phase 7 plan.
+**Reproducer (forward-looking):** Any caller that adds a metadata field (e.g. `triggered_by: <trigger-name>` from auto-cast triggers, or `user_email: <stamp>`) — `packages/manta-orchestrator/src/post-mortem.ts:69-106` renders every key=value pair in `record.metadata` unconditionally (lines 83-87). The rendered post-mortem then ships in `/manta share` bundles.
+**Root cause:** No allowlist, no redactor, no schema-driven filtering. The pattern mirrors `BroadcastInputSchema` `.strict()` discipline at `packages/manta-bus/src/schema.ts:165` but is not applied to the post-mortem render path.
+**Fix (proposed for Phase 7 plan):** Two layers (defense in depth) —
+- (a) Allowlist redactor at post-mortem render time: only render whitelisted metadata keys, drop the rest. Cheapest fix.
+- (b) Separate publish-sanitization pass before share-bundle creation: enumerates every artifact path (post-mortems, ZK notes, snapshot fields, registry state) and applies per-field redaction policy. Required regardless of (a).
+**Lessons:** "Pre-existing pattern" is not "correct pattern" — post-mortems were build-to-disk-locally infra; Phase 7's share command changes the threat model retroactively. Any infra that newly ships off-machine needs a sanitization review pass.
 
 ## Recently fixed
+
+### #17 — Orphan `last-gasp-report.md` tracked in HEAD leaked stale data into clone worktrees
+
+**Discovered:** 2026-05-28, Phase 7 research cast `cast-1779977834212`. Clones A and C independently flagged stale `last-gasp-report.md` present at worktree start in their last-gasp reports.
+**Severity:** Low — clones overwrote the stale file on completion; no production data corruption. But misleading for any tooling that reads worktree state at launch.
+**Status:** Fixed in `bd75dcb`.
+**Reproducer:**
+1. Spawn a cast — clones see `.manta/worktrees/clone-A/last-gasp-report.md` already populated with content from `cast-1779906432547` clone-B.
+**Root cause:** Two files were tracked in main HEAD that should not have been —
+- `last-gasp-report.md` at repo root (orphan from early Phase 0)
+- `.manta/worktrees/clone-A/last-gasp-report.md` (orphan from Phase 1 lockdown)
+
+The `.gitignore` correctly excludes `.manta/worktrees/` for future files but does not retroactively untrack already-committed files. When `clone-spawner` runs `git worktree add HEAD`, the new worktree inherits both files from HEAD.
+**Fix:** `git rm --cached` removed both from the index. No code change. Future worktrees see clean HEAD.
+**Lessons:** `.gitignore` does not retroactively untrack. After any commit that adds a `.manta/...` exclusion rule, run `git ls-files | grep '^\.manta/'` to find pre-existing trackings and clean them up. Worth adding to a pre-commit hook for the `.manta/` prefix.
 
 ### #16 — Registry rejects new cast when DEAD clone with same clone_id exists from previous cast
 
