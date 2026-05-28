@@ -9,6 +9,7 @@ import { createReporter, MemorySink } from '../../src/output/reporter.js';
 import { createRuntime } from '../../src/runtime.js';
 import { createLocalStore } from '../../src/library/local-store.js';
 import { createLockfileStore } from '../../src/library/lockfile.js';
+import { computeDirDigest } from '../../src/library/dir-digest.js';
 import { makeRepoFixture, type RepoFixture } from '../helpers/repoFixture.js';
 import { MANTA_CLI_VERSION } from '../../src/library/cli-version.js';
 
@@ -48,6 +49,11 @@ async function seedLibraryInstall(opts: {
   const installDir = localStore.pathFor('@manta-library/sample-mode-pack', '0.1.0');
   await fs.mkdir(installDir, { recursive: true });
   await fs.writeFile(path.join(installDir, 'manta-package.json'), JSON.stringify(sampleLibraryPackage, null, 2));
+  // Hash-pin verification (Phase 7a Chunk 2 task 2.4) compares the on-disk
+  // digest against `directoryDigest`, so the seed must capture the real
+  // digest of the files written above — placeholder strings get rejected
+  // with exit 19 before the cast even tries to spawn.
+  const directoryDigest = await computeDirDigest(installDir);
   await localStore.upsertIndexEntry({
     packageName: '@manta-library/sample-mode-pack',
     version: '0.1.0',
@@ -67,7 +73,7 @@ async function seedLibraryInstall(opts: {
         version: '0.1.0',
         resolved: 'file://fixture',
         integrity: 'sha256-AAAaaa==',
-        directoryDigest: 'sha256-DDDddd==',
+        directoryDigest,
         contributes: { modes: ['mega-refactor'], skills: [], commands: [], templates: [] },
         mantaVersionCompat: '>=0.0.0',
         installedAt: '2026-05-28T11:30:00.000Z',

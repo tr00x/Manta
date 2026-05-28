@@ -30,6 +30,7 @@ import { TestStormDispatcher } from '../dispatch/test-storm-dispatch.js';
 import { BroadcastReader } from '../dispatch/broadcast-reader.js';
 import { ModeRegistry } from '../library/mode-registry.js';
 import { verifyMantaVersionCompat, buildCompatErrorMessage } from '../library/compat.js';
+import { verifyLibraryIntegrity, buildIntegrityErrorMessage } from '../library/integrity.js';
 import { getMantaCliVersion } from '../library/cli-version.js';
 import type { Lockfile } from '../library/lockfile.js';
 import type { LocalStore } from '../library/local-store.js';
@@ -251,6 +252,24 @@ export async function runCastCommand(
         currentVersion: compat.currentVersion,
       }),
       { kind: 'invalid_input', exitCode: 16 },
+    );
+  }
+  // Phase 7a Chunk 2 task 2.4: hash-pin verification per cast. Ordering is
+  // load-registry → compat → integrity → mode-lookup (reviewer must-fix):
+  // compat reports the actionable upgrade message before a tamper hint, and
+  // tamper reports before "unknown mode" so the operator sees the on-disk
+  // root cause first. See docs/internals/mode-registry.md for the rationale.
+  const integrity = await verifyLibraryIntegrity(lock, rt.localStore);
+  if (!integrity.ok) {
+    const offendingEntry = lock?.packages[integrity.offendingPackage];
+    throw new CliError(
+      buildIntegrityErrorMessage({
+        offendingPackage: integrity.offendingPackage,
+        offendingVersion: offendingEntry?.version ?? '<unknown>',
+        expected: integrity.expected,
+        actual: integrity.actual,
+      }),
+      { kind: 'invalid_input', exitCode: 19 },
     );
   }
   if (!modeRegistry.has(opts.mode)) {
