@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "name": "@manta-library/sample-package",
+  "version": "0.1.0",
+  "description": "Sample library package fixture used by Phase 7a unit and integration tests.",
+  "author": "Manta test fixture",
+  "license": "MIT",
+  "mantaVersionCompat": ">=0.7.0 <1.0.0",
+  "contributes": {
+    "skills": [
+      {
+        "name": "sample-skill",
+        "description": "Sample skill used by the fixture to exercise validator cross-checks."
+      }
+    ],
+    "modes": [
+      {
+        "name": "sample-mode",
+        "description": "Sample library mode that inherits the recon-swarm host dispatcher.",
+        "basedOn": "recon-swarm",
+        "cloneCount": { "min": 1, "max": 2 },
+        "sessionMode": "batch"
+      }
+    ]
+  }
+}

@@ -36,3 +36,4 @@ export { createLifecycleHandlers } from './tools/lifecycle';
 export type { LifecycleHandlers, LifecycleResult } from './tools/lifecycle';
 export { siblingsInSameForkingCast, crossCloneRead } from './tools/forking-isolation';
 export type { SiblingCheck, CrossReadCheck } from './tools/forking-isolation';
+export { atomicMutateJson, atomicReadJson, appendJsonLine } from './atomic-fs';

@@ -28,10 +28,14 @@ import {
 } from '@manta/orchestrator';
 
 import { CliError } from './errors.js';
+import { createLockfileStore, type LockfileStore } from './library/lockfile.js';
+import { createLocalStore, type LocalStore } from './library/local-store.js';
 
 export interface CreateRuntimeOptions {
   repoRoot: string;
   thresholdOverrides?: Partial<Thresholds>;
+  /** Override the global library home — defaults to os.homedir(). Tests use a sandbox dir. */
+  homeDir?: string;
 }
 
 export interface Runtime {
@@ -40,6 +44,8 @@ export interface Runtime {
   orchestrator: Orchestrator;
   thresholds: Thresholds;
   mergeReviewWriter: MergeReviewWriter;
+  lockfile: LockfileStore;
+  localStore: LocalStore;
   dispose: () => Promise<void>;
 }
 
@@ -101,12 +107,17 @@ export async function createRuntime(opts: CreateRuntimeOptions): Promise<Runtime
     mergeReviewDir: thresholds.mergeReviewDir,
   });
 
+  const lockfile = createLockfileStore({ repoRoot });
+  const localStore = createLocalStore(opts.homeDir !== undefined ? { homeDir: opts.homeDir } : {});
+
   return {
     repoRoot,
     ctx,
     orchestrator,
     thresholds,
     mergeReviewWriter,
+    lockfile,
+    localStore,
     dispose: async () => {
       // No resources to release in Phase 0 — placeholder for daemon-mode.
     },

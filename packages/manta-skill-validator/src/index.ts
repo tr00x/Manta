@@ -3,3 +3,4 @@ export * from './schemas.js';
 export * from './parse.js';
 export * from './validate.js';
 export * from './walk.js';
+export * from './manifest-schema.js';

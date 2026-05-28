@@ -10,7 +10,13 @@ export type CliErrorKind =
   | 'daemon_failed'
   | 'retask_failed'
   | 'feedback_failed'
-  | 'concurrent_cast_limit_reached';
+  | 'concurrent_cast_limit_reached'
+  | 'install_spec_parse_failed'
+  | 'install_network_failed'
+  | 'install_manifest_invalid'
+  | 'install_validation_failed'
+  | 'install_compat_unmet'
+  | 'install_already_installed';
 
 export interface CliErrorOptions {
   kind: CliErrorKind;
