@@ -63,17 +63,32 @@ export function createWorkHandlers(
       if (!ctx.workQueue) {
         throw new Error('WorkQueueStore not initialized');
       }
-      const item = await ctx.workQueue.enqueue({
-        cast_id: parsed.cast_id,
-        target_clone_id: parsed.target_clone_id,
-        prompt: parsed.prompt,
-        priority: parsed.priority,
-      });
-      const event = await ctx.events.append({
-        type: 'enqueue_work',
-        clone_id: parsed.target_clone_id,
-        payload: { item_id: item.id, cast_id: parsed.cast_id, priority: parsed.priority },
-      });
+      // Bug #24: route the `enqueue_work` audit through the file mutex so a
+      // crash between work-queue.json commit and events.jsonl append cannot
+      // leave an orphaned work item with no audit trail. The closure runs
+      // inside `atomicMutateJson`'s lock with the constructed item in scope;
+      // if it throws, the queue mutation is rolled back via tmp+rename
+      // abort.
+      let event!: BusEvent;
+      const item = await ctx.workQueue.enqueue(
+        {
+          cast_id: parsed.cast_id,
+          target_clone_id: parsed.target_clone_id,
+          prompt: parsed.prompt,
+          priority: parsed.priority,
+        },
+        async (it) => {
+          event = await ctx.events.append({
+            type: 'enqueue_work',
+            clone_id: parsed.target_clone_id,
+            payload: {
+              item_id: it.id,
+              cast_id: parsed.cast_id,
+              priority: parsed.priority,
+            },
+          });
+        },
+      );
       return { item, event };
     },
   };

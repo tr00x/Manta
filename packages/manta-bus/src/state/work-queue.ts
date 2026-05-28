@@ -23,12 +23,26 @@ const empty = (): WorkQueueFile => ({ version: 1, items: [] });
 export class WorkQueueStore {
   constructor(private readonly paths: BusPaths, private readonly clock: Clock) {}
 
-  async enqueue(input: {
-    cast_id: string;
-    target_clone_id: string;
-    prompt: string;
-    priority: 'normal' | 'high';
-  }): Promise<WorkItem> {
+  /**
+   * Enqueue a new work item.
+   *
+   * `auditAppend` (optional) is invoked **inside the file mutex**, after the
+   * mutator appends the new item to the in-memory list but before the
+   * tmp+rename commit — same audit-trail invariant as the single-record
+   * mutators on the other stores (bug #24). The closure receives the
+   * `WorkItem` (with its fresh `id`) so the caller can log the canonical
+   * identifier in the audit line. If `auditAppend` throws, the rename is
+   * aborted and the item is not persisted.
+   */
+  async enqueue(
+    input: {
+      cast_id: string;
+      target_clone_id: string;
+      prompt: string;
+      priority: 'normal' | 'high';
+    },
+    auditAppend?: (item: WorkItem) => Promise<void>,
+  ): Promise<WorkItem> {
     const now = this.clock.now();
     const id = `wq-${now}-${Math.random().toString(36).slice(2, 8)}`;
     const item: WorkItem = {
@@ -46,6 +60,7 @@ export class WorkQueueStore {
         current.items.push(item);
         return current;
       },
+      auditAppend ? () => auditAppend(item) : undefined,
     );
     return item;
   }
