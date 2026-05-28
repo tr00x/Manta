@@ -2,19 +2,23 @@ import { z } from 'zod';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-export const ScoringWeightsSchema = z.object({
-  coverage: z.number().min(0).max(1),
-  diff: z.number().min(0).max(1),
-  complexity: z.number().min(0).max(1),
-  typeCheck: z.number().min(0).max(1),
-  lint: z.number().min(0).max(1),
-});
+export const ScoringWeightsSchema = z
+  .object({
+    coverage: z.number().min(0).max(1),
+    diff: z.number().min(0).max(1),
+    complexity: z.number().min(0).max(1),
+    typeCheck: z.number().min(0).max(1),
+    lint: z.number().min(0).max(1),
+  })
+  .strict();
 
-export const ScoringConfigSchema = z.object({
-  weights: ScoringWeightsSchema,
-  perfBonus: z.number().min(0).max(0.5),
-  epsilon: z.number().min(0).max(0.5),
-});
+export const ScoringConfigSchema = z
+  .object({
+    weights: ScoringWeightsSchema,
+    perfBonus: z.number().min(0).max(0.5),
+    epsilon: z.number().min(0).max(0.5),
+  })
+  .strict();
 
 export type ScoringConfig = z.infer<typeof ScoringConfigSchema>;
 export type ScoringWeights = z.infer<typeof ScoringWeightsSchema>;
