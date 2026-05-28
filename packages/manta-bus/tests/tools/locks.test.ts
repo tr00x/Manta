@@ -3,6 +3,7 @@ import { FakeClock } from '../../src/clock';
 import { busPaths } from '../../src/state/paths';
 import { LocksStore } from '../../src/state/locks';
 import { EventsLog } from '../../src/state/events';
+import { Registry } from '../../src/state/registry';
 import { makeTmpRoot } from '../helpers/tmpRoot';
 import { createLockHandlers } from '../../src/tools/locks';
 import { BusLockedError, BusNotFoundError, BusValidationError } from '../../src/errors';
@@ -17,9 +18,13 @@ describe('lock handlers', () => {
     ({ root, cleanup } = await makeTmpRoot());
     clock = new FakeClock(1_000_000);
     const paths = busPaths(root);
+    // Bug #28: handlers now consult the registry to enforce FR-isolation.
+    // The non-FR happy paths in this file use unregistered clone_ids — the
+    // handler is permissive for unknown callers (mirrors work.ts pattern).
     handlers = createLockHandlers({
       locks: new LocksStore(paths, clock, { staleAfterMs: 15_000 }),
       events: new EventsLog(paths, clock),
+      registry: new Registry(paths, clock),
     });
   });
   afterEach(async () => {

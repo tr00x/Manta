@@ -63,7 +63,14 @@ describe('audit-trail invariant — events.append fault aborts state mutation', 
     const locks = new LocksStore(paths, clock, { staleAfterMs: 15_000 });
     const events = new EventsLog(paths, clock);
     vi.spyOn(events, 'append').mockRejectedValueOnce(new Error('lock log fail'));
-    const handlers = createLockHandlers({ locks, events });
+    // Bug #28: lock handlers consult the registry for FR-isolation; unknown
+    // callers fall through to existing semantics. An empty fresh registry is
+    // sufficient because this test uses an unregistered clone_id.
+    const handlers = createLockHandlers({
+      locks,
+      events,
+      registry: new Registry(paths, clock),
+    });
 
     await expect(
       handlers.lock({ clone_id: 'A', path: 'src/foo.ts' }),
