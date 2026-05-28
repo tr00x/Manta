@@ -1,0 +1,7 @@
+{
+  "name": "sample-mode",
+  "description": "Sample library mode for validator fixture.",
+  "basedOn": "recon-swarm",
+  "cloneCount": { "min": 1, "max": 1 },
+  "sessionMode": "batch"
+}
