@@ -24,6 +24,96 @@
 
 ## Open bugs
 
+### #37 — Heartbeat-touch hook corrupts `registry.json` (lock-scheme mismatch + non-atomic write)
+
+**Discovered:** 2026-05-28, full 9-dimension audit (correctness agent `a2e8bab4`). See `docs/audits/2026-05-28-full-audit.md` C2.
+**Severity:** Catastrophic — concurrent clobbering of the bus-owned registry + torn-write that takes the whole bus down.
+**Status:** Open.
+**Reproducer:**
+1. A clone fires its PostToolUse `heartbeat-touch.cjs` hook, which reads→parses→mutates→`writeFileSync`s `.manta/state/registry.json` directly.
+2. Concurrently the bus runs `markDead`/`heartbeat` under `proper-lockfile` on `.manta/state/registry.json.lock`, doing tmp+rename.
+3. The hook guards with a *different* lock path — `.manta/state/.locks/registry.json.lock` (`heartbeat-hook.ts:83`) — so the two never exclude each other.
+4. The hook's `writeFileSync` of its stale in-memory copy lands on top of the bus's committed write → resurrects a just-DEAD clone or drops a just-registered sibling. A crash mid-write leaves torn JSON; every subsequent `atomicReadJson` throws → bus down.
+**Root cause:** The generated heartbeat-touch hook hand-rolls a writer instead of going through the bus, and locks a path incompatible with `proper-lockfile`'s `${file}.lock` convention. No shared mutex between hook and bus.
+**Fix (proposed):** The hook must not hand-roll a writer. Route through `Registry.touch` via a tiny `manta __touch <cloneId>` subcommand (atomicMutateJson). At minimum: lock the *same* path proper-lockfile uses (`${registry}.lock`) AND write via tmp+rename.
+**Lessons:** Any out-of-bus writer to bus-owned state must use the bus's exact lock path + tmp+rename, or (better) call back into the bus API. Two lock schemes on one file = no lock.
+
+### #38 — Reaper can post-mortem a LIVE clone (detect→markDead is non-atomic, no liveness recheck)
+
+**Discovered:** 2026-05-28, full audit (correctness agent `a2e8bab4`). See full-audit C3.
+**Severity:** High — a transiently-quiet but live clone is permanently locked off the bus; its locks/claims reaped from under it → silent data race on files it holds.
+**Status:** Open.
+**Reproducer:**
+1. A clone goes briefly quiet (GC pause / long Bash tool) and crosses `heartbeatTimeoutMs` exactly as the orchestrator cycle reads the registry list (`orchestrator.ts:37-52` → `death-detector.ts:50-55`).
+2. Mid-cycle the clone resumes and heartbeats.
+3. `runPostMortem` still calls `registry.markDead` (`post-mortem.ts:41-42`), which sets `state='DEAD'` unconditionally (`registry.ts:158-164`) with no liveness recheck.
+4. Death is terminal (`registry.ts:87-90` rejects later heartbeats) → live clone locked out forever; its leases reaped.
+**Root cause:** Detection (read list) and mutation (`markDead`) are separated by the cycle; `markDead` does not re-check the heartbeat it was triggered on, inside the file mutex.
+**Fix (proposed):** Pass the `last_heartbeat_at` observed during detection into the `markDead` mutator and re-check inside the mutex (`if r.last_heartbeat_at !== observed → abort, clone revived`). The recheck runs under the same lock as heartbeat, closing the window. Also guard the `parent_pid` liveness probe against PID reuse.
+**Lessons:** Any detect-then-act on bus state must re-validate the triggering condition inside the mutating mutex; a read outside the lock is stale by definition.
+
+### #39 — git-lock PreToolUse hook fails OPEN on malformed input
+
+**Discovered:** 2026-05-28, full audit (security agent `ae716ad5`). See full-audit H1.
+**Severity:** High — the git serialization mutex (test-storm / concurrent-cast safety) can be bypassed, allowing concurrent `git` mutations in the shared repo → index corruption / lost commits.
+**Status:** Open.
+**Reproducer:**
+1. `packages/manta-cli/src/hooks/git-lock-hook.ts` wraps its logic in a `try`; the outer `catch` writes `{continue:true}`.
+2. A clone (or a corrupted harness payload) emits non-JSON on the hook's stdin.
+3. Parse throws → outer catch → `{continue:true}` → the git-affecting tool call proceeds without the lock.
+**Root cause:** Fail-open default in a hook whose entire purpose is to *block* unsafe concurrent git access. A safety gate that fails open is not a gate.
+**Fix (proposed):** Fail **closed** on parse error for git-affecting tool calls (`{continue:false}` / block). Only fail open for events clearly unrelated to git.
+**Lessons:** Enforcement hooks must fail closed. This is the hard-hook half of the CLAUDE.md rule "never bake enforcement into priming" — the hook exists precisely because priming is soft, so it must not itself degrade to permissive on error.
+
+### #40 — Orphan/zombie clone processes never force-killed by the reaper
+
+**Discovered:** 2026-05-28, full audit (correctness agent `a2e8bab4`). See full-audit H2.
+**Severity:** High — DEAD-marked clones keep running as orphaned OS processes still holding their worktree, while every MCP call they make is rejected (bus identity DEAD) → spinning zombies + held worktrees.
+**Status:** Open.
+**Reproducer:**
+1. A clone wedges (real `claude --print` hang). The reaper marks it DEAD and reaps its locks (`orchestrator.ts`), but never terminates the `execa` child.
+2. On `tick-loop` budget abort (`cast.ts:647`), `runTickLoop` breaks the loop but `tick-loop.ts` never calls `terminate` on outstanding handles — that's left to `cast.ts` teardown.
+3. If an exception escapes before teardown, the child processes orphan.
+**Root cause:** The orchestrator's death model is state-only (mark DEAD); OS-process termination lives in a separate `CloneHandle.terminate` ladder driven only from `cast.ts`. The two are not connected on the reaper path.
+**Fix (proposed):** When the reaper marks a clone DEAD, signal the corresponding handle's `terminate()` (orchestrator needs a handle registry, or `cast.ts` subscribes to the DEAD event and kills). Ensure `cast.ts` teardown runs in a `finally` that always terminates every spawned handle.
+**Lessons:** "Marked DEAD in state" ≠ "process stopped." For a process-spawning orchestrator, every state-death transition needs a paired OS-kill, and teardown must be exception-safe.
+
+### #41 — `markDead` in post-mortem bypasses the audit-trail invariant (regression of #24)
+
+**Discovered:** 2026-05-28, full audit (correctness agent `a2e8bab4`). See full-audit H3.
+**Severity:** High — registry can show DEAD with no corresponding death event in `events.jsonl`, the exact "state ahead of audit" inconsistency bug #24 was built to prevent.
+**Status:** Open.
+**Reproducer:**
+1. `runPostMortem` calls `markDead(cloneId, reason)` (`post-mortem.ts:42`) with **no** `auditAppend` closure — unlike lifecycle handlers (`lifecycle.ts:89-99`) which append the event *inside* the file mutex.
+2. The `post_mortem` event is appended separately (`post-mortem.ts:55`) *after* the rename.
+3. Crash between the `markDead` rename and the append → DEAD registry, no death/post_mortem event.
+**Root cause:** The orchestrator-initiated death path regressed the bug #24 invariant (audit append must be coupled inside the same mutex as the state mutation). The lifecycle `report_death` path is still correct.
+**Fix (proposed):** Pass an `auditAppend` closure to this `markDead` that appends a `death`/`reaped` event inside the mutex, matching the lifecycle handlers.
+**Lessons:** The audit-before-commit invariant must hold on *every* `markDead` call site, not just the lifecycle one — add a test that asserts append-ordering on the orchestrator path too.
+
+### #42 — `EventsLog.readSince` drops same-millisecond events (regression of #25 lesson)
+
+**Discovered:** 2026-05-28, full audit (bug-log-verify agent `a1f3bfbd`). See full-audit M1.
+**Severity:** Medium — any `readSince` consumer silently loses events sharing a millisecond timestamp with the cursor boundary.
+**Status:** Open.
+**Reproducer:** `EventsLog.readSince` (`packages/manta-bus/src/state/events.ts`) filters `e.ts > tsExclusive` — strict `>` on the millisecond `ts`. Two events written in the same ms as the cursor: one is dropped.
+**Root cause:** Same class as bug #25, which fixed `broadcast-reader.ts` by switching tie-breaking to the lex-sortable event `id`. `readSince` still cursors on `ts`.
+**Fix (proposed):** Cursor on the lex-sortable `id` (or `(ts, id)` tuple), mirroring the #25 fix in `broadcast-reader.ts`.
+**Lessons:** The #25 fix should have been applied to *all* event-cursor consumers, not just the broadcast reader. Audit for other `ts`-based cursors.
+
+### #43 — Orphan-worktree GC gap (graveyard/recover never reconcile against live worktrees)
+
+**Discovered:** 2026-05-28, full audit (bug-log-verify agent `a1f3bfbd`). See full-audit M2.
+**Severity:** Medium — a manually-deleted or orphaned worktree under `.manta/worktrees/` is never reaped; disk + git-worktree-metadata leak accumulates across casts.
+**Status:** Open.
+**Reproducer:**
+1. `graveyard.ts:47 listGraveyard` only `readdir`s `.manta/graveyard` and reads each `info.json` — it never reconciles against live git worktrees or the registry.
+2. `recover.ts:24` runs one orchestrator cycle = reaps locks/claims/dead clones only; no worktree GC.
+3. No `git worktree prune` / orphan scan anywhere → an orphaned worktree persists indefinitely.
+**Root cause:** GC was designed around the graveyard directory and the registry; orphaned worktrees that never made it to graveyard (or were partially removed) fall outside both.
+**Fix (proposed):** Add an orphan-worktree sweep (`git worktree list --porcelain` ∖ registry) into `recover.ts` / the orchestrator cycle or `graveyard.ts`. Medium difficulty (new reconciliation pass + tests).
+**Lessons:** Reconciliation GC must diff the *physical* resource list (git worktrees on disk) against the *logical* one (registry), not just iterate the logical one.
+
 ### #36 — `tsc --noEmit` never in exit-criteria gate; `pnpm -r lint` never green (dies at first failing package) → ~360 type-aware-lint errors in `manta-cli` undetected
 
 **Discovered:** 2026-05-28, cast-1779997703425 (Phase 7a Chunk 2 refactor-wave) merge ceremony — running `pnpm -r lint` as part of the post-merge sweep surfaced that the lint gate fails in `@manta/cli` and that no typecheck step exists at all.
