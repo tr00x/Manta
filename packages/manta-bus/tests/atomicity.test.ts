@@ -8,6 +8,7 @@ import { LocksStore } from '../src/state/locks';
 import { ClaimsStore } from '../src/state/claims';
 import { ContractsStore } from '../src/state/contracts';
 import { EventsLog } from '../src/state/events';
+import { WorkQueueStore } from '../src/state/work-queue';
 import { fsMemoryWriters } from '../src/memory-writers';
 import { createLifecycleHandlers } from '../src/tools/lifecycle';
 import { createLockHandlers } from '../src/tools/locks';
@@ -63,7 +64,14 @@ describe('audit-trail invariant — events.append fault aborts state mutation', 
     const locks = new LocksStore(paths, clock, { staleAfterMs: 15_000 });
     const events = new EventsLog(paths, clock);
     vi.spyOn(events, 'append').mockRejectedValueOnce(new Error('lock log fail'));
-    const handlers = createLockHandlers({ locks, events });
+    // Bug #28: lock handlers consult the registry for FR-isolation; unknown
+    // callers fall through to existing semantics. An empty fresh registry is
+    // sufficient because this test uses an unregistered clone_id.
+    const handlers = createLockHandlers({
+      locks,
+      events,
+      registry: new Registry(paths, clock),
+    });
 
     await expect(
       handlers.lock({ clone_id: 'A', path: 'src/foo.ts' }),
@@ -159,6 +167,34 @@ describe('audit-trail invariant — events.append fault aborts state mutation', 
       entries = [];
     }
     expect(entries.filter((e) => e.endsWith('.md'))).toEqual([]);
+  });
+
+  it('work.enqueue: failing events.append leaves no item in the work queue (bug #24)', async () => {
+    // Bug #24: `enqueue_work` used to commit the new work item to
+    // work-queue.json and only then call `events.append('enqueue_work',
+    // ...)` outside the file mutex. The fix routes the audit through the
+    // `auditAppend` closure of `atomicMutateJson` so a failing append
+    // rolls the enqueue back rather than leaking an orphaned item.
+    const paths = busPaths(root);
+    const registry = new Registry(paths, clock);
+    const claims = new ClaimsStore(paths, clock);
+    const workQueue = new WorkQueueStore(paths, clock);
+    const events = new EventsLog(paths, clock);
+    vi.spyOn(events, 'append').mockRejectedValueOnce(new Error('queue log fail'));
+    const handlers = createWorkHandlers({ claims, events, registry, workQueue });
+
+    await expect(
+      handlers.enqueue({
+        cast_id: 'cast-123',
+        target_clone_id: 'A',
+        prompt: 'work on X',
+        priority: 'normal',
+      }),
+    ).rejects.toThrow(/queue log fail/);
+
+    // No pending item should be visible — the mutator was aborted before
+    // tmp+rename, so work-queue.json remains the placeholder.
+    expect(await workQueue.pending('A')).toEqual([]);
   });
 
   it('memory.para_append: failing events.append leaves no fact in markdown or jsonl', async () => {

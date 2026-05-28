@@ -76,18 +76,33 @@ export class ClaimsStore {
     return Object.values(file.claims);
   }
 
-  async reapExpired(): Promise<WorkClaim[]> {
+  /**
+   * Reap claims whose `expires_at` is at or before `clock.now()`.
+   *
+   * `auditAppend` is invoked **inside the file mutex** with the in-progress
+   * `reaped` array so callers can emit one audit line per expired claim
+   * before the tmp+rename commit — same fan-out audit invariant as
+   * `LocksStore.reapStale` (bug #24).
+   */
+  async reapExpired(
+    auditAppend?: (reaped: ReadonlyArray<WorkClaim>) => Promise<void>,
+  ): Promise<WorkClaim[]> {
     const now = this.clock.now();
     const reaped: WorkClaim[] = [];
-    await atomicMutateJson<ClaimsFile>(this.paths.claims, empty, (current) => {
-      for (const [item, claim] of Object.entries(current.claims)) {
-        if (now >= claim.expires_at) {
-          reaped.push(claim);
-          delete current.claims[item];
+    await atomicMutateJson<ClaimsFile>(
+      this.paths.claims,
+      empty,
+      (current) => {
+        for (const [item, claim] of Object.entries(current.claims)) {
+          if (now >= claim.expires_at) {
+            reaped.push(claim);
+            delete current.claims[item];
+          }
         }
-      }
-      return current;
-    });
+        return current;
+      },
+      auditAppend ? () => auditAppend(reaped) : undefined,
+    );
     return reaped;
   }
 }

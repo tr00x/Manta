@@ -122,18 +122,39 @@ export class LocksStore {
     return Object.values(file.leases).filter((l) => l.owner_clone_id === cloneId);
   }
 
-  async reapStale(): Promise<LockLease[]> {
+  /**
+   * Reap leases whose `last_heartbeat_at` has aged past `staleAfterMs`.
+   *
+   * `auditAppend` (optional) is invoked **inside the file mutex**, after the
+   * mutator has populated `reaped` but before the tmp+rename commit — same
+   * audit-trail invariant as the single-record mutators on this store. The
+   * closure receives the in-progress reaped array so the caller can emit one
+   * audit line per lease without breaking the mutex boundary (bug #24).
+   *
+   * If `auditAppend` throws, atomic-fs aborts the rename and `reaped` is
+   * still returned (it reflects the in-memory mutator state, not committed
+   * state). Callers handling the throw must treat the returned value as
+   * speculative and not act on it.
+   */
+  async reapStale(
+    auditAppend?: (reaped: ReadonlyArray<LockLease>) => Promise<void>,
+  ): Promise<LockLease[]> {
     const now = this.clock.now();
     const reaped: LockLease[] = [];
-    await atomicMutateJson<LocksFile>(this.paths.locks, empty, (current) => {
-      for (const [path, lease] of Object.entries(current.leases)) {
-        if (now - lease.last_heartbeat_at > this.options.staleAfterMs) {
-          reaped.push(lease);
-          delete current.leases[path];
+    await atomicMutateJson<LocksFile>(
+      this.paths.locks,
+      empty,
+      (current) => {
+        for (const [path, lease] of Object.entries(current.leases)) {
+          if (now - lease.last_heartbeat_at > this.options.staleAfterMs) {
+            reaped.push(lease);
+            delete current.leases[path];
+          }
         }
-      }
-      return current;
-    });
+        return current;
+      },
+      auditAppend ? () => auditAppend(reaped) : undefined,
+    );
     return reaped;
   }
 }

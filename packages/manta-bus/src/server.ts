@@ -313,7 +313,13 @@ export async function createBusServer(opts: CreateBusServerOptions): Promise<Bus
       // clone_id and on DEAD clones (Registry.touch contract). Failure of the
       // touch must not fail the handler response — swallow errors and let the
       // caller's normal flow continue.
-      const cloneId = extractCloneId(args);
+      // Bug #23: the caller is not always the literal `clone_id` field — for
+      // `manta.message` it is `from_clone_id`; for `manta.task_contract.read`
+      // with a `requesting_clone_id` it is the requester (not the subject);
+      // for main-driven tools (`retask`/`pause`/`resume`/`feedback`/
+      // `enqueue_work`/`contract_refresh`/`task_contract.write`) there is no
+      // calling clone on the wire at all, so auto-touch must be a no-op.
+      const cloneId = extractCloneId(request.params.name, args);
       if (cloneId) {
         try {
           await context.registry.touch(cloneId);
@@ -333,18 +339,69 @@ export async function createBusServer(opts: CreateBusServerOptions): Promise<Bus
 }
 
 /**
- * Extract a `clone_id` field from arbitrary tool arguments for the bus's
- * auto-touch side effect. Returns the value only when it is a non-empty
- * string; everything else (missing, wrong type, empty) → `undefined` so the
- * dispatcher skips the touch. Tools that do not carry a clone_id (e.g. main-
- * side broadcasts that may add one in Phase 2+, or unknown future shapes)
- * must not crash this lookup — hence the defensive type narrowing.
+ * Per-tool caller-field map for the bus's auto-touch side effect.
+ *
+ * Each value is the ordered list of fields in the tool's args that name the
+ * *calling* clone (whose `last_heartbeat_at` we advance on success). The
+ * first field that resolves to a non-empty string wins; if none resolve,
+ * auto-touch is a no-op.
+ *
+ * `null` means "main-driven — no caller on the wire": the call is initiated
+ * by the main agent, the `clone_id`/`target_clone_id` argument names the
+ * *target* of the action, and touching it would advance a clone's heartbeat
+ * for work it did not do (bug #23, partial regression of bug #9).
+ *
+ * Adding a new tool? Decide its caller-field policy here at the same time
+ * you wire it into the dispatcher above. If the tool surface grows without
+ * a corresponding entry, the dispatcher silently skips auto-touch for it —
+ * unknown tools never auto-touch (defensive default).
  */
-function extractCloneId(args: unknown): string | undefined {
+const CALLER_FIELDS_BY_TOOL: Readonly<Record<string, readonly string[] | null>> = {
+  'manta.register': ['clone_id'],
+  'manta.heartbeat': ['clone_id'],
+  'manta.suicide_intent': ['clone_id'],
+  'manta.report_death': ['clone_id'],
+  'manta.task_contract.write': null,
+  'manta.task_contract.read': ['requesting_clone_id', 'clone_id'],
+  'manta.ack_contract': ['clone_id'],
+  'manta.contract_refresh': null,
+  'manta.claim_work': ['clone_id'],
+  'manta.release_work': ['clone_id'],
+  'manta.lock': ['clone_id'],
+  'manta.unlock': ['clone_id'],
+  'manta.renew_lock': ['clone_id'],
+  'manta.broadcast': ['clone_id'],
+  'manta.message': ['from_clone_id'],
+  'manta.drift_report': ['clone_id'],
+  'manta.read_broadcasts': ['clone_id'],
+  'manta.zk_write': ['clone_id'],
+  'manta.para_append': ['clone_id'],
+  'manta.retask': null,
+  'manta.pause': null,
+  'manta.resume': null,
+  'manta.request_task': ['clone_id'],
+  'manta.feedback': null,
+  'manta.enqueue_work': null,
+};
+
+/**
+ * Resolve the calling clone's id from a tool's args for auto-touch. Returns
+ * the first non-empty string found via the per-tool caller-field map, or
+ * `undefined` when the tool is main-driven, the field is missing/wrong type,
+ * or the tool is unknown to the map (defensive — never auto-touch for
+ * something we have not classified). Defensive type narrowing throughout so
+ * a malformed arg payload cannot crash the dispatcher.
+ */
+function extractCloneId(toolName: string, args: unknown): string | undefined {
   if (typeof args !== 'object' || args === null) return undefined;
-  const v = (args as Record<string, unknown>).clone_id;
-  if (typeof v !== 'string' || v.length === 0) return undefined;
-  return v;
+  const fields = CALLER_FIELDS_BY_TOOL[toolName];
+  if (!fields) return undefined;
+  const obj = args as Record<string, unknown>;
+  for (const field of fields) {
+    const v = obj[field];
+    if (typeof v === 'string' && v.length > 0) return v;
+  }
+  return undefined;
 }
 
 interface SerializedError {
