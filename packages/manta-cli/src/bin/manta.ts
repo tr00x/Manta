@@ -50,7 +50,43 @@ async function runWithRuntime(
   }
 }
 
+/**
+ * Pre-commander guard for `manta install`: reject any attempt to re-enable
+ * hooks distribution. commander treats `--no-hooks=false` as an "unknown
+ * option" (because of its negate-pattern parsing) and exits with the generic
+ * error before our install action handler runs, so the rejection has to
+ * happen before `program.parseAsync` sees the argv. The same guard catches
+ * `--hooks` and any other `--no-hooks=<truthy>` form for the same reason.
+ */
+function rejectHookOverrideEarly(argv: string[]): boolean {
+  const idx = argv.indexOf('install');
+  if (idx < 0) return false;
+  for (let i = idx + 1; i < argv.length; i += 1) {
+    const a = argv[i];
+    if (a === '--hooks' || a === '--no-hooks=false' || a === '--no-hooks=0') {
+      return true;
+    }
+    if (
+      a !== undefined &&
+      a.startsWith('--no-hooks=') &&
+      a !== '--no-hooks=true' &&
+      a !== '--no-hooks=1'
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 async function main(): Promise<void> {
+  if (rejectHookOverrideEarly(process.argv)) {
+    process.stderr.write(
+      '[manta] install: hooks distribution is deferred to Phase 8; --no-hooks cannot be disabled\n',
+    );
+    process.exitCode = 11;
+    return;
+  }
+
   const program = new Command();
   program
     .name('manta')
@@ -378,42 +414,124 @@ async function main(): Promise<void> {
   program
     .command('install <spec>')
     .description('Install a Manta Library package (npm spec, git URL, or local .tgz)')
-    .action(async (spec: string) => {
-      const rt = await createRuntime({ repoRoot: process.cwd() });
-      try {
-        const registryClient = createRegistryClient({ runner: createDefaultNetworkRunner() });
-        const result = await runInstallCommand(
-          {
-            repoRoot: rt.repoRoot,
-            lockfile: rt.lockfile,
-            localStore: rt.localStore,
-            registryClient,
-            mantaCliVersion: getMantaCliVersion(),
-          },
-          { spec },
-        );
-        const stdout = [
-          `Installed ${result.packageName}@${result.version}`,
-          `  path:    ${result.installedPath}`,
-          `  lockfile: ${result.lockfilePath}`,
-          `  modes:   ${result.contributedModes.length}`,
-          `  skills:  ${result.contributedSkills}`,
-          `  commands: ${result.contributedCommands}`,
-          `  templates: ${result.contributedTemplates}`,
-        ].join('\n');
-        process.stdout.write(stdout + '\n');
-        process.exitCode = 0;
-      } catch (err) {
-        if (err instanceof InstallError) {
-          process.stderr.write(`[manta] install: ${err.code}: ${err.message}\n`);
-          process.exitCode = err.exitCode;
-        } else {
-          throw err;
+    .option('--force', 'overwrite an existing same-version install', false)
+    .option('--offline', 'refuse network calls; only local-tgz specs allowed', false)
+    .option('--integrity <hash>', 'expected sha256-<base64> tarball hash; mismatch aborts with exit 13')
+    .option('--json', 'emit a single JSON line on success or failure', false)
+    .option('--dry-run', 'run validation but skip commit, lockfile, and index writes', false)
+    .option('--no-validate', 'skip validatePackage (warn loudly); reserved for CI replay')
+    .option('--no-hooks', 'reserved; hooks distribution deferred to Phase 8 and cannot be re-enabled')
+    .action(
+      async (
+        spec: string,
+        options: {
+          force: boolean;
+          offline: boolean;
+          integrity?: string;
+          json: boolean;
+          dryRun: boolean;
+          // commander stores --no-X as opts.X = false; default true (and hooks
+          // is forced true regardless — see explicit rejection below).
+          validate: boolean;
+          hooks: boolean;
+        },
+      ) => {
+        // --no-hooks=false / --hooks rejection is handled by
+        // rejectHookOverrideEarly() before commander parses (commander treats
+        // `--no-hooks=false` as an unknown option and would error out first).
+        if (
+          options.integrity !== undefined &&
+          !/^sha256-[A-Za-z0-9+/=]+$/.test(options.integrity)
+        ) {
+          const msg = `--integrity must be sha256-<base64>; got "${options.integrity}"`;
+          if (options.json) {
+            process.stdout.write(
+              JSON.stringify({
+                error: { code: 'install_integrity_format', message: msg },
+              }) + '\n',
+            );
+          } else {
+            process.stderr.write(`[manta] install: ${msg}\n`);
+          }
+          process.exitCode = 11;
+          return;
         }
-      } finally {
-        await rt.dispose();
-      }
-    });
+
+        const rt = await createRuntime({ repoRoot: process.cwd() });
+        try {
+          const registryClient = createRegistryClient({
+            runner: createDefaultNetworkRunner(),
+            offline: options.offline,
+          });
+          const result = await runInstallCommand(
+            {
+              repoRoot: rt.repoRoot,
+              lockfile: rt.lockfile,
+              localStore: rt.localStore,
+              registryClient,
+              mantaCliVersion: getMantaCliVersion(),
+            },
+            {
+              spec,
+              force: options.force,
+              offline: options.offline,
+              ...(options.integrity !== undefined ? { integrity: options.integrity } : {}),
+              dryRun: options.dryRun,
+              noValidate: options.validate === false,
+              noHooks: true,
+            },
+          );
+          if (options.json) {
+            const payload = {
+              name: result.packageName,
+              version: result.version,
+              integrity: result.integrity,
+              contributedModes: result.contributedModes,
+              contributedSkills: result.contributedSkills,
+              contributedCommands: result.contributedCommands,
+              contributedTemplates: result.contributedTemplates,
+              lockfilePath: result.lockfilePath,
+              installPath: result.installedPath,
+              dryRun: result.dryRun,
+            };
+            process.stdout.write(JSON.stringify(payload) + '\n');
+          } else {
+            const header = result.dryRun
+              ? `Dry-run: would install ${result.packageName}@${result.version}`
+              : `Installed ${result.packageName}@${result.version}`;
+            const stdout = [
+              header,
+              `  path:    ${result.installedPath}`,
+              `  lockfile: ${result.lockfilePath}`,
+              `  integrity: ${result.integrity}`,
+              `  modes:   ${result.contributedModes.length}`,
+              `  skills:  ${result.contributedSkills}`,
+              `  commands: ${result.contributedCommands}`,
+              `  templates: ${result.contributedTemplates}`,
+            ].join('\n');
+            process.stdout.write(stdout + '\n');
+          }
+          process.exitCode = 0;
+        } catch (err) {
+          if (err instanceof InstallError) {
+            if (options.json) {
+              process.stdout.write(
+                JSON.stringify({
+                  error: { code: err.code, message: err.message },
+                }) + '\n',
+              );
+            } else {
+              process.stderr.write(`[manta] install: ${err.code}: ${err.message}\n`);
+            }
+            process.exitCode = err.exitCode;
+          } else {
+            throw err;
+          }
+        } finally {
+          await rt.dispose();
+        }
+      },
+    );
 
   await program.parseAsync(process.argv);
 }
