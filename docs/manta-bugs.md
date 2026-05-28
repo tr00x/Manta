@@ -86,7 +86,7 @@
 
 **Discovered:** 2026-05-28, bug-hunt cast `cast-1779980048361` clone B audit.
 **Severity:** Low — operator-only failure mode (mis-authored tasks YAML). But charges & daily-spend stay deducted with zero work performed, no compensating credit.
-**Status:** Investigating — fix is mechanical reordering, but tests may pin the current ordering.
+**Status:** Fixed in `66af12c` (refactor-wave cast-1779982686636 clone B) — partition check moved above `runPreSpawnGate` adjacent to other operator-input validators. Bug reproduced LIVE during this cast's launch (charges 999→987 = 12 leaked in two consecutive bad-yaml attempts before the fix landed in a merged worktree). 2 regression tests in cast.test.ts assert ChargesStore + DailySpendLedger unchanged on overlap throw.
 **Reproducer:**
 1. Author a refactor-wave tasks YAML with overlapping `allowed_paths` partitions across two clones.
 2. Run `manta cast refactor-wave --tasks tasks.yaml`. `runPreSpawnGate` runs, charges are deducted (`pre-spawn-gate.ts:153`), daily-spend is recorded (`pre-spawn-gate.ts:157-163`).
@@ -100,7 +100,7 @@
 
 **Discovered:** 2026-05-28, bug-hunt cast `cast-1779980048361` clone A audit (re-audit of post-bug-#14/#15 mutators).
 **Severity:** Low — duplicate audit events; no state corruption, but `manta status` / replay shows phantom contract-writes that never changed semantics.
-**Status:** Open.
+**Status:** Fixed in `6f48c00` (refactor-wave cast-1779982686636 clone B) — option (a) chosen: `sameBody` short-circuits and returns `current` unchanged (parity with `CastsStore.create`). 2 regression tests assert byte-identical re-write fires no second `contract_write` event.
 **Reproducer:**
 1. Main writes a task contract for clone B with body X via `manta.task_contract.write`. Bus emits `contract_write` event 1.
 2. Main writes the byte-identical contract again. Bus emits `contract_write` event 2 with the same body.
@@ -131,7 +131,7 @@
 
 **Discovered:** 2026-05-28, bug-hunt cast `cast-1779980048361` clone A cross-referencing forking-isolation.ts against tools/index.ts.
 **Severity:** Medium — two FR-cast clones in isolated worktrees collide on the *shared* `.manta/state/locks.json` because lock paths are repo-relative.
-**Status:** Open.
+**Status:** Fixed in `567f1ef` (refactor-wave cast-1779982686636 clone A) — cast-mode check added to all three lock handlers in `tools/locks.ts`, throws `BusForkingIsolationError`. 7 regression tests in forking-isolation.test.ts cover all three handlers.
 **Reproducer:**
 1. Two clones (A, B) in `cast-X` mode `forking-realities` with isolated worktrees, both with `metadata.cast_mode='forking-realities'` and same `cast_id`.
 2. Clone A: `manta.lock({clone_id:'A', path:'packages/foo/bar.ts'})` — succeeds.
@@ -165,7 +165,7 @@ if (r.metadata.cast_mode === 'forking-realities') {
 
 **Discovered:** 2026-05-28, bug-hunt cast `cast-1779980048361` clone B audit.
 **Severity:** Medium — masks convergence stalls and wastes a fix-cycle budget. Edge case but real with three live clones broadcasting concurrently.
-**Status:** Open.
+**Status:** Fixed in `97de833` (refactor-wave cast-1779982686636 clone B) — explicit branch for `status === 'testing' | 'fuzzing'` ignores duplicate broadcast preserving in-flight stage; `never`-typed default arm guards future status additions; `/3` hard-code replaced with `config.maxFixCycles`. 3 regression tests in test-storm-dispatch.test.ts.
 **Reproducer (synthetic):**
 1. Coder clone broadcasts `code_ready` for `feature_id: X`. Dispatcher creates stage with `status: 'testing', fixCycles: 0`. Enqueues tester prompt.
 2. Coder clone (cold-fix flow) broadcasts another `code_ready` for `feature_id: X` while tester is still running.
@@ -178,7 +178,7 @@ if (r.metadata.cast_mode === 'forking-realities') {
 
 **Discovered:** 2026-05-28, bug-hunt cast `cast-1779980048361` clone B audit.
 **Severity:** Medium — exposure during high broadcast-rate cycles (test-storm fix loops). A miss is a hung dispatcher waiting on an event that already arrived.
-**Status:** Open.
+**Status:** Fixed in `5484fa6` (refactor-wave cast-1779982686636 clone B) — `EventSource` widened to expose `id: string` (lex-sortable monotonic); reader tracks `lastProcessedId` and filters `e.id > lastProcessedId`. Regression test in broadcast-reader.test.ts covers two same-ts events split across `readNew()` calls.
 **Reproducer (synthetic):**
 1. Two clones broadcast in the same `Date.now()` ms tick.
 2. Bus appends both; both events have the same `ts`.
@@ -192,7 +192,7 @@ if (r.metadata.cast_mode === 'forking-realities') {
 
 **Discovered:** 2026-05-28, bug-hunt cast `cast-1779980048361` clone A.
 **Severity:** Medium — replay/post-mortem cannot reconstruct *which* clone lost a lock/claim and when, on bus crash between state-commit and audit-append. Same correctness class as bug #14 (idempotent audit) but inverted polarity.
-**Status:** Open.
+**Status:** Fixed in `d0c26f4` (refactor-wave cast-1779982686636 clone A) — option (a) chosen: `auditAppend` closure contract widened to receive computed delta, audit now lives inside the file mutex for `reapStale`/`reapExpired`/`enqueue`. Required widening `LocksStore.reapStale`, `ClaimsStore.reapExpired`, `WorkQueueStore.enqueue` APIs (out of original allowlist, disclosed in clone-A last-gasp). +6 orchestrator + 1 bus regression tests.
 **Reproducer:**
 1. Crash the bus process between `LocksStore.reapStale()`'s atomic-mutate rename (writes `locks.json` with N leases removed) and the first `events.append({type:'lock_reap', ...})` call in `packages/manta-orchestrator/src/lock-reaper.ts:11-24`.
 2. Restart. `locks.json` shows N leases gone; `events.jsonl` shows zero `lock_reap` events for them.
@@ -209,7 +209,7 @@ Same pattern: `packages/manta-bus/src/state/claims.ts:79-92` + `packages/manta-o
 
 **Discovered:** 2026-05-28, bug-hunt cast `cast-1779980048361` clone A audit of `@manta/bus` server dispatch.
 **Severity:** Medium — orchestrator's death-detector loses accuracy for any clone that primarily talks via `manta.message`; main-driven calls (retask/pause/resume/feedback) advance the *target* clone's heartbeat when the *target* did nothing. Partial regression of bug #9 structural fix.
-**Status:** Open.
+**Status:** Fixed in `814f2f6` (refactor-wave cast-1779982686636 clone A) — option (a) chosen: `extractCloneId(toolName, args)` with per-tool caller-field map (`manta.message → from_clone_id`, `task_contract.read → requesting_clone_id`, retask/pause/resume/feedback/enqueue_work → no auto-touch / explicit target). 8 regression tests in auto-touch-caller.test.ts cover each affected tool.
 **Reproducer:**
 1. Read `packages/manta-bus/src/server.ts:316-348` — `extractCloneId(args)` reads only the literal `clone_id` field.
 2. Walk the 25 MCP tools' input schemas. Five use a caller-id field other than `clone_id`:
