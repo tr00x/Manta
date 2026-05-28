@@ -41,7 +41,12 @@ export interface RegistryClient {
   resolve(spec: string, opts: { workDir: string }): Promise<ResolvedPackage>;
 }
 
-export type RegistryClientErrorCode = 'unrecognized_spec' | 'manifest_missing' | 'network_failure' | 'tarball_corrupt';
+export type RegistryClientErrorCode =
+  | 'unrecognized_spec'
+  | 'manifest_missing'
+  | 'network_failure'
+  | 'tarball_corrupt'
+  | 'offline_refused';
 
 export class RegistryClientError extends Error {
   readonly code: RegistryClientErrorCode;
@@ -164,6 +169,13 @@ async function packDirToTarball(srcDir: string, outPath: string): Promise<void> 
 
 export interface CreateRegistryClientOptions {
   runner: NetworkRunner;
+  /**
+   * When true, the client refuses any spec kind that requires network I/O.
+   * Only `local-tgz` resolves successfully; `npm` and `git` throw
+   * `RegistryClientError('offline_refused', ...)` before the runner is
+   * touched. Wired into `manta install --offline` (Task 2.1).
+   */
+  offline?: boolean;
 }
 
 export function createRegistryClient(opts: CreateRegistryClientOptions): RegistryClient {
@@ -211,6 +223,13 @@ export function createRegistryClient(opts: CreateRegistryClientOptions): Registr
     parseSpec: (s) => parseSpec(s),
     async resolve(spec, options) {
       const parsed = parseSpec(spec);
+      if (opts.offline === true && parsed.kind !== 'local-tgz') {
+        throw new RegistryClientError(
+          'offline_refused',
+          `--offline: network required for spec kind "${parsed.kind}" (${spec}); only local-tgz allowed`,
+          { spec, kind: parsed.kind },
+        );
+      }
       const wd = path.resolve(options.workDir);
       await fs.mkdir(wd, { recursive: true });
       switch (parsed.kind) {
