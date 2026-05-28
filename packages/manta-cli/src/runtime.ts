@@ -11,6 +11,7 @@ import {
   ChargeStore,
   DailySpendLedger,
   EventsLog,
+  WorkQueueStore,
   fsMemoryWriters,
   systemClock,
   type BusContext,
@@ -79,6 +80,12 @@ export async function createRuntime(opts: CreateRuntimeOptions): Promise<Runtime
     charges: new ChargeStore(paths, clock),
     dailySpend: new DailySpendLedger(paths, clock),
     events: new EventsLog(paths, clock),
+    // Bug #20: workQueue must be present in production ctx — Phase 5/6 daemon
+    // modes (pair-programming, test-storm, documentation-chase) and the
+    // retask command all branch on `rt.ctx.workQueue` being defined. Prior
+    // to this fix the runtime omitted it, so those Wave-2 features were silent
+    // no-ops in production while tests passed (tests wire workQueue manually).
+    workQueue: new WorkQueueStore(paths, clock),
     memoryWriters: fsMemoryWriters({ repoRoot, clock }),
   };
 

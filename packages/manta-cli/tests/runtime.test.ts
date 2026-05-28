@@ -22,6 +22,27 @@ describe('runtime', () => {
     await rt.dispose();
   });
 
+  // Bug #20 regression — runtime must wire WorkQueueStore into ctx. Without
+  // this, Phase 5/6 daemon-mode features (pair-programming, test-storm,
+  // documentation-chase) and the retask command silently no-op in
+  // production because they short-circuit on `if (rt.ctx.workQueue)`.
+  it('createRuntime wires WorkQueueStore into ctx (regression: bug #20)', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({ repoRoot: fx.root });
+    expect(rt.ctx.workQueue).toBeDefined();
+    const item = await rt.ctx.workQueue!.enqueue({
+      cast_id: 'cast-rt-1',
+      target_clone_id: 'A',
+      prompt: 'hello',
+      priority: 'normal',
+    });
+    expect(item.id).toMatch(/^wq-/);
+    const pending = await rt.ctx.workQueue!.pending('A');
+    expect(pending).toHaveLength(1);
+    expect(pending[0]!.prompt).toBe('hello');
+    await rt.dispose();
+  });
+
   it('createRuntime accepts threshold overrides', async () => {
     fx = await makeRepoFixture();
     const rt = await createRuntime({
