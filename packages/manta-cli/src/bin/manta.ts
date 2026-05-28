@@ -19,6 +19,7 @@ import { runDaemonStatusCommand, runDaemonStopCommand } from '../commands/daemon
 import { runRetaskCommand } from '../commands/retask.js';
 import { runFeedbackCommand } from '../commands/feedback.js';
 import { runInstallCommand, InstallError } from '../commands/install.js';
+import { runUninstallCommand, UninstallError } from '../commands/uninstall.js';
 import { createDefaultNetworkRunner, createRegistryClient } from '../library/registry-client.js';
 import { getMantaCliVersion } from '../library/cli-version.js';
 import { runClaudeCli } from '../spawner/clone-spawner.js';
@@ -522,6 +523,61 @@ async function main(): Promise<void> {
               );
             } else {
               process.stderr.write(`[manta] install: ${err.code}: ${err.message}\n`);
+            }
+            process.exitCode = err.exitCode;
+          } else {
+            throw err;
+          }
+        } finally {
+          await rt.dispose();
+        }
+      },
+    );
+
+  program
+    .command('uninstall <spec>')
+    .description('Remove an installed Manta Library package (@scope/name or @scope/name@version)')
+    .option('--force', 'override in-use check for clones in IDLE/WAITING_FOR_TASK/WINDING_DOWN', false)
+    .option('--json', 'emit a single JSON line on success or failure', false)
+    .action(
+      async (spec: string, options: { force: boolean; json: boolean }) => {
+        const rt = await createRuntime({ repoRoot: process.cwd() });
+        try {
+          const result = await runUninstallCommand(
+            {
+              repoRoot: rt.repoRoot,
+              lockfile: rt.lockfile,
+              localStore: rt.localStore,
+              ctx: rt.ctx,
+            },
+            { spec, force: options.force },
+          );
+          if (options.json) {
+            process.stdout.write(
+              JSON.stringify({
+                name: result.removedPackageName,
+                version: result.removedVersion,
+                path: result.removedPath,
+              }) + '\n',
+            );
+          } else {
+            const stdout = [
+              `Removed ${result.removedPackageName}@${result.removedVersion}`,
+              `  path: ${result.removedPath}`,
+            ].join('\n');
+            process.stdout.write(stdout + '\n');
+          }
+          process.exitCode = 0;
+        } catch (err) {
+          if (err instanceof UninstallError) {
+            if (options.json) {
+              process.stdout.write(
+                JSON.stringify({
+                  error: { code: err.code, message: err.message },
+                }) + '\n',
+              );
+            } else {
+              process.stderr.write(`[manta] uninstall: ${err.code}: ${err.message}\n`);
             }
             process.exitCode = err.exitCode;
           } else {
