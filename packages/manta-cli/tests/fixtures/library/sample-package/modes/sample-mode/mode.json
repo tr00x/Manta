@@ -1,0 +1,7 @@
+{
+  "name": "sample-mode",
+  "description": "Sample library mode that inherits the recon-swarm host dispatcher.",
+  "basedOn": "recon-swarm",
+  "cloneCount": { "min": 1, "max": 2 },
+  "sessionMode": "batch"
+}

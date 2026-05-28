@@ -19,3 +19,4 @@ export * from './library/mode-registry.js';
 export * from './library/lockfile.js';
 export * from './library/local-store.js';
 export * from './library/dir-digest.js';
+export * from './library/registry-client.js';
