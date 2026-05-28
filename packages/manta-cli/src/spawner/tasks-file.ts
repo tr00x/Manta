@@ -6,9 +6,12 @@ import { CloneAssignmentSchema, type CloneAssignment } from '@manta/bus';
 import { CliError } from '../errors.js';
 
 const FileSchema = z
-  .record(z.string().min(1), CloneAssignmentSchema)
+  .record(CloneAssignmentSchema)
   .refine((rec) => Object.keys(rec).length >= 1, {
     message: 'tasks file must contain at least one clone assignment',
+  })
+  .refine((rec) => Object.keys(rec).every((k) => k.length >= 1), {
+    message: 'tasks file clone_id keys must be non-empty',
   });
 
 /**

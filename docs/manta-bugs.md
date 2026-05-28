@@ -28,7 +28,7 @@
 
 **Discovered:** 2026-05-28, post-bug-hunt verification by main (workspace test sweep after cherry-picking Clone B's #20/#21 fixes).
 **Severity:** Medium — `manta cast --tasks <yaml>` may silently misvalidate per-clone assignments. Tests assert failure: `Expected string, received object` at path `['A']`, meaning the 2-arg `z.record(z.string().min(1), CloneAssignmentSchema)` at `packages/manta-cli/src/spawner/tasks-file.ts:8` is interpreted as a 1-arg form where the value type defaults to `string`. The whole tasks-file overlay path is broken for object values.
-**Status:** Open. Verified pre-existing on commit `bfcc7c3` (Phase 6 end-of-day HEAD before any of today's work).
+**Status:** Fixed — swapped to single-arg `z.record(CloneAssignmentSchema)` plus two `refine` calls (non-empty record + non-empty keys). 11/11 tasks-file tests pass; whole-workspace sweep 939/939 green. Cherry-pick from option (a) of the fix proposals below.
 **Reproducer:**
 1. `pnpm --filter @manta/cli test tasks-file` on HEAD `bfcc7c3` → 4 fail / 7 pass.
 2. Same failure on current HEAD post-bug-hunt fixes — independent of #20/#21.
