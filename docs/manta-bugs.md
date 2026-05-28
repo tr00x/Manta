@@ -24,6 +24,23 @@
 
 ## Open bugs
 
+### #19 — Cannot run two concurrent casts: clone-name allocation collides on WORKING clone
+
+**Discovered:** 2026-05-28, attempting to run Phase 7a plan-cast and Phase 7 bug-hunt cast in parallel.
+**Severity:** Medium — blocks parallel multi-cast workflows. Workaround is serialization (manual or via `manta status` poll). Becomes High once Phase 7 auto-cast triggers ship (Phase 7c): a triggered cast that fires while another cast is mid-flight will silently fail unless the trigger fire path is concurrency-aware.
+**Status:** Open.
+**Reproducer:**
+1. Run `manta cast recon-swarm --clones 1` → clone A spawns, state WORKING.
+2. While A is still WORKING, run `manta cast bug-hunt --clones 2` → exits with `BusConflictError: clone A already registered` at `packages/manta-bus/dist/index.js:517` from `spawnClone` pre-register at `packages/manta-cli/dist/bin/manta.js:411`.
+**Root cause:** `clone-spawner.ts` allocates clone IDs alphabetically starting from A, with no awareness of other casts' live allocations. The pre-register call hits `Registry.register()` which allows overwrite only of DEAD clones (per bug #16 fix), not WORKING. When the first letter is taken by an alive clone from another cast, spawn fails the whole second cast rather than rolling to B/C/D/E.
+**Fix (proposed):** Two options:
+- (a) Make the spawner skip-ahead: when pre-register fails with `BusConflictError` because the target is WORKING (not DEAD), allocate the next letter and retry. Cap at E; if all five are WORKING in other casts, fail with a clear `concurrent_cast_limit_reached` exit code. Surgical, ~30 LOC.
+- (b) Re-key clone identifiers from `A`/`B`/`C` to `<cast-id-suffix>-A` so collisions across casts are structurally impossible. Cleaner but breaks every existing skill/test that references clone names directly. High blast radius.
+- **Recommended:** (a). Option (b) is correct long-term but should wait for a major version bump.
+**Lessons:**
+- Phase 7c auto-cast triggers MUST account for this — a triggered cast that fires mid-cast under (a) silently downgrades to fewer clones if A-E are saturated; under current code it just dies. Plan-phase decision required.
+- "Clone names are a fixed alphabet" (bug #16 lesson) implies global allocation contention. We knew bug #16 was the DEAD case; the WORKING case is the symmetric counterpart we missed.
+
 ### #18 — `post-mortem.ts` emits raw `record.metadata` unsanitized — latent leak surface for Phase 7 share bundles
 
 **Discovered:** 2026-05-28, Phase 7 research cast `cast-1779977834212` (clone C codebase audit).
