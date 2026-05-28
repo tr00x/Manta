@@ -20,6 +20,16 @@ import { runRetaskCommand } from '../commands/retask.js';
 import { runFeedbackCommand } from '../commands/feedback.js';
 import { runInstallCommand, InstallError } from '../commands/install.js';
 import { runUninstallCommand, UninstallError } from '../commands/uninstall.js';
+import {
+  runLibraryListCommand,
+  runLibraryShowCommand,
+  runLibraryOutdatedCommand,
+  runLibraryDoctorCommand,
+  createDefaultLibraryNetworkRunner,
+  LibraryError,
+  type LibraryListItem,
+  type OutdatedReportItem,
+} from '../commands/library.js';
 import { createDefaultNetworkRunner, createRegistryClient } from '../library/registry-client.js';
 import { getMantaCliVersion } from '../library/cli-version.js';
 import { runClaudeCli } from '../spawner/clone-spawner.js';
@@ -588,6 +598,201 @@ async function main(): Promise<void> {
         }
       },
     );
+
+  const libraryCmd = program
+    .command('library')
+    .description('Inspect installed Manta Library packages (list/show/outdated/doctor)');
+
+  function buildLibraryRuntime(rt: Awaited<ReturnType<typeof createRuntime>>) {
+    return {
+      repoRoot: rt.repoRoot,
+      lockfile: rt.lockfile,
+      localStore: rt.localStore,
+      network: createDefaultLibraryNetworkRunner(),
+      mantaCliVersion: getMantaCliVersion(),
+    };
+  }
+
+  function renderListTable(installs: LibraryListItem[]): string {
+    if (installs.length === 0) return 'No library packages installed.';
+    const rows = installs.map((i) => ({
+      Name: i.packageName,
+      Version: i.version,
+      Modes: String(i.modes.length),
+      Skills: String(i.skills.length),
+      Cmds: String(i.commands.length),
+      Templates: String(i.templates.length),
+      Path: i.path,
+    }));
+    const headers = ['Name', 'Version', 'Modes', 'Skills', 'Cmds', 'Templates', 'Path'] as const;
+    const widths = headers.map((h) =>
+      Math.max(h.length, ...rows.map((r) => r[h].length)),
+    );
+    const fmt = (cells: string[]): string =>
+      cells.map((c, i) => c.padEnd(widths[i]!, ' ')).join('  ');
+    const out = [fmt(headers as unknown as string[])];
+    out.push(widths.map((w) => '-'.repeat(w)).join('  '));
+    for (const r of rows) {
+      out.push(fmt(headers.map((h) => r[h])));
+    }
+    return out.join('\n');
+  }
+
+  function renderOutdatedTable(report: OutdatedReportItem[]): string {
+    if (report.length === 0) return 'No library packages installed.';
+    const out = report.map((r) => {
+      if (r.status === 'pinned') return `${r.packageName}: pinned (resolved=${r.resolved})`;
+      if (r.status === 'outdated') {
+        return `${r.packageName}: ${r.currentVersion} → ${r.latestSatisfying} available (range ${r.range})`;
+      }
+      if (r.status === 'up-to-date') return `${r.packageName}: ${r.currentVersion} (up-to-date)`;
+      return `${r.packageName}: unknown (${r.reason ?? 'no reason given'})`;
+    });
+    return out.join('\n');
+  }
+
+  libraryCmd
+    .command('list')
+    .description('List installed Manta Library packages')
+    .option('--json', 'emit JSON {installs:[...]} instead of a table', false)
+    .action(async (options: { json: boolean }) => {
+      const rt = await createRuntime({ repoRoot: process.cwd() });
+      try {
+        const result = await runLibraryListCommand(buildLibraryRuntime(rt));
+        if (options.json) {
+          process.stdout.write(JSON.stringify({ installs: result.installs }) + '\n');
+        } else {
+          process.stdout.write(renderListTable(result.installs) + '\n');
+        }
+        process.exitCode = result.exitCode;
+      } finally {
+        await rt.dispose();
+      }
+    });
+
+  libraryCmd
+    .command('show <spec>')
+    .description('Show one installed package (manifest + lockfile entry)')
+    .option('--json', 'emit JSON instead of pretty-printed text', false)
+    .action(async (spec: string, options: { json: boolean }) => {
+      const rt = await createRuntime({ repoRoot: process.cwd() });
+      try {
+        const result = await runLibraryShowCommand(buildLibraryRuntime(rt), { spec });
+        if (options.json) {
+          process.stdout.write(
+            JSON.stringify({ install: result.install, lockEntry: result.lockEntry }) + '\n',
+          );
+        } else {
+          const lines = [
+            `${result.install.packageName}@${result.install.version}`,
+            `  path:        ${result.install.path}`,
+            `  installedAt: ${result.install.installedAt}`,
+            `  integrity:   ${result.install.integrity}`,
+            `  modes:       ${result.install.modes.join(', ') || '(none)'}`,
+            `  skills:      ${result.install.skills.join(', ') || '(none)'}`,
+            `  commands:    ${result.install.commands.join(', ') || '(none)'}`,
+            `  templates:   ${result.install.templates.join(', ') || '(none)'}`,
+          ];
+          if (result.lockEntry) {
+            lines.push(
+              `  resolved:    ${result.lockEntry.resolved}`,
+              `  mantaVersionCompat: ${result.lockEntry.mantaVersionCompat}`,
+            );
+          }
+          process.stdout.write(lines.join('\n') + '\n');
+        }
+        process.exitCode = result.exitCode;
+      } catch (err) {
+        if (err instanceof LibraryError) {
+          if (options.json) {
+            process.stdout.write(
+              JSON.stringify({ error: { code: err.code, message: err.message } }) + '\n',
+            );
+          } else {
+            process.stderr.write(`[manta] library show: ${err.code}: ${err.message}\n`);
+          }
+          process.exitCode = err.exitCode;
+        } else {
+          throw err;
+        }
+      } finally {
+        await rt.dispose();
+      }
+    });
+
+  libraryCmd
+    .command('outdated')
+    .description('Report newer published versions for npm-installed packages (git = pinned)')
+    .option('--json', 'emit JSON {report:[...]} instead of a table', false)
+    .action(async (options: { json: boolean }) => {
+      const rt = await createRuntime({ repoRoot: process.cwd() });
+      try {
+        const result = await runLibraryOutdatedCommand(buildLibraryRuntime(rt));
+        if (options.json) {
+          process.stdout.write(JSON.stringify({ report: result.report }) + '\n');
+        } else {
+          process.stdout.write(renderOutdatedTable(result.report) + '\n');
+        }
+        process.exitCode = result.exitCode;
+      } finally {
+        await rt.dispose();
+      }
+    });
+
+  libraryCmd
+    .command('doctor')
+    .description('Validate every installed library package against the current CLI')
+    .option('--json', 'emit JSON {healthy:[...],unhealthy:[...]} instead of text', false)
+    .action(async (options: { json: boolean }) => {
+      const rt = await createRuntime({ repoRoot: process.cwd() });
+      try {
+        const result = await runLibraryDoctorCommand(buildLibraryRuntime(rt));
+        if (options.json) {
+          process.stdout.write(
+            JSON.stringify({ healthy: result.healthy, unhealthy: result.unhealthy }) + '\n',
+          );
+        } else {
+          const lines = [
+            `Healthy:   ${result.healthy.length}`,
+            `Unhealthy: ${result.unhealthy.length}`,
+          ];
+          for (const u of result.unhealthy) {
+            lines.push(`  ${u.packageName}@${u.version}: ${u.issues.join('; ')}`);
+          }
+          process.stdout.write(lines.join('\n') + '\n');
+        }
+        process.exitCode = result.exitCode;
+      } catch (err) {
+        if (err instanceof LibraryError) {
+          if (options.json) {
+            const details = err.details as {
+              healthy?: unknown;
+              unhealthy?: unknown;
+            };
+            process.stdout.write(
+              JSON.stringify({
+                error: { code: err.code, message: err.message },
+                healthy: details.healthy ?? [],
+                unhealthy: details.unhealthy ?? [],
+              }) + '\n',
+            );
+          } else {
+            process.stderr.write(`[manta] library doctor: ${err.code}: ${err.message}\n`);
+            const details = err.details as { unhealthy?: Array<{ packageName: string; version: string; issues: string[] }> };
+            if (Array.isArray(details.unhealthy)) {
+              for (const u of details.unhealthy) {
+                process.stderr.write(`  ${u.packageName}@${u.version}: ${u.issues.join('; ')}\n`);
+              }
+            }
+          }
+          process.exitCode = err.exitCode;
+        } else {
+          throw err;
+        }
+      } finally {
+        await rt.dispose();
+      }
+    });
 
   await program.parseAsync(process.argv);
 }
