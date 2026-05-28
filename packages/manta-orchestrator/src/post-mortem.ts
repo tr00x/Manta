@@ -1,6 +1,7 @@
 import type { BusContext, BusEvent, CloneRecord } from '@manta/bus';
 import type { Thresholds } from './thresholds';
 import type { PostMortemWriter, PostMortemDocument } from './post-mortem-writer';
+import { redactPostMortemMetadata } from './sanitize/metadata-allowlist';
 
 export interface RunPostMortemOptions {
   cloneId: string;
@@ -81,9 +82,13 @@ function renderMarkdown(input: RenderInput): string {
   lines.push(`- Recorded death_reason: ${input.record.death_reason ?? '<none>'}`);
   lines.push('');
   if (Object.keys(input.record.metadata).length > 0) {
+    const { kept, dropped } = redactPostMortemMetadata(input.record.metadata);
     lines.push('## Metadata');
-    for (const [k, v] of Object.entries(input.record.metadata)) {
+    for (const [k, v] of Object.entries(kept)) {
       lines.push(`- ${k}: ${v}`);
+    }
+    if (dropped.length > 0) {
+      lines.push(`- Dropped ${dropped.length} non-allowlisted metadata fields: ${dropped.join(', ')}`);
     }
     lines.push('');
   }

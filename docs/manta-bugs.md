@@ -210,7 +210,7 @@ Recommended (a).
 
 **Discovered:** 2026-05-28, Phase 7 research cast `cast-1779977834212` (clone C codebase audit).
 **Severity:** Low currently (metadata fields are minimal), High by Phase 7 ship (becomes a publication leak path).
-**Status:** Open — fix scoped to Phase 7a plan task 1.10 (sanitization module + post-mortem allowlist redactor).
+**Status:** Partial — layer (a) applied in Phase 7a task 1.10 (`packages/manta-orchestrator/src/sanitize/metadata-allowlist.ts` + `post-mortem.ts:83-94` calls `redactPostMortemMetadata`; non-allowlisted keys dropped with single-line audit footer). Layer (b) — full enumeration sanitizer covering snapshot/contract/timeline/post-mortem/ZK redaction — deferred to Phase 7b plan (`/manta share` bundling).
 **Reproducer (forward-looking):** Any caller that adds a metadata field (e.g. `triggered_by: <trigger-name>` from auto-cast triggers, or `user_email: <stamp>`) — `packages/manta-orchestrator/src/post-mortem.ts:69-106` renders every key=value pair in `record.metadata` unconditionally (lines 83-87). The rendered post-mortem then ships in `/manta share` bundles.
 **Root cause:** No allowlist, no redactor, no schema-driven filtering. The pattern mirrors `BroadcastInputSchema` `.strict()` discipline at `packages/manta-bus/src/schema.ts:165` but is not applied to the post-mortem render path.
 **Fix (proposed for Phase 7a plan):** Two layers (defense in depth) —

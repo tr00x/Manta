@@ -16,3 +16,4 @@ export * from './replay';
 export * from './audit';
 export * from './merge-all';
 export * from './merge-all-writer';
+export * from './sanitize/metadata-allowlist';

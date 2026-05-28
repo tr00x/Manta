@@ -65,6 +65,39 @@ describe('post-mortem', () => {
     expect(writer.captured).toHaveLength(1);
   });
 
+  it('redacts non-allowlisted metadata keys from the rendered markdown (bug #18 layer a)', async () => {
+    await ctx.registry.register({
+      clone_id: 'A',
+      mode: 'recon-swarm',
+      parent_pid: 1,
+      worktree: '/w',
+      metadata: {
+        cast_id: 'cast-42',
+        cast_mode: 'recon-swarm',
+        triggered_by: 'on-push-hook',
+        user_email: 'leak@example.com',
+      },
+    });
+    const writer = inMemoryPostMortemWriter();
+    await runPostMortem(ctx, {
+      cloneId: 'A',
+      reason: 'redaction-check',
+      writer,
+      thresholds: defaultThresholds,
+    });
+    const md = writer.captured[0]!.body;
+    expect(md).toContain('cast_id: cast-42');
+    expect(md).toContain('cast_mode: recon-swarm');
+    // Values for dropped keys must never appear (no leak).
+    expect(md).not.toContain('on-push-hook');
+    expect(md).not.toContain('leak@example.com');
+    // Key names DO appear in the audit footer (visibility into intentional drops).
+    expect(md).toContain('Dropped 2 non-allowlisted metadata fields: triggered_by, user_email');
+    // The key name should never be rendered with a value (no `triggered_by: ...` line).
+    expect(md).not.toMatch(/^- triggered_by:/m);
+    expect(md).not.toMatch(/^- user_email:/m);
+  });
+
   it('composer sanitizes hostile cast_id into a writer-safe filename', async () => {
     // The composer is responsible for ensuring the filename it hands to the
     // writer matches SAFE_FILENAME. This test wraps the writer with the same
