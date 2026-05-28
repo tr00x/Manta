@@ -1,0 +1,176 @@
+A:
+  task: >-
+    Design the Manta Library — package format, registry, distribution model,
+    and install/share command surface. Per spec Sec 11.1 line 476 and Sec 12
+    line 542 `/manta install <package>` and Sec 12 line 543 `/manta share <cast-id>`.
+    Research deliverables:
+    (1) Package format on disk — what's inside a Manta Library package?
+    A community mode/template/skill bundle. Compare against precedent:
+    Claude Code plugin format (already used for Manta itself per Sec 9 line 397
+    `npx manta@latest install`), VS Code extensions, Homebrew formulae, npm modules.
+    Recommend a directory layout + manifest schema (name, version, type=mode|template|skill,
+    description, author, license, manta-version-compat, entrypoints, deps[], hooks?).
+    (2) Distribution registry options — compare: (a) npm registry under `@manta-library/*`
+    scope (zero infra, leverages existing); (b) custom registry HTTP API + CDN
+    (full control, moderation, sandboxing); (c) GitHub repos with manifest discovery
+    (lightweight, decentralized); (d) git-based (`/manta install git+https://...`).
+    Recommend primary path + fallback. Consider Phase 7 scope: prefer the option
+    that ships in 1-2 chunks, not the option that's "best in 2 years".
+    (3) `/manta install <package>` flow — resolve → verify signature/checksum →
+    extract to `~/.manta/library/<package>/` → register in local manifest →
+    validate via `@manta/skill-validator` (already exists per Phase 0e) →
+    surface in `manta cast` mode list. Design the CLI flags, error paths
+    (network, checksum, validation, conflict with existing), and uninstall flow.
+    (4) `/manta share <cast-id>` flow — bundle (manifest.json + task contract +
+    final post-mortems + ZK notes + worktree diffs + insights) into `.tar.gz`.
+    What's included/excluded (secrets sanitization, .env redaction, MCP creds).
+    Bundle schema. Publishing path: write to local file, or push to registry
+    if `--publish`. Threat model: never auto-publish without explicit consent.
+    (5) Lockfile + version compat — `manta-lock.json` in repo root tracking
+    installed Library packages and their hashes. Compat check on `manta cast`:
+    "this template requires manta >= 0.8" surface friendly error if unmet.
+    (6) Codebase audit — file:line references to (a) where `/manta install` and
+    `/manta share` commands plug into `packages/manta-cli/src/index.ts` or
+    `bin/manta.ts`, (b) where mode resolution happens (`cast.ts` SUPPORTED_MODES)
+    so installed-library modes register, (c) skill-validator integration for
+    library-installed skills.
+    Deliverable: docs/research/phase-7-manta-library.md with decision tables
+    and concrete file:line references.
+  approach_hint: >-
+    Start by reading packages/manta-cli/src/bin/manta.ts (full command registration),
+    packages/manta-cli/src/cast.ts (SUPPORTED_MODES + dispatch), and
+    packages/manta-skill-validator/src/walk.ts (skill discovery). The plugin
+    distribution format mentioned in spec Sec 9 line 397 (`npx manta@latest install`)
+    is your precedent — match its convention. For registry choice, the
+    "ship in 1-2 chunks" constraint strongly suggests starting with npm scope
+    + optional git URL install; custom registry is Phase 8+ territory. Bundle
+    sanitization is non-negotiable: enumerate every artifact path in
+    .manta/state and .manta/clones that could contain secrets and explicitly
+    handle each. The cast-snapshots may contain raw env vars or filesystem
+    paths revealing user identity — redact aggressively, default-deny.
+
+B:
+  task: >-
+    Design Auto-cast triggers — the system that watches for events
+    (git pull, failing tests, file changes, CI failures) and automatically
+    spawns appropriate casts. Per spec Sec 11.1 line 470 and Sec 12 line 540
+    `/manta trigger add <event> <action>` + line 541 `/manta trigger list`.
+    Research deliverables:
+    (1) Trigger event taxonomy — enumerate event sources realistically available
+    on a dev machine: (a) git events (post-pull, post-merge, post-checkout via
+    git hooks); (b) test runner events (vitest watch mode failures, jest --watch);
+    (c) Claude Code hook events (PreToolUse, PostToolUse, Notification, Stop —
+    relevant Claude Code Pitfalls reference: docs/internals/claude-code-pitfalls.md);
+    (d) file watcher events (chokidar/fs.watch on glob patterns); (e) CI webhook
+    events (post-failure GitHub Actions / GitLab CI — out of Phase 7 scope?
+    decide and justify); (f) manual fire (`/manta trigger fire <name>`).
+    Recommend Phase 7 subset (high-value, low infrastructure).
+    (2) Trigger config DSL — YAML or JSON schema for triggers, stored in
+    `.manta/triggers/<name>.yaml`. Fields: name, event, debounce_ms, dedup_key,
+    cooldown_s, action (mode, scope, budget, args), conditions (when X matches),
+    enabled. Concrete examples for: "on test failure → bug-hunt", "on git pull
+    with > 100 changed files → recon-swarm to map new code", "on PostToolUse Edit
+    of a security-critical file → forking-realities for safety review".
+    (3) Auto-spawn safety — this is a footgun. Every trigger is a potential cost
+    explosion. Design guardrails: hard cap of N auto-casts per hour, cool-down
+    after recent trigger fire, daily budget integration (Phase 3 BudgetConfig
+    already exists — extend), explicit per-trigger budget, mandatory dry-run
+    on first add, "armed/disarmed" state requiring explicit `/manta trigger arm`
+    after add. Address the obvious failure mode: infinite trigger loop
+    (cast A spawned → modifies file X → triggers cast B → modifies file Y →
+    triggers cast A again). Propose detection (event-cause chain tracking) and
+    circuit-breaker.
+    (4) Trigger execution architecture — the watcher must be a long-running
+    process. Options: (a) extend daemon-mode runtime (Phase 5 `manta daemon`
+    already exists — add trigger watcher as a daemon role); (b) separate
+    `manta watcher` daemon; (c) integrate into shell/IDE via claude-code hooks
+    only (no separate daemon, hook fires `manta trigger fire <name>` synchronously).
+    Compare and recommend.
+    (5) Command surface — concrete CLI for `manta trigger add/list/remove/arm/disarm/fire/test`.
+    `manta trigger test <name>` dry-runs the action without spawning.
+    `manta trigger list --verbose` shows last N fires, success rate, cost-to-date.
+    (6) Codebase audit — file:line references for: (a) where the trigger CLI
+    commands hook into `packages/manta-cli/src/index.ts`, (b) where daemon-mode
+    polling loop lives (`packages/manta-cli/src/daemon-loop.ts` or similar)
+    to extend with trigger evaluation, (c) Phase 3 BudgetConfig and ChargeStore
+    integration points (`packages/manta-bus/src/state/`), (d) PreSpawnGate
+    (Phase 3) — must run for trigger-spawned casts too.
+    Deliverable: docs/research/phase-7-auto-cast-triggers.md with safety
+    analysis prominent (this is the riskiest feature in Phase 7).
+  approach_hint: >-
+    Read Phase 5 daemon infrastructure first (packages/manta-cli/src/daemon-loop.ts,
+    tick-loop daemon mode, work-queue store in @manta/bus) — auto-cast triggers
+    naturally live inside this layer rather than as a parallel daemon. Read
+    docs/internals/claude-code-pitfalls.md before designing hook-integrated
+    triggers (Claude Code hooks fire deterministically; skill text does not).
+    For safety, the budget integration is non-negotiable: every trigger MUST
+    flow through Phase 3 PreSpawnGate including cost estimate and daily-cap
+    check. Triggers that bypass budget are a deal-breaker. Loop detection:
+    consider tagging cast metadata with `triggered_by:<trigger-name>` and
+    refusing to spawn if cause-chain depth > N. Skill-text-based "don't loop"
+    instructions to clones do NOT work — must be enforced at orchestrator level.
+
+C:
+  task: >-
+    Design the community layer — Manta Share publishing flow, moderation/trust
+    model, version compat enforcement, and migration story for the existing
+    7 in-tree modes if/when they become Library-installable. Per spec Sec 11.1
+    line 486 (`/manta share`), Sec 12 line 543, and Sec 15.1 line 644 ("community").
+    Research deliverables:
+    (1) Share bundle anatomy — pick up where clone A left off on `/manta share`
+    bundle format. Detail the per-file content: manifest.json (name, version,
+    author, license, manta-version, mode-type, deps), README.md (auto-generated
+    from cast post-mortem), task-contract.json (sanitized — strip absolute paths,
+    user identity), post-mortems/ (clone-by-clone), worktree-diff.patch (the
+    actual code change winning candidate), zk-notes/ (insights), screenshots/
+    (if mode generated any). Specify schema (zod) for manifest.json that the
+    install path uses for validation.
+    (2) Publishing trust model — Manta Library is community-contributed code.
+    Threat: a malicious mode runs `rm -rf` on install. Mitigations to evaluate:
+    (a) read-only mode preview before install ("this mode will execute these
+    bash commands, modify these file patterns"); (b) sandbox install in
+    `~/.manta/library/<name>/` with no write access to repo until armed;
+    (c) code signing — modes can be optionally signed by author, signatures
+    verified on install; (d) author reputation — track install count, report
+    count, time-to-first-issue; (e) malicious-pattern scan on install
+    (eval, child_process, raw fetch to non-allowlisted hosts).
+    Recommend Phase 7 minimum viable trust set.
+    (3) Manta version compat — modes ship for a specific Manta version range.
+    Define semver semantics for Manta itself (currently 0.x — pre-1.0 breaking
+    changes allowed). Compat check on install + on each cast. Soft warn vs
+    hard block decision matrix.
+    (4) Migration path for in-tree modes — currently all 7 modes (recon-swarm,
+    forking-realities, bug-hunt, refactor-wave, pair-programming, test-storm,
+    documentation-chase) are in @manta/cli source. Phase 7 community pivot:
+    should some/all of these become "first-party Library packages" that ship
+    bundled but are installable/upgradable like community packages? Pros:
+    upgrade modes without upgrading whole manta CLI; community can fork. Cons:
+    runtime complexity, version skew. Recommend with sequencing (bundled now,
+    extract later vs extract now).
+    (5) Discovery — how do users find Library packages? Sub-options:
+    (a) `manta library search <query>` against npm registry metadata;
+    (b) curated index in a Manta-org GitHub repo (`manta-library/index`)
+    with categories; (c) website (out of scope for Phase 7). Recommend
+    bootstrap path.
+    (6) Codebase audit — file:line references to: (a) snapshot-builder and
+    task-contract.json sanitization needs (`packages/manta-cli/src/snapshot-builder.ts`
+    if exists); (b) post-mortem writer (`packages/manta-orchestrator/`) — what
+    fields need redaction; (c) ZK-note write path (`manta_zk_write` MCP tool
+    + filesystem); (d) skill-validator extension for Library-installed packages;
+    (e) cast.ts mode resolution — where would library-installed modes register?
+    Deliverable: docs/research/phase-7-community-share-trust.md with
+    trust-model recommendation as the headline decision.
+  approach_hint: >-
+    Read packages/manta-orchestrator/src/post-mortem-* to enumerate every field
+    that could contain user-identifying info (paths, env vars, hostnames).
+    Read packages/manta-cli/src/cast.ts to understand mode registration —
+    SUPPORTED_MODES is currently a hardcoded const, so Phase 7 will need a
+    runtime-extensible registry. Read packages/manta-bus/src/server.ts +
+    handler tools to understand what filesystem state a cast generates that
+    might need to ship in a bundle. For trust, the realistic Phase 7 ship is:
+    bundle preview + sandboxed install + manifest schema validation; signing
+    + reputation are Phase 8+ aspirations. Be honest about scope. For the
+    in-tree-mode migration question: the answer is probably "leave bundled,
+    add Library install layer alongside, extract later when there's evidence
+    a community package author wants to fork an in-tree mode" — but justify
+    with code reading, not vibes.
