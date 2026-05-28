@@ -16,3 +16,4 @@ export * from './commands/abort.js';
 export * from './commands/recover.js';
 export * from './commands/mcp-preflight.js';
 export * from './library/mode-registry.js';
+export * from './library/lockfile.js';

@@ -28,6 +28,7 @@ import {
 } from '@manta/orchestrator';
 
 import { CliError } from './errors.js';
+import { createLockfileStore, type LockfileStore } from './library/lockfile.js';
 
 export interface CreateRuntimeOptions {
   repoRoot: string;
@@ -40,6 +41,7 @@ export interface Runtime {
   orchestrator: Orchestrator;
   thresholds: Thresholds;
   mergeReviewWriter: MergeReviewWriter;
+  lockfile: LockfileStore;
   dispose: () => Promise<void>;
 }
 
@@ -101,12 +103,15 @@ export async function createRuntime(opts: CreateRuntimeOptions): Promise<Runtime
     mergeReviewDir: thresholds.mergeReviewDir,
   });
 
+  const lockfile = createLockfileStore({ repoRoot });
+
   return {
     repoRoot,
     ctx,
     orchestrator,
     thresholds,
     mergeReviewWriter,
+    lockfile,
     dispose: async () => {
       // No resources to release in Phase 0 — placeholder for daemon-mode.
     },
