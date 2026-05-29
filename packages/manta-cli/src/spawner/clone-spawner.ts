@@ -309,6 +309,42 @@ export interface ResumeOptions {
   extraArgs?: string[];
 }
 
+export interface SelectCloneRunnerArgs {
+  /** Snapshot's effective resume flag (post size-guard, per clone). */
+  resumeEnabled: boolean;
+  /** The clone's private forked session id (Chunk 2), or undefined. */
+  forkedSessionId: string | undefined;
+  /**
+   * Runner used when NOT resuming — today's no-session path. In production
+   * this is `runClaudeCli()`; tests pass a fake capturing runner (DI seam).
+   */
+  fallback: CloneRunner;
+  /**
+   * Forwarded to `runClaudeResume` when resuming. Tests inject `/usr/bin/echo`
+   * to capture argv via `spawnargs`; production omits it (defaults to `claude`,
+   * matching the `fallback` runner's default bin).
+   */
+  claudeBin?: string;
+}
+
+/**
+ * RB1/bug #56 (Chunk 3, Decision #2): choose the clone runner from snapshot
+ * data — NOT an `if NODE_ENV` branch. When the clone has a forked transcript
+ * to continue (`resumeEnabled && forkedSessionId`), return `runClaudeResume`
+ * so it boots as a continuation of the parent conversation; otherwise return
+ * the `fallback` runner unchanged (today's `runClaudeCli` behaviour, byte-
+ * identical — proven by the resume suite's no-regression assertion).
+ */
+export function selectCloneRunner(args: SelectCloneRunnerArgs): CloneRunner {
+  if (args.resumeEnabled && args.forkedSessionId) {
+    return runClaudeResume({
+      sessionId: args.forkedSessionId,
+      ...(args.claudeBin !== undefined ? { claudeBin: args.claudeBin } : {}),
+    });
+  }
+  return args.fallback;
+}
+
 export function runClaudeResume(opts: ResumeOptions): CloneRunner {
   const bin = opts.claudeBin ?? 'claude';
   return {
