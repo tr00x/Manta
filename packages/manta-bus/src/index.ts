@@ -31,6 +31,8 @@ export { CastsStore } from './state/casts';
 export { ChargeStore, DEFAULT_CHARGE_CONFIG } from './state/charge-store';
 export type { ChargeStoreConfig } from './state/charge-store';
 export { DailySpendLedger } from './state/daily-spend';
+export { TriggersArmedStore, TriggerStateError, TriggerArmedStateSchema } from './state/triggers-armed';
+export type { TriggerArmedState, ArmedFile, TriggerStateErrorCode } from './state/triggers-armed';
 export { EventsLog } from './state/events';
 export type { CloneRecord } from './state/registry';
 export type { WorkItem } from './state/work-queue';
