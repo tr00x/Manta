@@ -24,6 +24,14 @@
 
 ## Open bugs
 
+### #57 — `claude mcp list` pre-flight latency is hostage to unrelated MCP servers → cast aborts at spawn
+
+**Discovered:** 2026-05-29, launching the RB1 Chunk 1 implementation cast (cast-1780067298312) — spawn aborted with `spawn_failed: \`claude mcp list\` exited undefined: Checking MCP server health…`. Intermittent: a manual re-run passed in 3.6s (warm caches); the cast hit >10s (cold/contended) and timed out.
+**Severity:** Medium — blocks every cast launch whenever any *unrelated* registered MCP server is slow or failing, and is a v1 prod-readiness fragility: an external user with a couple of slow/unreachable MCP servers could not cast at all. Workaround (retry) exists, so not High.
+**Status:** Fixed 2026-05-29 (`packages/manta-cli/src/commands/mcp-preflight.ts`). Switched the probe from `claude mcp list` (health-checks ALL servers serially) to `claude mcp get manta-bus` (health-checks only the one server the pre-flight cares about: ~1s locally, latency independent of the rest). Added a distinct `timedOut` error (was the confusing "exited undefined"), bumped the timeout 10s→15s, and merged the error branches to always surface the raw `claude` output plus the `claude mcp add` registration fix. Types renamed `ClaudeMcpListResult/Runner` → `ClaudeMcpResult/Runner`. Regression: new timeout test in `tests/commands/cast-mcp-preflight.test.ts` (5 tests, gate green 1400).
+**Root cause:** `mcp-preflight.ts` ran `execa('claude', ['mcp','list'], { timeout: 10_000 })`. `claude mcp list` health-checks EVERY registered server serially; with two HTTP servers failing to connect (github, vibearound) plus npx/uvx cold starts (context7, serena), the sweep exceeded 10s → execa killed the child (SIGTERM) → `exitCode === undefined` (killed-by-signal, not a normal exit) with only the first stdout line ("Checking MCP server health…") captured, hence the misleading message. The pre-flight only ever needed to confirm *manta-bus* is registered — it never needed the global health-sweep.
+**Lessons:** A pre-flight that gates on one resource must probe that resource, not a global command whose latency is coupled to every unrelated dependency. `execa` timeout kills produce `exitCode: undefined` + `timedOut: true` — distinguish that from a real non-zero exit, or the error message lies. The 2026-05-29 prod-readiness audit (RB2) missed this because it inspected the publish path only, not the cast-launch path under a realistic (some-servers-failing) MCP config.
+
 ### #56 — Transcript inheritance unwired — clones boot as subagents (Sec 1 headline claim is false)
 
 **Discovered:** 2026-05-29, cast-1780064388927 (recon-swarm, clone-A) during v1 prod-readiness recon. Empirically proven mechanism in `docs/audits/2026-05-29-transcript-inheritance-plan.md`.

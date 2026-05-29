@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
   verifyMantaBusRegistered,
-  type ClaudeMcpListResult,
+  type ClaudeMcpResult,
 } from '../../src/commands/mcp-preflight.js';
 
-const result = (overrides: Partial<ClaudeMcpListResult>): ClaudeMcpListResult => ({
+const result = (overrides: Partial<ClaudeMcpResult>): ClaudeMcpResult => ({
   exitCode: 0,
   stdout: '',
   stderr: '',
@@ -38,6 +38,23 @@ describe('verifyMantaBusRegistered', () => {
       name: 'CliError',
       kind: 'spawn_failed',
       message: expect.stringContaining('manta-bus') as unknown as string,
+    });
+  });
+
+  it('throws a distinct timeout error when `claude mcp get` is killed by the timeout (bug #57)', async () => {
+    await expect(
+      verifyMantaBusRegistered({
+        // execa with `reject:false` resolves on timeout: exitCode undefined,
+        // timedOut true, only the first stdout line captured before the kill.
+        runner: () =>
+          Promise.resolve(
+            result({ exitCode: undefined, stdout: 'Checking MCP server health…', timedOut: true }),
+          ),
+      }),
+    ).rejects.toMatchObject({
+      name: 'CliError',
+      kind: 'spawn_failed',
+      message: expect.stringContaining('timed out') as unknown as string,
     });
   });
 
