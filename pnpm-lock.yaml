@@ -118,18 +118,6 @@ importers:
         specifier: ^3.23.0
         version: 3.25.76
     devDependencies:
-      '@manta/bus':
-        specifier: workspace:*
-        version: link:../manta-bus
-      '@manta/orchestrator':
-        specifier: workspace:*
-        version: link:../manta-orchestrator
-      '@manta/skill-validator':
-        specifier: workspace:*
-        version: link:../manta-skill-validator
-      '@manta/snapshot':
-        specifier: workspace:*
-        version: link:../manta-snapshot
       '@types/node':
         specifier: ^20.12.0
         version: 20.19.39

@@ -4,7 +4,19 @@
     "rootDir": ".",
     "outDir": "dist",
     "composite": true,
-    "tsBuildInfoFile": "dist/.tsbuildinfo"
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
+    "baseUrl": ".",
+    // @manta/* are no longer node_modules deps of this package (they are
+    // build-time-inlined, not published deps). Resolve their types against the
+    // referenced projects' emitted declarations — the `references` below
+    // guarantee `tsc -b` emits each sibling's dist/index.d.ts before this
+    // project is checked. Mirrors exactly what the old node_modules symlink did.
+    "paths": {
+      "@manta/bus": ["../manta-bus/dist/index.d.ts"],
+      "@manta/orchestrator": ["../manta-orchestrator/dist/index.d.ts"],
+      "@manta/skill-validator": ["../manta-skill-validator/dist/index.d.ts"],
+      "@manta/snapshot": ["../manta-snapshot/dist/index.d.ts"]
+    }
   },
   "include": ["src/**/*", "tests/**/*"],
   "references": [
