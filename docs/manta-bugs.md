@@ -811,3 +811,35 @@ The `.gitignore` correctly excludes `.manta/worktrees/` for future files but doe
 **Lessons:** A best-effort `catch { return }` that swallows ALL errors makes a real regression indistinguishable from a benign skipped-heartbeat — the script should at least `console.error` the masked failure so a reddening gate is diagnosable without a manual repro.
 
 **Reproduced again:** 2026-05-28, clone-C (cast-1780023638705) during Phase 7c Chunk 1 `pnpm gate`. Identical symptom (`expected 1000 to be greater than or equal to <now>`), identical conditions (freshly-`pnpm install`ed worktree). Phase 7c Chunk 1 touches only `packages/manta-bus/src/{schema,trigger-schema,state/*}.ts` + `packages/manta-cli/src/config/budget-config.ts`; `spawner/heartbeat-hook.{ts,test.ts}` are byte-identical to base, and the generated touch-script embeds the registry path via the **unchanged** `busPaths().registry` field (Task 1.4 only *added* trigger-path fields). Confirms the env-scoped diagnosis — still Open, still out of scope.
+
+### #58 — canonical `pnpm gate` lint excludes `tests/`; 64 pre-existing lint errors hide there
+
+**Discovered:** 2026-05-29, by curator during RB1 Chunk 1 merge ceremony (investigating why the merge-review Lint dimension scored 0.003 for BOTH clones)
+**Severity:** Medium — the canonical pre-merge gate gives false confidence; lint debt accumulates invisibly in test files, and the merge scorer's Lint dimension is structurally near-zero on every cast (uncomparable across branches)
+**Status:** Open — PRE-EXISTING, unrelated to RB1 Chunk 1
+
+**Symptom:** root `pnpm lint` = `eslint 'packages/**/src/**/*.ts' --no-error-on-unmatched-pattern` (src ONLY) → exit 0, clean. But the per-package script (`@manta/cli`: `eslint "src/**/*.ts" "tests/**/*.ts"`; `@manta/snapshot`: same) → **64 errors (1 warning)**, ALL in `@manta/cli` test files. Rule breakdown: 44 `@typescript-eslint/require-await`, 7 `no-unsafe-member-access`, 7 `no-unsafe-assignment`, 3 `no-unnecessary-type-assertion`, 2 `no-unused-vars`, 1 `unbound-method`, 1 `explicit-function-return-type`. The orchestrator's merge scorer runs the per-package lint (incl. tests), so BOTH clones scored Lint ≈ 0.003 — they inherited the same pre-existing debt equally; it was not a clone regression.
+
+**Root cause:** the root `lint` script globs only `src/`. Test files are never linted by the canonical `pnpm gate`. The mismatch between the canonical gate (src-only) and the merge scorer (src+tests) makes the scorer's Lint dimension perpetually red and meaningless for ranking branches.
+
+**Workaround:** none needed for the RB1 Chunk 1 merge — verified zero lint errors are in any clone-modified file; root `pnpm lint` (the canonical gate's lint) is green.
+
+**Fix:** (handle in hardening task #9) (a) widen root lint to include tests (`eslint 'packages/**/{src,tests}/**/*.ts'`) and clear the 64 test-file errors (most are trivial `require-await` on async test helpers with no `await`); OR (b) consciously exempt tests and document it. Either way reconcile the merge scorer's lint command with the canonical gate so the Lint score is comparable across branches.
+
+**Lessons:** a "green gate" that silently excludes a whole file class is a false signal. The scorer and the gate MUST run the same lint command, or their scores are uncomparable — an identical near-zero Lint across all competing branches is the tell that the dimension is measuring inherited debt, not branch quality.
+
+### #59 — `pnpm gate` `tsc -b` emits a FALSE typecheck failure on stale `.tsbuildinfo` after a cross-package interface change
+
+**Discovered:** 2026-05-29, by curator during RB1 Chunk 1 merge ceremony (independent `pnpm gate` re-run on the merged tree, per the "verify gates independently" rule)
+**Severity:** Medium — produces a spurious red gate with confident, specific, WRONG type errors; can mislead a curator into rejecting correct merged code
+**Status:** Open — environment/build-cache scoped, NOT a code bug
+
+**Symptom:** after merging clone B (which relaxed `@manta/snapshot`'s `parentSessionId` to `string | null` and added `resumeEnabled`), `pnpm gate`'s `tsc -b` reported 6 errors in `@manta/cli` — e.g. `error TS2353: 'resumeEnabled' does not exist in type {...}` and `error TS2322: Type 'string | null' is not assignable to type 'string'` (`sanitize-snapshot.ts:75`, `snapshot-builder.ts:37`, `cast.parent-session.test.ts:86`, `sanitize-snapshot.test.ts:110-111`). I.e. `@manta/cli` was typechecking against STALE `@manta/snapshot` declarations. On disk `dist/index.d.ts` was dated 11:14 (pre-merge, missing `resumeEnabled`) while sibling `schema.d.ts`/`capture.d.ts`/`sanitized-schema.d.ts` were 11:51. `npx tsc -b --force` (full rebuild) → **0 errors**; the full gate then went green **1411/1411**.
+
+**Root cause:** `tsc -b` incremental build did not fully propagate a cross-package interface change to a downstream project — a stale `.tsbuildinfo` / partially-regenerated `dist/index.d.ts` left `@manta/cli` compiling against the previous `@manta/snapshot` `.d.ts`. A fresh worktree (the clone's environment, fresh `pnpm install` + clean build) has no stale cache, so the clone's own gate was green on these exact files — the false failure only surfaces in an established checkout with incremental build state.
+
+**Workaround:** `npx tsc -b --force` (or delete `packages/*/dist/.tsbuildinfo`) before trusting a `tsc -b` failure whose error references a cross-package symbol that DOES exist in current source.
+
+**Fix:** (handle in hardening task #9) make the canonical gate's typecheck robust to stale incremental state — candidates: (a) `tsc -b --force` in the `typecheck` script, (b) a `tsc -b --clean` pre-step, or (c) remove stale `.tsbuildinfo` on detected interface changes. Trade-off: `--force` costs a full rebuild each gate run; (b)/(c) are cheaper but more fragile.
+
+**Lessons:** an incremental `tsc -b` can emit a confident, specific, and WRONG type error after a merge that changes a package's public interface. "The gate is red" is NOT trustworthy without a force-rebuild when the error is a cross-package symbol-existence / assignability claim. This extends the CLAUDE.md rule "re-run gates independently": re-run with a CLEAN build, not merely an incremental one — a stale `.tsbuildinfo` is itself a source of false reds (just as a stale fixture is a source of false greens).
