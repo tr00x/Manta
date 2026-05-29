@@ -816,7 +816,7 @@ The `.gitignore` correctly excludes `.manta/worktrees/` for future files but doe
 
 **Discovered:** 2026-05-28, by clone-B (cast-1780020786877) during Phase 7b Chunk 1 `pnpm gate` verification
 **Severity:** Medium — gate-reddening, but environment-scoped (does not reproduce in the main repo)
-**Status:** Fix applied (source) — bundled-artifact re-verification is Chunk 2's gate (RB2 publish path)
+**Status:** Fixed — bundled-artifact verified by RB2 Chunk 2's empirical pack→extract→`npm i --omit=dev`→run gate (see "Bundled-artifact verification" below)
 
 **Symptom:** `packages/manta-cli/tests/spawner/heartbeat-hook.test.ts > touch script updates last_heartbeat_at in registry` fails:
 `AssertionError: expected 1000 to be greater than or equal to <now>` — the generated `heartbeat-touch.cjs`, run via `execSync('node …')`, returns early (one of its `catch { return }` arms fires) and leaves `last_heartbeat_at` at the fixture value `1000` instead of `Date.now()`.
@@ -837,7 +837,12 @@ The `.gitignore` correctly excludes `.manta/worktrees/` for future files but doe
 - (c) the lock-acquire `catch` in the generated touch-script now `console.error`s the masked failure before the best-effort return; benign data-skip catches (missing/empty/torn registry, DEAD clone) stay silent.
 - New test `heartbeat-hook.test.ts > heartbeat-hook performs no runtime @manta/bus resolve; generated script runs (bug #53)`. Its DISCRIMINATOR asserts (on comment-stripped `heartbeat-hook.ts` source) that no runtime `require.resolve('@manta/bus')` survives — proven to RED when the fix is reverted. The in-process behavioral run is only a smoke check (the dev monorepo cannot reproduce the fresh-install divergence).
 
-**Flips to `Fixed`** only after **Chunk 2's** empirical pack→extract→`npm i --omit=dev`→run-both-bins gate proves the BUNDLED artifact spawns a clone — the in-monorepo source fix cannot prove bundling survival on its own (candidate (b), an injected deterministic clock, was not needed).
+**Bundled-artifact verification (RB2 Chunk 2, 2026-05-29, cast-1780092273489 clone-A):** the empirical pack→extract→run gate was executed against the REAL published tarball and PASSED end-to-end, flipping this bug to `Fixed`:
+- `pnpm pack` of `packages/manta-cli` → `manta-0.1.0.tgz`; extracted to a clean mktemp dir.
+- The published manifest carries **ZERO** `@manta/*` (runtime or dev) — the 4 internal packages are inlined at build time (tsup), not deps, so nothing unpublishable (`workspace:*`/`0.0.0`) leaks. `npm i --omit=dev` in the extract installed **127 real packages and made zero attempts to fetch any `@manta/*`** (a leaked internal pkg would 404).
+- All three bins run from the clean extract: `node dist/bin/manta.js --help` (exit 0, full command table); `node dist/bin/server.cjs` (MCP stdio server — responded to a real JSON-RPC `initialize` handshake with `serverInfo: manta-bus`, empty stderr, **no "Cannot find module"**); `node dist/bin/manta-validate-skills.js --help` (exit 0).
+- Step-10 source guard re-proven on the bundle: grep across all 8 executable dist files (`dist/**/*.{js,cjs}`, sourcemaps excluded) for any `require/import/resolve('@manta/…')` → **ZERO hits**. The Chunk-2a heartbeat-hook fix (drop the runtime `require.resolve('@manta/bus')` hop) holds in the bundled artifact.
+- Note: the contract's "move `@manta/*` to devDependencies" was empirically WRONG — `pnpm pack` leaves them in the published devDependencies as `0.0.0`, and `npm i --omit=dev` (npm 10) still RESOLVES the dev tree → registry 404. pnpm 9 has no `beforePacking` hook and does not fire `prepack`/`postpack` on `pnpm pack`, so the clean fix is to drop the internal packages from the manifest entirely and resolve them at build time via tsup esbuild alias + tsconfig `paths` + vitest `resolve.alias` (all → sibling source/declarations).
 
 **Lessons:** A best-effort `catch { return }` that swallows ALL errors makes a real regression indistinguishable from a benign skipped-heartbeat — the script should at least `console.error` the masked failure so a reddening gate is diagnosable without a manual repro.
 
