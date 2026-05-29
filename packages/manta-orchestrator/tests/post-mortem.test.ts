@@ -170,6 +170,34 @@ describe('post-mortem', () => {
     expect(md).toContain('"drift_score":0.7');
   });
 
+  it('drops free-form heartbeat.progress text from rendered timeline (bug #46)', async () => {
+    // The pre-#46 allowlist kept `heartbeat.progress` verbatim ("operator
+    // usefulness" trade-off). That left a 2000-char clone-supplied free-form
+    // field bundled by `manta share` — same leak class #29 closed for body/
+    // evidence/feedback. The #46 fix dropped `progress` from the allowlist
+    // for parity with the default-deny posture. This regression seeds a
+    // secret into `progress` and asserts it never reaches the rendered MD.
+    // `state` (the structured discriminant) is still surfaced — operators
+    // who need the live progress trail use `manta inspect` on bus state.
+    await ctx.registry.register({
+      clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {},
+    });
+    const SECRET = 'sk-PROGRESS-LEAK-XYZ-456';
+    await ctx.events.append({
+      type: 'heartbeat',
+      clone_id: 'A',
+      payload: { state: 'WORKING', progress: `processing batch (token ${SECRET})` },
+    });
+
+    const writer = inMemoryPostMortemWriter();
+    await runPostMortem(ctx, { cloneId: 'A', reason: 'progress-leak-audit', writer, thresholds: defaultThresholds });
+    const md = writer.captured[0]!.body;
+
+    expect(md).not.toContain(SECRET);                  // secret dropped
+    expect(md).not.toContain('processing batch');      // free-form context dropped
+    expect(md).toContain('"state":"WORKING"');         // structured state still surfaced
+  });
+
   it('default-deny: unknown event types render as `<payload omitted>` and never leak secrets (bug-hunt MINOR-1 over cast-1780011340100)', async () => {
     // The #29 fix's safety contract relies on the `default:` branch of
     // renderEventPayload returning `<payload omitted>` for event types

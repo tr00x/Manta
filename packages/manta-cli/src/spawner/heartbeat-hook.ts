@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { createRequire } from 'node:module';
+import { busPaths } from '@manta/bus';
 
 const require_ = createRequire(import.meta.url);
 // Resolve proper-lockfile through @manta/bus's dep chain. The generated .cjs
@@ -39,7 +40,13 @@ export async function installHeartbeatHook(
   const claudeDir = path.join(worktree, '.claude');
   await fs.mkdir(claudeDir, { recursive: true });
 
-  const registryPath = path.join(repoRoot, '.manta', 'state', 'registry.json');
+  // Bug #48 harden: derive the registry path from the bus's own busPaths()
+  // helper instead of re-constructing it here. Mutual exclusion between the
+  // generated hook and the bus depends on both passing a byte-identical
+  // string to proper-lockfile (LOCK_OPTS.realpath = false). Re-constructing
+  // the path locally invited silent split if either side ever changed how
+  // it joins/normalises — reusing busPaths() guarantees one source of truth.
+  const registryPath = busPaths(repoRoot).registry;
   const touchScript = buildTouchScript(registryPath, cloneId);
   const scriptPath = path.join(worktree, '.manta', 'heartbeat-touch.cjs');
   await fs.mkdir(path.dirname(scriptPath), { recursive: true });

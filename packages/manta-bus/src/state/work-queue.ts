@@ -120,6 +120,17 @@ export class WorkQueueStore {
       (current) => {
         const item = current.items.find((i) => i.id === itemId);
         if (!item) return current;
+        // Bug #49 guard: only RELEASE-eligible items advance the attempts
+        // counter. A completed item (one that returned success) or a
+        // never-claimed item (one that was never dequeued by anyone) has
+        // no failure to retry. Without this guard a stray caller could
+        // accidentally dead-letter a completed item by incrementing
+        // attempts past maxAttempts. The daemon loop only calls release
+        // on the failure path so this is defensive, not a current-trigger
+        // fix.
+        if (item.completed_at != null || item.claimed_at == null || item.dead_letter === true) {
+          return current;
+        }
         const nextAttempts = (item.attempts ?? 0) + 1;
         item.attempts = nextAttempts;
         item.last_failed_at = this.clock.now();

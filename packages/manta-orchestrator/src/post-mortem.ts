@@ -160,10 +160,16 @@ function renderEventPayload(e: BusEvent): string {
     case 'register':
       return summarize(p, ['mode']);
     case 'heartbeat':
-      // `progress` is short status text by convention but still bus-input;
-      // include it because operators read post-mortems for the failure shape
-      // and progress trail. Schema-side length bound (BusContext) caps blast.
-      return summarize(p, ['state', 'progress']);
+      // Bug #46 fix: dropped `progress` from the allowlist. `progress` is
+      // free-form clone-supplied text bounded only by `z.string().max(2000)`
+      // — 2000 chars holds an entire API key or OAuth token. Post-mortems
+      // are bundled externally by `manta share` (the documented leak path
+      // for #29), so any secret a clone happened to put in `progress` would
+      // leak. Operators who need the live progress trail can read it via
+      // `manta inspect <cloneId>` on the running bus state; the post-mortem
+      // doc is the wrong layer to surface free-form clone text at all.
+      // Default-deny posture is now uniform across every event type.
+      return summarize(p, ['state']);
     case 'broadcast':
       return summarize(p, ['event_type']); // body omitted
     case 'message':

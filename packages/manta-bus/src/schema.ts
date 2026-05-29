@@ -162,11 +162,28 @@ export const BroadcastEventTypeSchema = z.enum([
   'docs_ready',
 ]);
 
+// Bug #51 workaround: Claude Code's `--print`-mode MCP client occasionally
+// JSON.stringify's nested object arguments before they reach the bus
+// (whitespace-sensitive heuristic somewhere in the bridge). The bus's Zod
+// schema would then reject with `Expected object, received string at
+// path:["payload"]`. The preprocess tries `JSON.parse` on string inputs
+// that look like a JSON object; on success the parsed object continues
+// through the `z.record(...)` validator unchanged. Mirrors the pattern
+// already in use for `ZkWriteInputSchema.tags` (CSV-to-array coercion).
+// The bridge bug itself lives in the Claude Code SDK and is logged as
+// #51 — this is a defensive widening, not a substitute for the root fix.
+const PayloadObjectSchema = z.preprocess((v) => {
+  if (typeof v === 'string' && v.length > 1 && v.startsWith('{') && v.endsWith('}')) {
+    try { return JSON.parse(v); } catch { return v; }
+  }
+  return v;
+}, z.record(z.string(), z.unknown()));
+
 export const BroadcastInputSchema = z
   .object({
     clone_id: CloneIdSchema,
     event_type: BroadcastEventTypeSchema,
-    payload: z.record(z.string(), z.unknown()),
+    payload: PayloadObjectSchema,
   })
   .strict();
 
@@ -174,7 +191,7 @@ export const MessageInputSchema = z
   .object({
     from_clone_id: CloneIdSchema,
     to_clone_id: CloneIdSchema,
-    payload: z.record(z.string(), z.unknown()),
+    payload: PayloadObjectSchema,
   })
   .strict();
 

@@ -254,3 +254,84 @@ describe('feedback handler', () => {
     }
   });
 });
+
+describe('payload coercion workaround for bug #51 (MCP bridge stringifies nested objects)', () => {
+  // Reproduced from the main session 2026-05-28: calling manta.broadcast
+  // with a payload that has no whitespace (e.g. `{"note":"x"}`) sometimes
+  // arrives at the bus as the JSON-stringified form rather than as an
+  // object, depending on the Claude Code MCP bridge's serialization
+  // heuristic. Pre-fix the Zod schema rejected with
+  // `Expected object, received string at path:["payload"]`. Fix:
+  // BroadcastInputSchema / MessageInputSchema now z.preprocess any string
+  // payload that LOOKS like a JSON object (`{...}`) by JSON.parse'ing it
+  // before the z.record(...) validator runs. Garbage strings still fail
+  // safely. The underlying bridge bug lives in the Claude Code SDK;
+  // this is defensive widening, not a substitute for the root fix.
+  let root: string;
+  let cleanup: () => Promise<void>;
+  let clock: FakeClock;
+  let handlers: ReturnType<typeof createCommunicationHandlers>;
+
+  beforeEach(async () => {
+    ({ root, cleanup } = await makeTmpRoot());
+    clock = new FakeClock(1_000_000);
+    const paths = busPaths(root);
+    const registry = new Registry(paths, clock);
+    await registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    await registry.register({ clone_id: 'B', mode: 'recon-swarm', parent_pid: 2, worktree: '/w', metadata: {} });
+    handlers = createCommunicationHandlers({
+      events: new EventsLog(paths, clock),
+      registry,
+    });
+  });
+  afterEach(async () => { await cleanup(); });
+
+  it('broadcast accepts a JSON-stringified payload (bridge-stringified object)', async () => {
+    const inner = { note: 'breakthrough', files_changed: ['src/x.ts'] };
+    const result = await handlers.broadcast({
+      clone_id: 'A',
+      event_type: 'breakthrough',
+      // Pretend the bridge stringified the object before it reached us.
+      payload: JSON.stringify(inner) as unknown as Record<string, unknown>,
+    });
+    // After preprocess the payload arrives as an OBJECT, then the handler
+    // wraps it as `{event_type, body, cast_id, cast_mode}`. Check that the
+    // body equals the original inner object — i.e. the stringification
+    // was reversed before validation, not after.
+    const payload = result.event.payload as { body: unknown };
+    expect(payload.body).toEqual(inner);
+    expect(typeof payload.body).toBe('object');
+  });
+
+  it('broadcast still accepts a plain object payload (normal case)', async () => {
+    const inner = { note: 'normal' };
+    const result = await handlers.broadcast({
+      clone_id: 'A',
+      event_type: 'breakthrough',
+      payload: inner,
+    });
+    const payload = result.event.payload as { body: unknown };
+    expect(payload.body).toEqual(inner);
+  });
+
+  it('broadcast still rejects a non-JSON garbage string (no silent acceptance)', async () => {
+    await expect(
+      handlers.broadcast({
+        clone_id: 'A',
+        event_type: 'breakthrough',
+        payload: 'not json at all' as unknown as Record<string, unknown>,
+      }),
+    ).rejects.toBeInstanceOf(BusValidationError);
+  });
+
+  it('message accepts a JSON-stringified payload (same bridge bug surface)', async () => {
+    const inner = { q: 'ack?', context: { file: 'src/x.ts' } };
+    const result = await handlers.message({
+      from_clone_id: 'A',
+      to_clone_id: 'B',
+      payload: JSON.stringify(inner) as unknown as Record<string, unknown>,
+    });
+    const payload = result.event.payload as { body: unknown };
+    expect(payload.body).toEqual(inner);
+  });
+});

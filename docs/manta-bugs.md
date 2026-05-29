@@ -48,49 +48,50 @@
 
 **Discovered:** 2026-05-28, bug-hunt cast `cast-1780011340100` (clones A m-2 + B MINOR-1, convergent).
 **Severity:** Medium — clone-supplied free-form text (bounded only by `z.string().max(2000)`) lands in post-mortems and is bundled externally by `manta share`. A secret short enough to fit in 2000 chars (AWS key, OAuth token) leaks.
-**Status:** Open — policy decision pending.
-**Reproducer:** Clone heartbeats with `progress: "leaked-secret-here"`. Post-mortem renders the field verbatim per `renderEventPayload` `heartbeat` arm (`packages/manta-orchestrator/src/post-mortem.ts:167`).
+**Status:** Fixed 2026-05-28 (`packages/manta-orchestrator/src/post-mortem.ts` `heartbeat` arm — `progress` dropped from allowlist).
+**Reproducer:** Clone heartbeats with `progress: "leaked-secret-here"`. Post-mortem renders the field verbatim per `renderEventPayload` `heartbeat` arm.
 **Root cause:** The #29 fix intentionally kept `progress` for operator usefulness ("operators read post-mortems for the failure shape and progress trail"). The trade-off acknowledged in an inline comment but never pinned with a test; default-deny posture inconsistent for this one field.
-**Fix (proposed):** Either drop `progress` from the allowlist for parity (operator loses progress trail in post-mortems — recoverable via `manta inspect` on live state), OR add a test that asserts a secret in `progress` is handled per the chosen policy (truncated to N chars / hashed / redacted), making the trade-off explicit.
+**Fix:** Dropped `progress` from the heartbeat allowlist — `summarize(p, ['state', 'progress'])` → `summarize(p, ['state'])`. Default-deny posture now uniform across every event type. Operators who need the live progress trail use `manta inspect <cloneId>` on running bus state; post-mortem doc was the wrong layer to surface free-form clone text. Regression in `tests/post-mortem.test.ts` seeds a secret-bearing progress string and asserts (a) the secret is not in the rendered MD, (b) the free-form context is dropped, (c) the structured `state` field is still surfaced.
 
 ### #47 — No concurrent dequeue/release race regression for `#27`
 
 **Discovered:** 2026-05-28, bug-hunt cast `cast-1780011340100` (clones A m-3 + B MINOR-3, convergent).
 **Severity:** Low (coverage gap, not a defect — both ops go through `atomicMutateJson`'s mutex which serialises). Audit H4 (concurrency-testing debt) applies generally.
-**Status:** Open.
-**Fix (proposed):** `Promise.all([store.dequeue(id), store.release(item.id)])` style race test asserting no double-claim and no lost item, mirroring the existing `registry`/`atomic-fs` race tests.
+**Status:** Fixed 2026-05-28 (`packages/manta-bus/tests/state/work-queue.test.ts` — concurrent dequeue/release race regression added).
+**Fix:** New regression test claims N items, then races `Promise.all` of N `release()` + N `dequeue()` calls under arbitrary interleaving. Asserts the file mutex serialises both ops — every item ends up either claimed (by some dequeue) or pending (claimed_at cleared, attempts advanced), totalling N. No double-claim, no lost work. Confirms the structural correctness claim that the audit suspected was untested.
 
 ### #48 — Heartbeat-touch hook builds its own registry path string instead of reusing `busPaths()` (latent #37 split risk)
 
 **Discovered:** 2026-05-28, bug-hunt cast `cast-1780011340100` clone B NIT-1.
 **Severity:** Low — currently benign (both sides happen to construct the same string).
-**Status:** Open.
+**Status:** Fixed 2026-05-28 (`packages/manta-cli/src/spawner/heartbeat-hook.ts`).
 **Root cause:** The generated `.cjs` hook builds `path.join(repoRoot, '.manta', 'state', 'registry.json')` rather than calling `busPaths(repoRoot).registry`. With `LOCK_OPTS.realpath = false`, mutual exclusion requires byte-identical paths — a future divergence (symlinked `repoRoot`, trailing slash, one-side canonicalisation) silently splits the lock files and regresses #37. The cross-process test asserts the outcome (no clobber), not the lock-path identity, so it can't catch a split.
-**Fix (proposed):** Derive the hook's registry path from `busPaths()` (export-shim from bus) or set `LOCK_OPTS.realpath = true` on both sides so canonicalisation normalises any divergence.
+**Fix:** Installer now imports `busPaths` from `@manta/bus` and derives `registryPath = busPaths(repoRoot).registry` — one source of truth. Bus and hook always pass the byte-identical string to `proper-lockfile`. The existing #37 cross-process regression continues to assert the outcome (no clobber); the path-identity invariant is now structural, not test-checked.
 
 ### #49 — `WorkQueueStore.release` does not guard against already-completed or never-claimed items
 
 **Discovered:** 2026-05-28, bug-hunt cast `cast-1780011340100` clone B NIT-5.
 **Severity:** Low — the daemon loop only calls `release` on failure, so untriggered today.
-**Status:** Open.
-**Fix (proposed):** Defensive guard at the head of `release`: `if (item.completed_at || !item.claimed_at) return { deadLettered: false };` — prevents an accidental call from incrementing `attempts` past `maxAttempts` and dead-lettering a completed item.
+**Status:** Fixed 2026-05-28 (`packages/manta-bus/src/state/work-queue.ts` `release`).
+**Fix:** Defensive guard at the head of the mutator: if the item has `completed_at != null` (success path) OR `claimed_at == null` (never dequeued) OR `dead_letter === true` (already terminal), the release is a no-op and `attempts` is NOT advanced. Prevents a stray release from dead-lettering a completed item, mistakenly bouncing an unclaimed item, or double-counting attempts after dead-letter. Three regressions in `tests/state/work-queue.test.ts` exercise each guard branch.
 
 ### #50 — `#29` allowlist may surface free-form text via `enqueue_work` payload `item` field (unverified)
 
 **Discovered:** 2026-05-28, bug-hunt cast `cast-1780011340100` clone B NIT-6.
 **Severity:** Low (unverified — depends on the actual bus `enqueue_work` event payload shape).
-**Status:** Open.
+**Status:** Verified NOT-A-BUG 2026-05-28 (traced `packages/manta-bus/src/tools/work.ts:61-93`).
 **Reproducer:** Verify the bus server's `enqueue_work` handler — if the appended event's payload `item` carries the free-form work-item prompt text rather than just an id, the #29 allowlist (`claim/release/enqueue_work → item,target`) leaks it.
-**Fix (proposed):** Trace `tools/work.ts` `enqueue_work` handler → if `item` is the prompt, change the allowlist for those types to `[id, target]` only.
+**Verification (closing as not-a-bug):** The `enqueue_work` handler at `tools/work.ts:81-89` emits the event with payload `{ item_id, cast_id, priority }` — only the short generated id (`wq-<ts>-<rand>`), the cast id, and priority. The free-form `prompt` field is written to the work-queue file (`workQueue.enqueue` mutator) but NEVER attached to the event payload. The #29 allowlist's `item`/`target` keys reference fields that don't exist on this event — `summarize(p, ['item','target'])` returns `{}` for `enqueue_work` events because neither key is present, so the render is `[enqueue_work]` with no payload. No leak surface; no fix needed.
 
 ### #51 — `manta.broadcast` rejects object payloads — MCP bridge appears to stringify nested object arguments
 
 **Discovered:** 2026-05-28, bug-hunt cast `cast-1780011340100` clone A (intermediate-findings broadcast failed).
-**Severity:** Medium currently — affects ANY clone trying to broadcast structured data; surfaced during the bug-hunt and may be a regression of the bus/MCP-bridge interaction.
-**Status:** Open — needs a standalone reproducer to confirm it's not a ToolSearch schema-flattening artefact.
-**Reproducer:** From a live clone (under `claude --print`), call `manta.broadcast({ clone_id: 'X', event_type: 'note', payload: { note: 'x' } })`. Observed result: `validation_error: Expected object, received string at path:["payload"]`. The server-side Zod schema expects an object; the MCP bridge appears to pass a string.
-**Possible causes (in priority):** (a) MCP bridge serialisation: nested object args stringified before reaching the bus handler. (b) ToolSearch schema flattening: deferred-tool schema loaded by the clone lost its object typing for nested fields. (c) Bus schema regression: a recent change tightened `payload` to a string-shape on this path.
-**Fix (proposed):** Build a 5-min reproducer: a fresh clone (or a Node script using the same MCP client) that calls `manta.broadcast` with a payload object. If reproducible outside the bug-hunt clone, it's a real bridge bug — bisect across recent bus/MCP changes.
+**Severity:** Medium — affects ANY clone trying to broadcast structured data.
+**Status:** Fixed 2026-05-28 (defensive widening — `packages/manta-bus/src/schema.ts` `PayloadObjectSchema`). The underlying MCP-bridge bug in Claude Code's SDK is upstream and unaddressed; this is a workaround.
+**Reproducer (confirmed in this session, not just the bug-hunt clone):** From the main session, calling `manta.broadcast` twice with the same intent — `payload: {"note": "probe", "nested": {"k": "v"}}` (with whitespace) arrived as an OBJECT and the schema parsed fine (failed at clone-not-found, which is the right path). The same call with `payload: {"note":"probe-stringified"}` (no whitespace) arrived as a STRING and was rejected with `validation_error: Expected object, received string at path:["payload"]`. Conclusion: the MCP bridge has a whitespace-sensitive serialisation heuristic that stringifies "compact-looking" nested objects.
+**Root cause:** Claude Code SDK MCP-client serialisation. Not in Manta; cannot be fixed here.
+**Fix (workaround):** New `PayloadObjectSchema` in `schema.ts` uses `z.preprocess` — if `payload` arrives as a string starting with `{` and ending with `}`, try `JSON.parse` first. Successful parse continues through the standard `z.record(z.string(), z.unknown())` validator. Garbage strings still fail safely (regression test asserts `'not json at all'` is rejected). Applied to both `BroadcastInputSchema` and `MessageInputSchema` (same surface). Mirrors the existing CSV-to-array preprocess on `ZkWriteInputSchema.tags` — same defensive class. 4 regressions in `tests/tools/communication.test.ts`: stringified broadcast, plain object broadcast (unchanged), garbage rejection, stringified message.
+**Lessons:** When the input layer (here: MCP bridge) is outside your control, defensive widening at the validation seam is the only fix you can ship today. Document the upstream bug so future SDK upgrades don't silently fix-then-regress the workaround.
 
 ### #37 — Heartbeat-touch hook corrupts `registry.json` (lock-scheme mismatch + non-atomic write)
 
