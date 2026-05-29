@@ -1,10 +1,25 @@
 import { describe, it, expect } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   MantaPackageManifestSchema,
   LibraryModeJsonSchema,
   type MantaPackageManifest,
   type LibraryModeJson,
 } from '../src/manifest-schema.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const validCastOrigin = (): Record<string, unknown> => ({
+  castId: 'cast-1780020786877',
+  castMode: 'forking-realities',
+  originalRepoOrigin: 'https://github.com/u/r.git',
+  originalMantaVersion: '0.7.0',
+  bundledAt: '2026-05-29T02:13:12Z',
+  winningCloneId: 'B',
+  provenance: null,
+});
 
 const validManifest = (): unknown => ({
   schemaVersion: 1,
@@ -167,6 +182,42 @@ describe('MantaPackageManifestSchema', () => {
     const r = MantaPackageManifestSchema.parse(validManifest());
     const typed: MantaPackageManifest = r;
     expect(typed.schemaVersion).toBe(1);
+  });
+});
+
+describe('MantaPackageManifestSchema — castOrigin.optional() regression (Phase 7b Step 0a)', () => {
+  const fixturesDir = path.join(__dirname, 'fixtures', 'packages');
+
+  it('every existing fixture manifest still parses with the augmented schema', () => {
+    const dirs = fs
+      .readdirSync(fixturesDir, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => path.join(fixturesDir, d.name, 'manta-package.json'))
+      .filter((p) => fs.existsSync(p));
+    expect(dirs.length).toBeGreaterThan(0);
+    for (const manifestPath of dirs) {
+      const json: unknown = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      const r = MantaPackageManifestSchema.safeParse(json);
+      expect(r.success, `fixture ${manifestPath} should still parse`).toBe(true);
+    }
+  });
+
+  it('parses a pre-7b manifest WITHOUT castOrigin (back-compat — install path unaffected)', () => {
+    const r = MantaPackageManifestSchema.safeParse(validManifest());
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect('castOrigin' in r.data).toBe(false);
+    }
+  });
+
+  it('parses a manifest WITH a valid castOrigin (shared bundles install via the same schema)', () => {
+    const r = MantaPackageManifestSchema.safeParse({ ...(validManifest() as object), castOrigin: validCastOrigin() });
+    expect(r.success).toBe(true);
+  });
+
+  it('THROWS on castOrigin: null (null ≠ undefined under .optional(); pre-7b bundles omit the field)', () => {
+    const r = MantaPackageManifestSchema.safeParse({ ...(validManifest() as object), castOrigin: null });
+    expect(r.success).toBe(false);
   });
 });
 

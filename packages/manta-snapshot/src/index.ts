@@ -28,3 +28,4 @@ export {
   SnapshotVersionError,
 } from './errors';
 export { CURRENT_SCHEMA_VERSION } from './version';
+export { SanitizedSnapshotSchema, type SanitizedSnapshot } from './sanitized-schema';
