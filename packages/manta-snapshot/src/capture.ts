@@ -10,7 +10,10 @@ import type {
 
 export interface CaptureInput {
   castId: string;
-  parentSessionId: string;
+  /** Real Claude session uuid of the parent, or `null` when unknown (bug #56). */
+  parentSessionId: string | null;
+  /** Boot the clone as a continuation of the parent transcript. Default false. */
+  resumeEnabled?: boolean | undefined;
   parentPid: number;
   taskContract: TaskContract;
   recentMessages: Message[];
@@ -31,6 +34,7 @@ export function captureState(input: CaptureInput): Snapshot {
     version: CURRENT_SCHEMA_VERSION,
     castId: input.castId,
     parentSessionId: input.parentSessionId,
+    resumeEnabled: input.resumeEnabled ?? false,
     parentPid: input.parentPid,
     createdAt: new Date().toISOString(),
     taskContract: {

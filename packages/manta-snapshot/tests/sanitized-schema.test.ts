@@ -24,6 +24,7 @@ const validSanitized = (): Record<string, unknown> => ({
   ttlSeconds: 1200,
   siblingCloneIds: ['A'],
   sessionMode: 'batch',
+  resumeEnabled: false,
 });
 
 describe('SanitizedSnapshotSchema', () => {
@@ -63,5 +64,13 @@ describe('SanitizedSnapshotSchema', () => {
   it('rejects a leaked sessionId', () => {
     const r = SanitizedSnapshotSchema.safeParse({ ...validSanitized(), sessionId: 'internal' });
     expect(r.success).toBe(false);
+  });
+
+  it('keeps resumeEnabled (RB1/bug #56) and requires it', () => {
+    const ok = SanitizedSnapshotSchema.safeParse({ ...validSanitized(), resumeEnabled: true });
+    expect(ok.success).toBe(true);
+    const missing = { ...validSanitized() };
+    delete (missing as Record<string, unknown>).resumeEnabled;
+    expect(SanitizedSnapshotSchema.safeParse(missing).success).toBe(false);
   });
 });

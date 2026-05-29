@@ -15,6 +15,9 @@ export interface SnapshotFor {
   approachHint?: string | null;
   sessionMode?: 'batch' | 'daemon';
   sessionId?: string;
+  /** Real parent Claude session uuid (RB1/bug #56). Distinct from castId by default. */
+  parentSessionId?: string | null;
+  resumeEnabled?: boolean;
 }
 
 export function makeSnapshotFor(opts: SnapshotFor): Snapshot {
@@ -32,7 +35,11 @@ export function makeSnapshotFor(opts: SnapshotFor): Snapshot {
     parentWorktree: '/tmp/parent',
     cloneWorktree: '/tmp/clone',
     parentPid: process.pid,
-    parentSessionId: opts.castId ?? 'cast-test',
+    // RB1/bug #56: a parent SESSION id is a different kind of value from the
+    // cast id — keep them distinct in fixtures so nothing re-learns the bug.
+    parentSessionId:
+      opts.parentSessionId !== undefined ? opts.parentSessionId : 'parent-session-test',
+    resumeEnabled: opts.resumeEnabled ?? false,
     castId: opts.castId ?? 'cast-test',
     budgetUsd: opts.budgetUsd ?? 5,
     approachHint: opts.approachHint ?? null,

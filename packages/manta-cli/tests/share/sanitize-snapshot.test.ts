@@ -9,6 +9,7 @@ const fullSnapshot = (overrides: Partial<Snapshot> = {}): Snapshot =>
     version: CURRENT_SCHEMA_VERSION,
     castId: 'cast-1',
     parentSessionId: 'sess-internal-123',
+    resumeEnabled: false,
     parentPid: 4242,
     createdAt: '2026-05-29T02:13:12.386Z',
     taskContract: {
@@ -103,5 +104,10 @@ describe('sanitizeSnapshot', () => {
     expect(sanitized.ttlSeconds).toBe(1200);
     expect(sanitized.siblingCloneIds).toEqual(['A']);
     expect(sanitized.sessionMode).toBe('batch');
+  });
+
+  it('keeps resumeEnabled (RB1/bug #56 — harmless boolean, required by .strict allow-list)', () => {
+    const { sanitized } = sanitizeSnapshot(fullSnapshot({ resumeEnabled: true }));
+    expect(sanitized.resumeEnabled).toBe(true);
   });
 });

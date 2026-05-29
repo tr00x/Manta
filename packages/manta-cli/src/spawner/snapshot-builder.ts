@@ -12,7 +12,10 @@ export interface CloneSpawnRequest {
   parentWorktree: string;
   cloneWorktree: string;
   parentPid: number;
-  parentSessionId: string;
+  /** Real Claude session uuid of the parent, or `null` when unknown (bug #56). */
+  parentSessionId: string | null;
+  /** Boot the clone as a continuation of the parent transcript. Default false. */
+  resumeEnabled?: boolean | undefined;
   castId: string;
   budgetUsd: number;
   budgetTokens?: number;
@@ -32,6 +35,7 @@ export function buildCloneSnapshot(req: CloneSpawnRequest): Snapshot {
   return captureState({
     castId: req.castId,
     parentSessionId: req.parentSessionId,
+    resumeEnabled: req.resumeEnabled ?? false,
     parentPid: req.parentPid,
     taskContract: {
       cloneId: req.cloneId,

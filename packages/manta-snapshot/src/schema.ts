@@ -66,7 +66,16 @@ export const SnapshotSchema = z
   .object({
     version: z.literal(CURRENT_SCHEMA_VERSION),
     castId: z.string().min(1),
-    parentSessionId: z.string().min(1),
+    // The REAL Claude Code session uuid of the parent (so a clone can resume
+    // the parent's transcript — RB1/bug #56), or `null` when no parent session
+    // is known. Historically this held the castId, which is the WRONG kind of
+    // value (a cast id, not a session id); that conflation was bug #56.
+    parentSessionId: z.string().min(1).nullable(),
+    // Whether the clone should boot as a continuation of the parent's
+    // transcript. Defaults to false (today's empty-context behaviour). The
+    // refine below makes `resumeEnabled === true` imply a non-null
+    // parentSessionId — we never resume without a real session id.
+    resumeEnabled: z.boolean().default(false),
     parentPid: z.number().int().positive(),
     createdAt: z.string().datetime(),
     taskContract: TaskContractSchema,
@@ -85,6 +94,10 @@ export const SnapshotSchema = z
   .refine((s) => s.mode === s.taskContract.mode, {
     message: 'snapshot.mode must equal snapshot.taskContract.mode',
     path: ['mode'],
+  })
+  .refine((s) => !(s.resumeEnabled && s.parentSessionId === null), {
+    message: 'resumeEnabled requires a non-null parentSessionId (never resume without a real session id)',
+    path: ['resumeEnabled'],
   });
 
 export type Snapshot = z.infer<typeof SnapshotSchema>;
