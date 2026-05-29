@@ -1,7 +1,15 @@
 import { readFile } from 'node:fs/promises';
 
+// Bug-hunt MAJOR-2 (cast-1780011340100): the original `\bgit\s+(subcmd)`
+// regex required the subcommand to immediately follow `git`, so the
+// CLAUDE.md-mandated commit form `git -c user.email=… -c user.name=… commit`
+// went unmatched and the GIT_OPERATIONS lock no-op'd on the canonical commit.
+// The widened pattern tolerates option clusters of the form `-X` or `--name`
+// (each optionally followed by one separate value token) between `git` and
+// the subcommand, e.g. `git -c key=val commit`, `git --git-dir=/p commit`,
+// `git -p commit`. `\bgit\b` (not `\bgit\s+`) prevents matching `gitignore`.
 const GIT_MUTATING_PATTERNS = [
-  /\bgit\s+(add|commit|checkout|stash|merge|rebase|reset|cherry-pick|revert|push)\b/,
+  /\bgit\b(\s+-\S+(\s+\S+)?)*\s+(add|commit|checkout|stash|merge|rebase|reset|cherry-pick|revert|push)\b/,
 ];
 
 export interface CheckGitLockInput {
@@ -61,7 +69,9 @@ const fs = require('fs');
 const LOCKS_PATH = ${JSON.stringify(locksPath)};
 const CLONE_ID = process.env.MANTA_CLONE_ID || ${JSON.stringify(cloneId)};
 
-const GIT_MUTATING = /\\bgit\\s+(add|commit|checkout|stash|merge|rebase|reset|cherry-pick|revert|push)\\b/;
+// MAJOR-2 widened pattern — see GIT_MUTATING_PATTERNS comment above for
+// rationale. Keep in sync with the TS-side regex.
+const GIT_MUTATING = /\\bgit\\b(\\s+-\\S+(\\s+\\S+)?)*\\s+(add|commit|checkout|stash|merge|rebase|reset|cherry-pick|revert|push)\\b/;
 
 // Read hook input from stdin (Claude Code PreToolUse format)
 let input = '';

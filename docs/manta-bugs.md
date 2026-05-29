@@ -24,6 +24,74 @@
 
 ## Open bugs
 
+### #44 — `sweepOrphanWorktrees` force-deletes LIVE clone worktrees under a symlinked repo root (regression on the #43 fix)
+
+**Discovered:** 2026-05-28, bug-hunt cast `cast-1780011340100` (both clones A and B independently flagged).
+**Severity:** High — silent destruction of a live clone's deliverables when `manta recover` runs while a cast is live on a symlinked repo root (macOS `/tmp`, `/var`, symlinked checkouts, network mounts).
+**Status:** Fixed 2026-05-28 (`packages/manta-cli/src/spawner/graveyard.ts` `sweepOrphanWorktrees` + `packages/manta-cli/src/commands/recover.ts`).
+**Reproducer:** Cast a clone under a symlinked repo root (`fx.root = /tmp/...`; `realpath = /private/tmp/...`). Run `manta recover`. The pre-fix `isKnown(wt) = knownPaths.has(wt.path)` compared git's canonical `/private/tmp/...` against the registry's `/tmp/...` → live clone classified as orphan → `git worktree remove --force` + `git branch -D` destroyed uncommitted work and the branch.
+**Root cause:** The #43 fix canonicalised the namespace *prefix* (`mantaPrefix` + `mantaPrefixCanon`) but the membership comparison (`isKnown` callback in `recover.ts`) compared raw strings. Inconsistent canonicalisation: prefix yes, membership no. Tests masked the bug by pre-canonicalising the root via `await fs.realpath(fx.root)` before `addWorktree`.
+**Fix:** API rewritten from `isKnown: (wt) => boolean` callback to `knownPaths: Iterable<string>`. `sweepOrphanWorktrees` now canonicalises BOTH sides via `safeRealpath` internally — callers pass raw `registry.worktree` strings, the library guarantees the comparison happens in canonical form. New regression test (`graveyard.test.ts` 'preserves live worktrees when knownPaths uses non-canonical repo root') registers a worktree under the non-canonical root and asserts the sweep does NOT remove it (skips automatically on hosts where the raw/canonical roots are identical, e.g. typical Linux CI).
+**Lessons:** Canonicalisation seams should live at the library boundary, not be the caller's responsibility. If a fix touches *any* path comparison, audit *every* path comparison in the same operation — partial canonicalisation is the worst of both worlds. Pre-canonicalising fixture roots in tests is a common way to mask exactly this class of bug; tests should exercise the divergent state the real code will see.
+
+### #45 — git-lock hook regex does not match `git -c …=… commit` (the documented clone commit form)
+
+**Discovered:** 2026-05-28, bug-hunt cast `cast-1780011340100` clone B (surface audit of #39).
+**Severity:** High — the GIT_OPERATIONS lock no-op'd on the exact commit form `CLAUDE.md` mandates (`git -c user.email="$EMAIL" -c user.name="$NAME" commit -m …`); concurrent clone commits to the shared repo were not serialised by the hook.
+**Status:** Fixed 2026-05-28 (`packages/manta-cli/src/hooks/git-lock-hook.ts` TS source + embedded `.cjs` regex; both kept in sync).
+**Reproducer:** A clone runs the canonical commit form. The pre-fix regex `\bgit\s+(commit|...)` required the subcommand to immediately follow `git`, so the `-c key=val` cluster prevented the match → `isGitMutating === false` → hook returns `{continue: true}` regardless of whether the GIT_OPERATIONS lock is held.
+**Root cause:** The pattern was designed for the bare `git <subcmd>` form and never extended to tolerate option clusters. Pre-existed before the #39 fix; surfaced during the audit of #39's outer catch.
+**Fix:** Widened pattern: `/\bgit\b(\s+-\S+(\s+\S+)?)*\s+(add|commit|checkout|stash|merge|rebase|reset|cherry-pick|revert|push)\b/`. Tolerates `-X` short options and `--name` long options between `git` and the subcommand, each optionally followed by a separate value token (handles `git -c k=v commit`, `git --git-dir=/p add`, `git -p commit`). `\bgit\b` (not `\bgit\s+`) keeps `gitignore` etc. from matching. Same regex mirrored in the generated `.cjs`. Three regressions: canonical `git -c k=v -c k=v commit`, `git --git-dir=/p add`, plus a negative-control trio (`git -c color.ui=always status`, `git --no-pager log`) confirming non-mutating commands still pass through.
+**Lessons:** Regexes that gate safety properties need positive *and* negative coverage on the canonical command forms documented elsewhere in the repo (here: CLAUDE.md). When two copies of a regex exist (TS source + generated `.cjs` template), drift between them is a follow-up risk — eventually replace the dual-maintenance with a single source.
+
+### #46 — Post-mortem allowlist surfaces `heartbeat.progress` verbatim (residual #29 leak surface)
+
+**Discovered:** 2026-05-28, bug-hunt cast `cast-1780011340100` (clones A m-2 + B MINOR-1, convergent).
+**Severity:** Medium — clone-supplied free-form text (bounded only by `z.string().max(2000)`) lands in post-mortems and is bundled externally by `manta share`. A secret short enough to fit in 2000 chars (AWS key, OAuth token) leaks.
+**Status:** Open — policy decision pending.
+**Reproducer:** Clone heartbeats with `progress: "leaked-secret-here"`. Post-mortem renders the field verbatim per `renderEventPayload` `heartbeat` arm (`packages/manta-orchestrator/src/post-mortem.ts:167`).
+**Root cause:** The #29 fix intentionally kept `progress` for operator usefulness ("operators read post-mortems for the failure shape and progress trail"). The trade-off acknowledged in an inline comment but never pinned with a test; default-deny posture inconsistent for this one field.
+**Fix (proposed):** Either drop `progress` from the allowlist for parity (operator loses progress trail in post-mortems — recoverable via `manta inspect` on live state), OR add a test that asserts a secret in `progress` is handled per the chosen policy (truncated to N chars / hashed / redacted), making the trade-off explicit.
+
+### #47 — No concurrent dequeue/release race regression for `#27`
+
+**Discovered:** 2026-05-28, bug-hunt cast `cast-1780011340100` (clones A m-3 + B MINOR-3, convergent).
+**Severity:** Low (coverage gap, not a defect — both ops go through `atomicMutateJson`'s mutex which serialises). Audit H4 (concurrency-testing debt) applies generally.
+**Status:** Open.
+**Fix (proposed):** `Promise.all([store.dequeue(id), store.release(item.id)])` style race test asserting no double-claim and no lost item, mirroring the existing `registry`/`atomic-fs` race tests.
+
+### #48 — Heartbeat-touch hook builds its own registry path string instead of reusing `busPaths()` (latent #37 split risk)
+
+**Discovered:** 2026-05-28, bug-hunt cast `cast-1780011340100` clone B NIT-1.
+**Severity:** Low — currently benign (both sides happen to construct the same string).
+**Status:** Open.
+**Root cause:** The generated `.cjs` hook builds `path.join(repoRoot, '.manta', 'state', 'registry.json')` rather than calling `busPaths(repoRoot).registry`. With `LOCK_OPTS.realpath = false`, mutual exclusion requires byte-identical paths — a future divergence (symlinked `repoRoot`, trailing slash, one-side canonicalisation) silently splits the lock files and regresses #37. The cross-process test asserts the outcome (no clobber), not the lock-path identity, so it can't catch a split.
+**Fix (proposed):** Derive the hook's registry path from `busPaths()` (export-shim from bus) or set `LOCK_OPTS.realpath = true` on both sides so canonicalisation normalises any divergence.
+
+### #49 — `WorkQueueStore.release` does not guard against already-completed or never-claimed items
+
+**Discovered:** 2026-05-28, bug-hunt cast `cast-1780011340100` clone B NIT-5.
+**Severity:** Low — the daemon loop only calls `release` on failure, so untriggered today.
+**Status:** Open.
+**Fix (proposed):** Defensive guard at the head of `release`: `if (item.completed_at || !item.claimed_at) return { deadLettered: false };` — prevents an accidental call from incrementing `attempts` past `maxAttempts` and dead-lettering a completed item.
+
+### #50 — `#29` allowlist may surface free-form text via `enqueue_work` payload `item` field (unverified)
+
+**Discovered:** 2026-05-28, bug-hunt cast `cast-1780011340100` clone B NIT-6.
+**Severity:** Low (unverified — depends on the actual bus `enqueue_work` event payload shape).
+**Status:** Open.
+**Reproducer:** Verify the bus server's `enqueue_work` handler — if the appended event's payload `item` carries the free-form work-item prompt text rather than just an id, the #29 allowlist (`claim/release/enqueue_work → item,target`) leaks it.
+**Fix (proposed):** Trace `tools/work.ts` `enqueue_work` handler → if `item` is the prompt, change the allowlist for those types to `[id, target]` only.
+
+### #51 — `manta.broadcast` rejects object payloads — MCP bridge appears to stringify nested object arguments
+
+**Discovered:** 2026-05-28, bug-hunt cast `cast-1780011340100` clone A (intermediate-findings broadcast failed).
+**Severity:** Medium currently — affects ANY clone trying to broadcast structured data; surfaced during the bug-hunt and may be a regression of the bus/MCP-bridge interaction.
+**Status:** Open — needs a standalone reproducer to confirm it's not a ToolSearch schema-flattening artefact.
+**Reproducer:** From a live clone (under `claude --print`), call `manta.broadcast({ clone_id: 'X', event_type: 'note', payload: { note: 'x' } })`. Observed result: `validation_error: Expected object, received string at path:["payload"]`. The server-side Zod schema expects an object; the MCP bridge appears to pass a string.
+**Possible causes (in priority):** (a) MCP bridge serialisation: nested object args stringified before reaching the bus handler. (b) ToolSearch schema flattening: deferred-tool schema loaded by the clone lost its object typing for nested fields. (c) Bus schema regression: a recent change tightened `payload` to a string-shape on this path.
+**Fix (proposed):** Build a 5-min reproducer: a fresh clone (or a Node script using the same MCP client) that calls `manta.broadcast` with a payload object. If reproducible outside the bug-hunt clone, it's a real bridge bug — bisect across recent bus/MCP changes.
+
 ### #37 — Heartbeat-touch hook corrupts `registry.json` (lock-scheme mismatch + non-atomic write)
 
 **Discovered:** 2026-05-28, full 9-dimension audit (correctness agent `a2e8bab4`). See `docs/audits/2026-05-28-full-audit.md` C2.
@@ -104,17 +172,18 @@ Regression test `tests/commands/cast.test.ts` ("force-terminates wedged OS proce
 
 **Discovered:** 2026-05-28, full audit (bug-log-verify agent `a1f3bfbd`). See full-audit M1.
 **Severity:** Medium — any `readSince` consumer silently loses events sharing a millisecond timestamp with the cursor boundary.
-**Status:** Fixed (verified 2026-05-28 — fix was already in `packages/manta-bus/src/state/events.ts:95-107`; audit bug log status was stale).
-**Reproducer:** `EventsLog.readSince` (`packages/manta-bus/src/state/events.ts`) filters `e.ts > tsExclusive` — strict `>` on the millisecond `ts`. Two events written in the same ms as the cursor: one is dropped.
-**Root cause:** Same class as bug #25, which fixed `broadcast-reader.ts` by switching tie-breaking to the lex-sortable event `id`. `readSince` still cursors on `ts`.
-**Fix:** `readSince` already takes `idExclusive: string` and filters `e.id > idExclusive` (lex-sortable id = padded-ts + seq + rand → same-ms events stay distinguishable). Empty string sorts before any real id so `readSince('')` returns all events. Regression test at `tests/state/events.test.ts:80` ('readSince does not drop same-millisecond events') appends three events with no clock advance (all share ts=1_000_000) and asserts `readSince(e0.id)` returns `[e1, e2]` — a `ts > cursor` filter would have returned `[]`. Verified passing in the green-gate run.
-**Lessons:** The #25 fix should have been applied to *all* event-cursor consumers, not just the broadcast reader. Audit for other `ts`-based cursors. Bug-log discipline: when a fix lands, update the audit entry's status — leaving `Status: Open` on already-fixed entries pollutes triage signal.
+**Status:** Fixed in 9540cf3 (`packages/manta-bus/src/state/events.ts:95-107`).
+**Reproducer:** Pre-9540cf3 `EventsLog.readSince` filtered `e.ts > tsExclusive` — strict `>` on the millisecond `ts`. Two events written in the same ms as the cursor: one is dropped.
+**Root cause:** Same class as bug #25, which fixed `broadcast-reader.ts` by switching tie-breaking to the lex-sortable event `id`. `readSince` still cursored on `ts`.
+**Fix:** `readSince` signature changed from `(tsExclusive: number)` to `(idExclusive: string)` and filter from `e.ts > tsExclusive` to `e.id > idExclusive` (lex-sortable id = padded-ts + seq + rand → same-ms events stay distinguishable). Empty string sorts before any real id so `readSince('')` returns all events. Regression test at `tests/state/events.test.ts:80` ('readSince does not drop same-millisecond events') appends three events with no clock advance (all share ts=1_000_000) and asserts `readSince(e0.id)` returns `[e1, e2]`.
+**Correction (2026-05-28, bug-hunt over 9540cf3):** the 9540cf3 commit message and the previous version of this entry both claimed "(no code change — was already fixed; only status updated)". That was **false**: the diff shows the signature and filter changed in 9540cf3 alongside its `+` block. Caller `tail.ts` already used a string cursor and was unaffected. Correction logged per "без вранья" — claims about a commit's content must be verified against `git show`, not inferred from working-tree state at session start.
+**Lessons:** The #25 fix should have been applied to *all* event-cursor consumers, not just the broadcast reader. Audit for other `ts`-based cursors. **Numerical/structural claims about a commit (file count, code-change vs no-code-change, line counts) must be verified against `git show` before being written into a commit message or bug-log entry.** A working-tree `M` status at session start does NOT mean someone else made the change in a prior session — the change is in your commit either way.
 
 ### #43 — Orphan-worktree GC gap (graveyard/recover never reconcile against live worktrees)
 
 **Discovered:** 2026-05-28, full audit (bug-log-verify agent `a1f3bfbd`). See full-audit M2.
 **Severity:** Medium — a manually-deleted or orphaned worktree under `.manta/worktrees/` is never reaped; disk + git-worktree-metadata leak accumulates across casts.
-**Status:** Fixed 2026-05-28 (`packages/manta-cli/src/spawner/graveyard.ts:sweepOrphanWorktrees`, wired into `packages/manta-cli/src/commands/recover.ts`).
+**Status:** Fixed 2026-05-28 in 9540cf3 (`packages/manta-cli/src/spawner/graveyard.ts:sweepOrphanWorktrees`, wired into `packages/manta-cli/src/commands/recover.ts`). **A path-canonicalisation regression in the initial fix was caught by the bug-hunt cast over 9540cf3 — see #44 (also Fixed in the same session's follow-up commit).**
 **Reproducer:**
 1. `graveyard.ts:47 listGraveyard` only `readdir`s `.manta/graveyard` and reads each `info.json` — it never reconciles against live git worktrees or the registry.
 2. `recover.ts:24` runs one orchestrator cycle = reaps locks/claims/dead clones only; no worktree GC.

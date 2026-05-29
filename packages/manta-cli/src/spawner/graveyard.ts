@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { execa } from 'execa';
-import { listWorktrees, removeWorktree, type WorktreeRecord } from './worktree.js';
+import { listWorktrees, removeWorktree } from './worktree.js';
 
 export interface MoveToGraveyardOptions {
   repoRoot: string;
@@ -48,13 +48,22 @@ export async function moveWorktreeToGraveyard(
 export interface SweepOrphanWorktreesOptions {
   repoRoot: string;
   /**
-   * Predicate: given a worktree under `.manta/worktrees/`, is it known to
-   * the bus (i.e. backed by a current registry entry — DEAD clones count
-   * as known so operator post-mortem inspection is preserved)? Caller
-   * typically builds this from `registry.list()` and matches on the
-   * worktree path.
+   * Worktree paths the caller knows about (typically every
+   * `registry.list()` clone's `worktree` field). The sweep canonicalises
+   * BOTH these and git's reported paths via `fs.realpath` before comparing,
+   * so callers can pass raw registry strings without worrying about macOS
+   * `/tmp` ↔ `/private/tmp` (or any symlinked-repo-root) path-form
+   * divergence. Anything under `.manta/worktrees/` whose canonical path
+   * is NOT in the canonicalised known-set is classified as an orphan.
+   *
+   * History: an earlier `isKnown(wt) => boolean` predicate variant put the
+   * canonicalisation burden on callers; `recover.ts` failed to realpath
+   * its registry paths, so on any symlinked root every live clone was
+   * mis-classified as orphan and `git worktree remove --force` destroyed
+   * live work. The current Iterable-of-strings API centralises the
+   * canonicalisation seam so no caller can accidentally drop it.
    */
-  isKnown: (wt: WorktreeRecord) => boolean;
+  knownPaths: Iterable<string>;
 }
 
 export interface SweepOrphanWorktreesResult {
@@ -89,19 +98,17 @@ export async function sweepOrphanWorktrees(
     // (worst case is some stale metadata stays; next cycle retries).
   }
   const all = await listWorktrees({ repoRoot: opts.repoRoot });
-  // Path must be canonicalised so the prefix check is correct on macOS where
-  // /tmp resolves to /private/tmp. listWorktrees returns git's reported path
-  // (already canonical on macOS — `git worktree list` resolves the symlink).
-  const mantaPrefix = path.join(opts.repoRoot, '.manta', 'worktrees') + path.sep;
-  // Also accept canonical form for the prefix in case repoRoot was passed
-  // pre-canonicalisation.
-  const mantaPrefixCanon = path.join(
-    await fs.realpath(opts.repoRoot).catch(() => opts.repoRoot),
-    '.manta', 'worktrees',
-  ) + path.sep;
-  const orphans = all.filter(
-    (wt) => (wt.path.startsWith(mantaPrefix) || wt.path.startsWith(mantaPrefixCanon)) && !opts.isKnown(wt),
-  );
+  // Canonicalise the namespace prefix so the macOS /tmp -> /private/tmp
+  // symlink case is covered. listWorktrees returns git's already-canonical
+  // path; canonicalising both sides via `safeRealpath` makes the prefix
+  // check and the membership check use the SAME path form.
+  const repoRootCanon = await safeRealpath(opts.repoRoot);
+  const mantaPrefix = path.join(repoRootCanon, '.manta', 'worktrees') + path.sep;
+  const knownCanon = new Set<string>();
+  for (const p of opts.knownPaths) {
+    knownCanon.add(await safeRealpath(p));
+  }
+  const orphans = all.filter((wt) => wt.path.startsWith(mantaPrefix) && !knownCanon.has(wt.path));
   const removed: string[] = [];
   const failed: Array<{ path: string; error: string }> = [];
   for (const wt of orphans) {
@@ -113,6 +120,21 @@ export async function sweepOrphanWorktrees(
     }
   }
   return { removed, failed };
+}
+
+/**
+ * Best-effort `fs.realpath`: returns the canonical path when the target
+ * exists, falls back to the input when it doesn't (e.g. a registry entry
+ * pointing at a worktree that was deleted out-of-band). The fallback is
+ * the safe direction — a non-canonical path simply fails the set membership
+ * check and the orphan-dir sweep will not match a non-existent path anyway.
+ */
+async function safeRealpath(p: string): Promise<string> {
+  try {
+    return await fs.realpath(p);
+  } catch {
+    return p;
+  }
 }
 
 export async function listGraveyard(repoRoot: string): Promise<GraveyardEntry[]> {

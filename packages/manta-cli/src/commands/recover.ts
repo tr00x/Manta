@@ -40,13 +40,18 @@ export async function runRecoverCommand(
   // wiped between casts). Sweep them so disk + git-worktree-metadata don't
   // accumulate across casts. Failures are non-fatal — surfaced in the
   // reporter so the operator can investigate without breaking recovery.
+  //
+  // We pass registry-stored paths verbatim; sweepOrphanWorktrees canonicalises
+  // both sides via realpath so a symlinked repo root (macOS /tmp ->
+  // /private/tmp) cannot mis-classify live clones as orphans (post-cast
+  // bug-hunt MAJOR-1 over cast-1780011340100 — would have force-rm'd live
+  // worktrees in that scenario).
   const allClones = await rt.ctx.registry.list();
-  const knownPaths = new Set(allClones.map((c) => c.worktree));
   let sweep: { removed: string[]; failed: Array<{ path: string; error: string }> } = { removed: [], failed: [] };
   try {
     sweep = await sweepOrphanWorktrees({
       repoRoot: rt.repoRoot,
-      isKnown: (wt) => knownPaths.has(wt.path),
+      knownPaths: allClones.map((c) => c.worktree),
     });
   } catch (err) {
     // Sweep failure is not fatal for recover — the bus state was already

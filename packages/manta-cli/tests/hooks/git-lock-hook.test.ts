@@ -157,6 +157,56 @@ describe('gitLockHook', () => {
     expect(result.blocked).toBe(true);
   });
 
+  it('matches the canonical `git -c key=val ... commit` form (bug-hunt MAJOR-2 over cast-1780011340100)', async () => {
+    // The author-override commit form CLAUDE.md mandates is
+    //   git -c user.email="$EMAIL" -c user.name="$NAME" commit -m "msg"
+    // The pre-fix regex `\bgit\s+(commit|…)` required the subcommand to
+    // immediately follow `git`, so the `-c` cluster prevented the match →
+    // `isGitMutating === false` → the hook returned `continue:true` and
+    // the GIT_OPERATIONS lock was bypassed on every clone's canonical
+    // commit. Post-fix the widened pattern tolerates `-X` / `--name` option
+    // clusters between `git` and the subcommand.
+    await fs.writeFile(locksPath, JSON.stringify({ version: 1, leases: {} }));
+    const cmd = 'git -c user.email="x@y.z" -c user.name="X" commit -m "msg"';
+    const result = await checkGitLock({
+      tool: 'Bash',
+      input: { command: cmd },
+      cloneId: 'A',
+      locksPath,
+    });
+    expect(result.blocked).toBe(true);
+    expect(result.message).toContain('GIT_OPERATIONS');
+  });
+
+  it('matches `git --git-dir=/p add` and other long-option clusters', async () => {
+    await fs.writeFile(locksPath, JSON.stringify({ version: 1, leases: {} }));
+    const longOpt = await checkGitLock({
+      tool: 'Bash',
+      input: { command: 'git --git-dir=/p add src/x' },
+      cloneId: 'A',
+      locksPath,
+    });
+    expect(longOpt.blocked).toBe(true);
+  });
+
+  it('still passes through non-mutating commands like `git status` and `git log` regardless of options', async () => {
+    await fs.writeFile(locksPath, JSON.stringify({ version: 1, leases: {} }));
+    const status = await checkGitLock({
+      tool: 'Bash',
+      input: { command: 'git -c color.ui=always status' },
+      cloneId: 'A',
+      locksPath,
+    });
+    const log = await checkGitLock({
+      tool: 'Bash',
+      input: { command: 'git --no-pager log --oneline -5' },
+      cloneId: 'A',
+      locksPath,
+    });
+    expect(status.blocked).toBe(false);
+    expect(log.blocked).toBe(false);
+  });
+
   it('generated .cjs fails CLOSED on malformed stdin (bug #39 regression)', async () => {
     // Pre-fix the outer catch returned { continue: true }, letting a malformed
     // PreToolUse payload bypass the git serialization mutex entirely → two

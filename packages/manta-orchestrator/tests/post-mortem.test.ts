@@ -170,6 +170,42 @@ describe('post-mortem', () => {
     expect(md).toContain('"drift_score":0.7');
   });
 
+  it('default-deny: unknown event types render as `<payload omitted>` and never leak secrets (bug-hunt MINOR-1 over cast-1780011340100)', async () => {
+    // The #29 fix's safety contract relies on the `default:` branch of
+    // renderEventPayload returning `<payload omitted>` for event types
+    // not explicitly enumerated. The pre-existing #29 regression seeded
+    // only KNOWN types, so the default branch's drop behaviour was
+    // structurally untested — a regression that re-introduced
+    // `JSON.stringify(p)` in the default arm would not be caught. This
+    // test seeds an unknown/future event type with a secret-bearing
+    // payload and asserts the secret is dropped AND the explicit
+    // `<payload omitted>` marker appears (so the safety isn't an
+    // accident of empty payloads).
+    await ctx.registry.register({
+      clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {},
+    });
+    const FUTURE_SECRET = 'AKIA-FROM-A-FUTURE-EVENT-TYPE-987';
+    // A type not in the switch — simulates a future event type a contributor
+    // adds without remembering to extend the allowlist projection.
+    await ctx.events.append({
+      type: 'some_future_event_type',
+      clone_id: 'A',
+      payload: { raw_stderr: FUTURE_SECRET, nested: { also_leak: FUTURE_SECRET } },
+    });
+
+    const writer = inMemoryPostMortemWriter();
+    await runPostMortem(ctx, { cloneId: 'A', reason: 'future-type-audit', writer, thresholds: defaultThresholds });
+    const md = writer.captured[0]!.body;
+
+    // Secret must not appear anywhere.
+    expect(md).not.toContain(FUTURE_SECRET);
+    // The explicit default-deny marker proves the drop is deliberate, not
+    // an artefact of an empty payload (which would render as no text).
+    expect(md).toContain('<payload omitted>');
+    // And the new event type's name is still visible (operator context).
+    expect(md).toContain('some_future_event_type');
+  });
+
   it('composer sanitizes hostile cast_id into a writer-safe filename', async () => {
     // The composer is responsible for ensuring the filename it hands to the
     // writer matches SAFE_FILENAME. This test wraps the writer with the same
