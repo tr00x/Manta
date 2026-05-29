@@ -27,13 +27,13 @@ async function exists(p: string): Promise<boolean> {
 
 async function ensureCliBuilt(): Promise<void> {
   if (await exists(cliBin)) return;
-  const r = await execa('pnpm', ['-r', '--filter', '@manta/cli...', 'build'], {
+  const r = await execa('pnpm', ['-r', '--filter', 'manta...', 'build'], {
     cwd: repoRoot,
     reject: false,
     timeout: 5 * 60 * 1000,
   });
   if (r.exitCode !== 0) {
-    throw new Error(`pnpm build for @manta/cli failed: ${r.stderr || r.stdout}`);
+    throw new Error(`pnpm build for manta failed: ${r.stderr || r.stdout}`);
   }
 }
 

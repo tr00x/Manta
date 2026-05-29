@@ -1,10 +1,26 @@
 {
-  "name": "@manta/cli",
-  "version": "0.0.0",
-  "private": true,
+  "name": "manta",
+  "version": "0.1.0",
   "description": "Manta CLI — cast, status, kill, abort, recover (Phase 0 recon-swarm)",
   "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/manta-pattern/manta.git"
+  },
+  "homepage": "https://github.com/manta-pattern/manta#readme",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "ai-agents",
+    "self-cloning",
+    "parallel-agents",
+    "mcp",
+    "orchestration"
+  ],
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -25,7 +41,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
     "@manta/bus": "workspace:*",

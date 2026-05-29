@@ -2,7 +2,9 @@
 
 All notable changes to Manta. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] — 2026-05-29
+
+First published `manta` release. `0.1.0` is the first real npm publish of the unscoped `manta` CLI; it contains all internal work Phases 0–7 (the earlier `[0.1.0] — Phase 0` heading was an internal milestone marker — every package was `private`/`0.0.0` and nothing reached npm). Honest-early version per the v1 release decision: the D5 precondition (`manta cast` runs from a Manta-enabled checkout) and the >2 MB transcript degrade-to-empty caveat are real young-software limits, so `0.1.0` rather than `1.0.0`.
 
 ### Added — Phase 7b (Manta Share)
 
@@ -54,7 +56,7 @@ All notable changes to Manta. Format follows [Keep a Changelog](https://keepacha
 - Custom HTTP registry — Phase 8+ (only triggered if ≥100 published packages or a supply-chain incident).
 - `manta library search` + curated GitHub index — Phase 8.
 
-### Added
+### Added — Phase 2 (forking-realities + merge-review)
 
 - Merge-review scoring engine + `/manta promote` command (Phase 2c). After a forking-realities cast, the CLI auto-collects metrics (test pass/fail, coverage delta, diff size, complexity, tsc errors, lint) per candidate, scores them with a composite weighted metric, and writes `docs/merge-reviews/<castId>.md`. Operator promotes the winner via `manta promote <castId>/<cloneId>` — merges the branch, graveyards losers.
 - Agentic rubric pre-pass: reads `tsconfig.json`, `.eslintrc.*`, `vitest.config.ts` to adjust scoring weights per-cast. Auditable weight adjustments in the merge-review document.
@@ -72,12 +74,10 @@ All notable changes to Manta. Format follows [Keep a Changelog](https://keepacha
 - New runtime dep: `yaml@^2.6` (for `--tasks` parsing).
 - Operator-facing doc `docs/user/forking-realities.md`.
 
-## [0.1.0] — Phase 0 (recon-swarm foundation)
-
-### Added
+### Added — Phase 0 (recon-swarm foundation)
 
 - `@manta/snapshot` — Zod-validated transcript + state serializer with explicit version migrations.
-- `@manta/bus` — MCP server exposing the full Manta Bus API (18 tools across 6 families): lifecycle, contract, work-claim, file-locks, communication, memory.
+- `@manta/bus` — MCP server exposing the full Manta Bus API (25 tools across 6 families): lifecycle, contract, work-claim, file-locks, communication, memory.
 - `@manta/orchestrator` — lifecycle policy: heartbeat / parent-PID death detection, stale-lock and expired-claim reaping, structured post-mortem authoring, idempotent `runCycle()`.
 - `@manta/cli` — five Phase-0 commands: `cast`, `status`, `kill`, `abort`, `recover`. `recon-swarm` mode supported end-to-end.
 - `@manta/skill-validator` — frontmatter + content validator gating skill / slash-command authoring.

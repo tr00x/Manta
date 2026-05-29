@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@manta/bus": "workspace:*",
-    "@manta/cli": "workspace:*",
+    "manta": "workspace:*",
     "@manta/orchestrator": "workspace:*",
     "@manta/skill-validator": "workspace:*",
     "@manta/snapshot": "workspace:*",

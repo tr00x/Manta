@@ -1,4 +1,4 @@
-# @manta/cli
+# manta
 
 Phase-0 CLI for Manta. Five commands: `cast`, `status`, `kill`, `abort`, `recover`. Mode support: `recon-swarm` only (other modes ship in later phases).
 
@@ -18,7 +18,7 @@ manta cast recon-swarm --task "…"
 From a source checkout (working from the monorepo today), build once and run the bin directly:
 
 ```
-pnpm --filter @manta/cli build
+pnpm --filter manta build
 node /path/to/manta/packages/manta-cli/dist/bin/manta.cjs <command>
 ```
 
@@ -88,7 +88,7 @@ import {
   runFakeCloneScript,
   createReporter,
   StderrSink,
-} from '@manta/cli';
+} from 'manta';
 
 const rt = await createRuntime({ repoRoot: '/path/to/repo' });
 await runCastCommand(rt, {
