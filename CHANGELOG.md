@@ -4,6 +4,29 @@ All notable changes to Manta. Format follows [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added — Phase 7b (Manta Share)
+
+- `manta share <cast-id>` — builds a publishable `*.manta-pkg.tar.gz` from a finalised cast (round-trips into Phase 7a `manta install`).
+- Flags: `--name` / `--version` (required), `--clone <id>` / `--out <dir>` / `--description` / `--author` / `--license` / `--manta-version-compat` / `--no-edit` / `--accept-warnings` / `--non-interactive`.
+- `manta share --publish` — npm publish behind MVTS-7 gates (static scan, checksum re-verify, `npm whoami`, scope-ownership, two human confirmations, 5 MB size cap), plus `--max-bytes <n>`. Interactive only.
+- `CastOriginSchema` + `SharedBundleManifest` (additive `castOrigin` extension to the frozen flat manifest; carries cast lineage + Phase 7c trigger provenance, read defensively).
+- Full default-deny sanitization pipeline: snapshot, task-contract, post-mortem markdown, ZK notes, event timeline, worktree-diff — allowlist-driven, schema-first, fails closed on new source fields.
+- Secret-format scanner (AWS / OpenAI-Anthropic / GitHub / Slack / Google / private-key / JWT / generic `KEY=`) — hard-block on match (fatal, no `--accept`).
+- `checksum.json` bundle integrity (per-file sha256 + `computeDirDigest` directory hash; deterministic byte-identical tarballs).
+- Static malicious-pattern scanner for bundled JS (advisory warnings + hard-block exceptions; regex v1, AST hardening deferred to Phase 8).
+- `docs/user/manta-share.md` + `docs/internals/share-sanitization.md`.
+
+### Fixed — Phase 7b
+
+- Bug #18 (full — layer b): every free-form field across every bundled artifact (snapshot / task-contract / post-mortem / ZK / event-timeline / worktree-diff) is now allowlist-sanitized before a byte leaves the repo. Completes the layer-a metadata allowlist shipped in Phase 7a.
+
+### Deferred to later phases (Phase 7b non-goals)
+
+- Code signing / signature verification — Phase 8+ (no key registry / revocation / rotation infra).
+- Author reputation surfacing — Phase 8+ (no telemetry backend or privacy story).
+- Runtime sandbox for cast-time mode execution — indefinite (the dispatched clone has full shell access; sandboxing only the dispatcher is theater).
+- Auto-**publish** (a trigger fires `npm publish`) — never (policy): triggers may build a bundle, a human always publishes.
+
 ### Added — Phase 7a (Manta Library)
 
 - `manta install <spec>` — install a Manta library package. Supports three spec forms: scoped npm (`@manta-library/<name>[@<range>]`), git URLs (`git+https://…[#ref]`), and local tarballs (`./pkg.tgz`). Full flag matrix: `--force` (overwrite collision), `--offline` (refuse network), `--integrity sha256-<base64>` (pre-pinned tarball hash), `--json` (machine-readable summary), `--dry-run` (pipeline through validation; no commit), `--no-validate` (CI replay; warns loudly), `--no-hooks` (hard-refuse; hooks distribution deferred to Phase 8).
