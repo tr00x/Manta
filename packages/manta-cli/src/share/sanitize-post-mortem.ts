@@ -1,6 +1,7 @@
 import type { SanitizationWarning } from './types.js';
 import { scanForSecrets } from './secret-scanner.js';
 import { ShareSanitizationError } from './errors.js';
+import { findAbsolutePaths } from './path-scan.js';
 
 // Header-line prefixes emitted by renderMarkdown
 // (packages/manta-orchestrator/src/post-mortem.ts:102-106). Pinned here so a
@@ -11,18 +12,8 @@ const P_REGISTERED = '- Registered at (epoch ms): ';
 const P_HEARTBEAT = '- Last heartbeat at (epoch ms): ';
 const P_DIED = '- Died at (epoch ms): ';
 
-// Well-known absolute-path roots + `~` for the defense-in-depth stray-path
-// scan. Deliberately conservative (named roots only) so ordinary markdown
-// containing slashes (e.g. JSON in the event timeline) is not flagged.
-const STRAY_PATH_RE =
-  /(?:~|\/(?:Users|home|root|var|tmp|opt|etc|private|mnt|srv))(?:\/[^\s`'")]+)+/g;
-
 function parseEpoch(v: string): number | null {
   return /^\d+$/.test(v.trim()) ? Number(v.trim()) : null;
-}
-
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**
@@ -95,24 +86,14 @@ export function sanitizePostMortemMarkdown(
   }
 
   // Stray absolute paths that survived header redaction → warn (masked).
-  // Two matchers: well-known fs roots, plus the caller's repoRoot prefix
-  // (which the named-root list would miss for a repo under an arbitrary path).
-  const seen = new Set<string>();
-  const repoRootRe = new RegExp(`${escapeRegExp(opts.repoRoot)}(?:\\/[^\\s\`'")]+)*`, 'g');
-  for (const re of [STRAY_PATH_RE, repoRootRe]) {
-    re.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(sanitized)) !== null) {
-      if (seen.has(m[0])) continue;
-      seen.add(m[0]);
-      warnings.push({
-        rule: 'postMortem.strayPath',
-        source: 'post-mortem body',
-        message: 'found a stray absolute path outside a known header line',
-        severity: 'warning',
-        maskedMatch: `${m[0].slice(0, 4)}…`,
-      });
-    }
+  for (const p of findAbsolutePaths(sanitized, opts.repoRoot)) {
+    warnings.push({
+      rule: 'postMortem.strayPath',
+      source: 'post-mortem body',
+      message: 'found a stray absolute path outside a known header line',
+      severity: 'warning',
+      maskedMatch: `${p.slice(0, 4)}…`,
+    });
   }
 
   return { sanitized, warnings };
