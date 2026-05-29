@@ -13,7 +13,7 @@ import { makeSampleRepo, type SampleRepoFixture } from './helpers/sampleRepo.js'
 // their built `dist/`, which does not exist in a fresh worktree until `pnpm build`. A
 // top-level static import would force `dist` to exist at module-load and break the clean
 // skip (the unit gate runs without building dist). `mangle` is imported the same way — it
-// is the REAL primitive cast.ts uses to place the fork (`@manta/cli` re-exports it from
+// is the REAL primitive cast.ts uses to place the fork (`manta` re-exports it from
 // session-fork.ts); re-implementing it here would risk drifting from Claude Code's on-disk
 // scheme, the exact make-or-break failure mode this e2e exists to catch.
 
@@ -188,7 +188,7 @@ describe('transcript inheritance end-to-end against real claude', () => {
     }
     const bin = claude.path ?? 'claude';
     // Dynamic, post-guard (see top-of-file note): resolves to the built dist.
-    const { mangle } = await import('@manta/cli');
+    const { mangle } = await import('manta');
     fxPositive = await makeSampleRepo();
     const repoCwd = fxPositive.root;
 

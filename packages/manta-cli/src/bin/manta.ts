@@ -142,7 +142,7 @@ async function main(): Promise<void> {
   program
     .name('manta')
     .description('Manta — self-cloning Claude Code pattern (Phase 0)')
-    .version('0.0.0');
+    .version('0.1.0');
 
   const reporter = createReporter({ sink: new StderrSink() });
 

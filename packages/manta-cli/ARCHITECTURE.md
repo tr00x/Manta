@@ -1,4 +1,4 @@
-# @manta/cli — Architecture
+# manta — Architecture
 
 ## Why this package exists
 
@@ -11,7 +11,7 @@ The CLI is the user-facing edge of Manta. Everything else (`@manta/bus`, `@manta
   - Bus protocol — owned by `@manta/bus`
   - Lifecycle policy (death detection, reapers, post-mortems) — owned by `@manta/orchestrator`
   - Snapshot format — owned by `@manta/snapshot`
-  - Skills + slash commands — owned by `@manta/cli` consumers (Phase 0e)
+  - Skills + slash commands — owned by `manta` consumers (Phase 0e)
   - Plugin distribution — Phase 7
 
 ## Module map

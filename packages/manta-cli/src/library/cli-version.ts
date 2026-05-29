@@ -6,7 +6,7 @@
  * When the version in package.json changes, update this constant in the same
  * commit so library install + cast compat checks reflect reality.
  */
-export const MANTA_CLI_VERSION = '0.0.0';
+export const MANTA_CLI_VERSION = '0.1.0';
 
 export function getMantaCliVersion(): string {
   return MANTA_CLI_VERSION;

@@ -142,9 +142,6 @@ importers:
       '@manta/bus':
         specifier: workspace:*
         version: link:../manta-bus
-      '@manta/cli':
-        specifier: workspace:*
-        version: link:../manta-cli
       '@manta/orchestrator':
         specifier: workspace:*
         version: link:../manta-orchestrator
@@ -157,6 +154,9 @@ importers:
       execa:
         specifier: ^8.0.0
         version: 8.0.1
+      manta:
+        specifier: workspace:*
+        version: link:../manta-cli
     devDependencies:
       '@types/node':
         specifier: ^20.12.0
