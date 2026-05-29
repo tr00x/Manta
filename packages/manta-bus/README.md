@@ -34,7 +34,7 @@ Manta Bus — the MCP server that exposes coordination primitives to Manta clone
 node packages/manta-bus/dist/bin/server.cjs
 ```
 
-> The package is `private: true` and is not yet published to npm; distribution is via the Phase-7 plugin install pipeline (`npx manta@latest install`), not a global npm install. The `manta-bus` bin entry is exposed once the plugin is installed.
+> This package is not published standalone. Its `server.cjs` bin is **bundled into the published `manta` npm package** (one self-contained artifact), and `npx manta@latest install` registers it as a user-scope MCP server from the installed path (`claude mcp add -s user manta-bus -- node <installed>/server.cjs`). The `$(pwd)` command above is the **from-source dev path**; npm-installed users never run it by hand. (A Claude Code plugin-marketplace entry is Phase 8, not the v1 distribution mechanism.)
 
 Set `MANTA_REPO_ROOT` to override the working directory; defaults to `process.cwd()`. Misconfigured `MANTA_REPO_ROOT` (missing or not a directory) exits with code `2`; runtime crashes exit `1`; clean shutdown on `SIGTERM`/`SIGINT` exits `0`.
 

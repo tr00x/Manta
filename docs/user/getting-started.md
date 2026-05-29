@@ -53,6 +53,8 @@ Expected: 3/3 passing.
 
 ## 5. Run a real recon-swarm cast
 
+> **Precondition (v1):** `manta cast` must run from **inside a Manta-enabled git checkout** — a repo/worktree that carries the `skills/` directory and is a git repo (the cast does `git worktree add`, and each clone's first action is to load the `manta-as-clone` skill from disk). A from-source checkout (this walkthrough) satisfies it. After `npx manta@latest install` into an *arbitrary* empty dir the bin works but `manta cast` does not — casting from an arbitrary directory is Phase 8.
+
 In a repo of your choice (or use the sample fixture in `packages/manta-e2e/tests/fixtures/sample-repo/`):
 
 ```
@@ -108,6 +110,6 @@ If `manta status` shows clones spawned but never moving past `STARTING`:
 - Modes other than `recon-swarm` (forking-realities, refactor-wave, bug-hunt, …) — Phase 2+.
 - The other 30+ slash commands (`/manta inspect`, `/manta tail`, `/manta promote`, …) — Phase 1+.
 - Charges / cooldowns / fragility — Phase 3.
-- Plugin distribution (`npx manta@latest install`) — Phase 7.
+- Claude Code plugin-marketplace entry — Phase 8. (The v1 distribution mechanism is the npm CLI: `npx manta@latest install`; this walkthrough is the from-source dev path.)
 
 See `docs/superpowers/specs/2026-05-06-manta-pattern-design.md` for the full roadmap.

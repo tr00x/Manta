@@ -4,7 +4,18 @@ Phase-0 CLI for Manta. Five commands: `cast`, `status`, `kill`, `abort`, `recove
 
 ## Install
 
-This package is part of the Manta monorepo. Once published as a Claude Code plugin (Phase 7), users run `npx manta@latest install`. Until then, run via `pnpm --filter @manta/cli exec manta <command>` from the monorepo root, or build once and execute the bin directly:
+Manta is distributed as an **npm CLI** (published as the unscoped `manta` package):
+
+```
+npx manta@latest install      # installs the bin + registers the manta-bus MCP server
+manta cast recon-swarm --task "…"
+```
+
+> A Claude Code plugin-marketplace entry is **Phase 8**, not v1 — the v1 distribution mechanism is npm/npx.
+>
+> **Precondition:** `manta cast` runs from **inside a Manta-enabled git checkout** — a repo/worktree that carries the `skills/` directory (e.g. a clone of the Manta repo). Casting from an arbitrary empty directory is Phase 8 (clones need the `manta-as-clone` skill on disk and a git repo for the worktree).
+
+From a source checkout (working from the monorepo today), build once and run the bin directly:
 
 ```
 pnpm --filter @manta/cli build
@@ -101,4 +112,4 @@ await runCastCommand(rt, {
 - Charge / cooldown / budget enforcement — Phase 3
 - All other Sec 12 commands (`dry-run`, `inspect`, `tail`, `tell`, `pin`, `swap`, `pause`, `resume`, `recontract`, …) — Phase 1+
 - Daemon mode — Phase 5
-- npm distribution / `npx manta install` — Phase 7
+- Claude Code plugin-marketplace entry — Phase 8 (npm/npx via `npx manta@latest install` is the v1 distribution mechanism)

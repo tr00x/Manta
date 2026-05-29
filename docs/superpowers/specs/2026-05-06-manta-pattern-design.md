@@ -361,7 +361,7 @@ HP-бары, dispel, disable-cast — нет аналогов в коде.
 |---|---|
 | Inter-process bus | `mcp__claude-peers` |
 | Spawn | `claude` CLI с `--print`/headless mode |
-| Plugin format | Claude Code plugins |
+| Distribution | npm CLI (`npx manta@latest install`); Claude Code plugin-marketplace entry — Phase 8 |
 | Skills | Skill tool, frontmatter-based |
 | Observability | hooks (Pre/PostToolUse, Stop) |
 | Status line | `statusline-setup` agent |
@@ -394,7 +394,7 @@ manta/
 └── docs/
 ```
 
-Распространяется как Claude Code plugin (`npx manta@latest install`).
+Распространяется как **npm CLI** (`npx manta@latest install` ставит bin и регистрирует `manta-bus` MCP-сервер из installed path). Claude Code plugin-marketplace entry — Phase 8, не v1-механизм.
 
 ### Реальные блокеры самого Claude Code
 
