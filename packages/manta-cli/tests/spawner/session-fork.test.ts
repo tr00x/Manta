@@ -42,7 +42,10 @@ afterEach(async () => {
 });
 
 describe('mangle()', () => {
-  it('replaces every "/" and "." with "-" (Claude Code project-dir scheme)', () => {
+  // The non-existent paths below exercise the catch-fallback (realpathSync
+  // throws → literal path), which still applies the char map. Real symlink
+  // resolution is covered by its own test further down.
+  it('replaces "/" and "." with "-" (Claude Code project-dir scheme)', () => {
     expect(mangle('/Users/me/proj')).toBe('-Users-me-proj');
   });
 
@@ -57,6 +60,31 @@ describe('mangle()', () => {
 
   it('handles a dotfile-only segment and trailing dots', () => {
     expect(mangle('/a/.b/c.d')).toBe('-a--b-c-d');
+  });
+
+  it('replaces EVERY non-alphanumeric char (_ space + @), preserving case (bug #61)', () => {
+    // The old `/`+`.`-only transform silently PRESERVED `_`, space, `+`, `@`,
+    // writing the fork to a dir `claude` (which maps them all to `-`) never
+    // uses → silent empty inheritance for any repo path with an underscore.
+    expect(mangle('/x/y_z/a b+C@d')).toBe('-x-y-z-a-b-C-d');
+  });
+
+  it('resolves symlinks to the real path before mangling (bug #61: /var → /private/var class)', async () => {
+    // On macOS os.tmpdir() is itself under /var → /private/var, so resolve the
+    // real target first; the assertion then turns purely on the symlink hop.
+    const real = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'manta-mangle-real-')));
+    tmpDirs.push(real);
+    const linkParent = await fs.mkdtemp(path.join(os.tmpdir(), 'manta-mangle-link-'));
+    tmpDirs.push(linkParent);
+    const link = path.join(linkParent, 'via_link'); // underscore on purpose
+    await fs.symlink(real, link);
+
+    // mangle follows the symlink: identical to mangling the real target, and
+    // NOT a naive char-replace of the unresolved link path. A `claude --resume`
+    // run from `link` lands in the real target's project dir, so the fork must
+    // be written there — this is exactly what the prior mangle got wrong.
+    expect(mangle(link)).toBe(mangle(real));
+    expect(mangle(link)).not.toBe(link.replace(/[^a-zA-Z0-9]/g, '-'));
   });
 });
 

@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -19,14 +20,32 @@ import { randomUUID } from 'node:crypto';
 
 /**
  * Map a cwd to Claude Code's on-disk project-dir name. Verified empirically
- * (plan §2.2): every `/` and every `.` becomes `-`. The leading `/.manta`
- * therefore yields a DOUBLE dash (`…manta--manta-worktrees-clone-A`) — the `/`
- * before `.manta` becomes `-` and the `.` becomes `-`. This MUST match Claude
- * Code's real scheme exactly: a mismatch writes the fork where `--resume` will
- * never search → silent empty inheritance no unit test downstream would catch.
+ * (probe 2026-05-29, bug #61): Claude Code (a) resolves the symlink-real path
+ * of the cwd, then (b) replaces EVERY non-alphanumeric character with `-`
+ * (case preserved; consecutive separators are NOT collapsed, so a leading
+ * `/.manta` still yields the `…manta--manta-worktrees-clone-A` double dash).
+ * Two real-world cases the old `/`+`.`-only transform got wrong — each writing
+ * the fork where `--resume` never searches → silent empty inheritance (the
+ * exact #56 failure mode, invisible to every downstream unit test):
+ *   - symlinked bases: on macOS `/var` and `/tmp` are symlinks to `/private/*`,
+ *     so `claude` mangles `/private/var/…`, not the logical `/var/…`.
+ *   - `_` / space / `+` / `@` / …: any repo path with an underscore
+ *     (e.g. `/Users/me/my_app`) mangled to a dir name `claude` never uses.
+ * `realpathSync` requires the path to exist; in production the parent repo root
+ * and the clone worktree both exist at fork time (cast.ts creates the worktree
+ * before calling forkParentSession). The catch-fallback to the literal path is
+ * ONLY for not-yet-created paths in unit fixtures (no symlink there, so logical
+ * == real); it must never be hit in production or the silent-inheritance bug
+ * returns.
  */
 export function mangle(cwd: string): string {
-  return cwd.replaceAll('/', '-').replaceAll('.', '-');
+  let resolved: string;
+  try {
+    resolved = realpathSync(cwd);
+  } catch {
+    resolved = cwd;
+  }
+  return resolved.replace(/[^a-zA-Z0-9]/g, '-');
 }
 
 export interface ForkParentSessionArgs {

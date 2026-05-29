@@ -286,13 +286,44 @@ describe('transcript inheritance end-to-end against real claude', () => {
     expect(forkAbs.size).toBe(forksA.length + forksB.length); // all distinct paths
 
     // ── Step 5: priming coexistence — --resume AND --append-system-prompt both applied. ──
-    // Step 3 already proves --resume (the token came through the forked transcript). This
-    // proves --append-system-prompt: the clone obeyed Manta priming and acked its contract
-    // (a behavior that only exists in the appended system prompt, not in the parent transcript).
+    // Step 3 already proves --resume (the token came through the forked transcript). This step
+    // proves --append-system-prompt was ALSO applied (not silently dropped by --resume) — that is
+    // what makes a clone a Manta clone and not a vanilla resumed session.
+    //
+    // We deliberately do NOT require a *specific* startup-ceremony step from *every* clone. Manta's
+    // own hard rule (docs/internals/claude-code-pitfalls.md): priming text is a SOFT PRIOR — clones
+    // run under it but do not deterministically perform any one ceremony step. Observed live: clone A
+    // acked its contract while clone B skipped straight to work; a per-clone `contract_ack` assertion
+    // would be testing soft-prior compliance, not the CLI-arg coexistence we care about. The bug this
+    // guards (--resume drops --append-system-prompt) is a per-process arg interaction: if it bit, a
+    // clone would emit ZERO Manta lifecycle events and the orchestrator reaper — not the clone — would
+    // mark it DEAD. So we assert two grounded signals instead.
     const events = await new EventsLog(paths, systemClock).readAll();
+
+    // (A) Cast-level, the uniquely-attributable priming signal: at least one contract_ack. Acking
+    // requires reading manta.task_contract (written by the spawner for THIS cast, absent from the
+    // parent transcript) and calling manta.ack_contract — both introduced ONLY by the appended Manta
+    // system prompt. It cannot come from a --resume-only session nor be inherited from the parent
+    // conversation, so a single ack proves priming coexisted with --resume.
+    expect(events.some((e) => e.type === 'contract_ack')).toBe(true);
+
+    // (B) Per-clone, robust to soft-prior variance: each clone emitted ≥1 clone-driven Manta
+    // lifecycle event. Every type below is appended ONLY when a clone calls the matching manta.* MCP
+    // tool, all of which exist solely because of the appended system prompt. None is emitted by the
+    // spawner or orchestrator on a clone's behalf — the spawner writes the registry record and task
+    // contract directly (no event), and the reaper emits `reaped`, not these. So any one of them,
+    // tagged with a clone's id, proves that clone ran under Manta priming, regardless of which
+    // ceremony steps it happened to follow.
+    const CLONE_DRIVEN_EVENTS = new Set([
+      'heartbeat', 'contract_ack', 'contract_refresh', 'suicide_intent', 'zk_write', 'death',
+      'drift_report', 'claim', 'release', 'lock', 'unlock', 'renew_lock', 'para_append',
+      'broadcast', 'message',
+    ]);
     for (const id of ['A', 'B']) {
-      const acked = events.some((e) => e.type === 'contract_ack' && e.clone_id === id);
-      expect(acked).toBe(true);
+      const ranUnderPriming = events.some(
+        (e) => e.clone_id === id && CLONE_DRIVEN_EVENTS.has(e.type),
+      );
+      expect(ranUnderPriming).toBe(true);
     }
   }, 35 * 60 * 1000);
 
