@@ -843,3 +843,19 @@ The `.gitignore` correctly excludes `.manta/worktrees/` for future files but doe
 **Fix:** (handle in hardening task #9) make the canonical gate's typecheck robust to stale incremental state — candidates: (a) `tsc -b --force` in the `typecheck` script, (b) a `tsc -b --clean` pre-step, or (c) remove stale `.tsbuildinfo` on detected interface changes. Trade-off: `--force` costs a full rebuild each gate run; (b)/(c) are cheaper but more fragile.
 
 **Lessons:** an incremental `tsc -b` can emit a confident, specific, and WRONG type error after a merge that changes a package's public interface. "The gate is red" is NOT trustworthy without a force-rebuild when the error is a cross-package symbol-existence / assignability claim. This extends the CLAUDE.md rule "re-run gates independently": re-run with a CLEAN build, not merely an incremental one — a stale `.tsbuildinfo` is itself a source of false reds (just as a stale fixture is a source of false greens).
+
+### #60 — bare `parseInt`/`parseFloat` commander coercers accept `NaN`, silently disarming the guard the flag drives
+
+**Discovered:** 2026-05-29, by the RB1 Chunk 2/3 code-reviewer subagent (nit on `--distill-threshold-bytes`), generalized by the curator during merge ceremony
+**Severity:** Medium — a typo in a numeric flag does not fail loud; it produces `NaN`, and every downstream `value > NaN` comparison is `false`, which DISABLES the safety behaviour the flag exists to gate
+**Status:** PARTIALLY FIXED — the three `cast`-command integer flags fixed in the RB1 Chunk 2/3 hardening commit; remaining coercers on other commands tracked here for task #9
+
+**Symptom:** `manta cast --distill-threshold-bytes abc <mode>` → `parseInt('abc',10)` → `NaN` → in `cast.ts` `size > NaN` is always `false` → the over-threshold branch never trips → an arbitrarily large (e.g. 11.7 MB) parent transcript is force-copied into EVERY clone, the exact catastrophe the size-guard exists to prevent. The same NaN footgun sits on every other bare-`parseInt`/`parseFloat` coercer.
+
+**Root cause:** commander coercers were `parseInt` (and `parseFloat`) passed by reference. `parseInt` returns `NaN` on non-numeric input and half-parses trailing garbage (`'5abc'` → `5`); neither is validated, so a bad value flows straight into a comparison that silently no-ops.
+
+**Fix (this commit):** new `packages/manta-cli/src/bin/option-parsers.ts#parsePositiveIntOption` — strict `^\d+$` + `> 0`, throws `commander.InvalidArgumentError` (clean CLI error + nonzero exit) on anything else, including trailing-garbage. Applied to the three `cast`-command integer flags: `--distill-threshold-bytes` (new, safety-critical), `--heartbeat-timeout-ms` and `--startup-grace-ms` (pre-existing bug #52 reaper-threshold flags with the identical NaN footgun). 10 unit tests pin the parser.
+
+**Fix (task #9 remainder):** audit and harden the remaining numeric coercers with the same pattern (or `parseFloat` equivalent): `manta cast --daily-cap-usd` (`parseFloat`), `manta share --max-bytes` (`(v)=>parseInt(v,10)` — same NaN-never-refuses-publish risk), and any `parseInt(options.x, 10)` inside `.action()` bodies that feed a guard.
+
+**Lessons:** a CLI coercer that can return `NaN` is a guard-disabling footgun whenever the parsed value gates a `>`/`<` safety comparison. Validate numeric flags at the CLI boundary and fail loud — a typo must never silently disarm a safety behaviour. `parseInt`'s trailing-garbage leniency (`'5abc'`→5) is itself a silent-wrong-value bug, not a convenience.

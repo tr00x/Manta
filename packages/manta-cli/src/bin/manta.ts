@@ -36,6 +36,7 @@ import { createDefaultNetworkRunner, createRegistryClient } from '../library/reg
 import { getMantaCliVersion } from '../library/cli-version.js';
 import { runClaudeCli } from '../spawner/clone-spawner.js';
 import { parseTasksFile } from '../spawner/tasks-file.js';
+import { parsePositiveIntOption } from './option-parsers.js';
 import { createReporter, StderrSink } from '../output/reporter.js';
 import { isCliError } from '../errors.js';
 import type { CommandResult } from '../commands/status.js';
@@ -184,12 +185,12 @@ async function main(): Promise<void> {
     .option(
       '--heartbeat-timeout-ms <ms>',
       'Override default 300s heartbeat-stale threshold. Use for heavy-generation tasks (plan-drafting, complex synthesis) where >5min thinking gaps between tool calls are normal — the PostToolUse hook can\'t fire during generation. Bug #52.',
-      parseInt,
+      parsePositiveIntOption,
     )
     .option(
       '--startup-grace-ms <ms>',
       'Override default 300s startup grace period (first heartbeat must arrive within this window). Pair with --heartbeat-timeout-ms when the clone needs longer cold-start due to large priming/snapshot.',
-      parseInt,
+      parsePositiveIntOption,
     )
     .option(
       '--parent-session-id <uuid>',
@@ -203,7 +204,7 @@ async function main(): Promise<void> {
     .option(
       '--distill-threshold-bytes <n>',
       'Parent transcripts strictly larger than this (bytes) skip transcript inheritance unless --force-full-transcript is set (RB1/bug #56). Default 2 MB.',
-      parseInt,
+      parsePositiveIntOption,
     )
     .action(
       async (
