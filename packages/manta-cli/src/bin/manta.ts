@@ -195,6 +195,16 @@ async function main(): Promise<void> {
       '--parent-session-id <uuid>',
       'Real Claude session uuid whose transcript clones should inherit (RB1/bug #56). When omitted, resolves from MANTA_PARENT_SESSION_ID then CLAUDE_CODE_SESSION_ID; if all are unset, clones boot without transcript inheritance.',
     )
+    .option(
+      '--force-full-transcript',
+      'Fork the parent transcript regardless of size (bypass --distill-threshold-bytes). RB1/bug #56: by default a transcript larger than the threshold is NOT copied (safe-by-default — avoids re-ingesting an 11.7 MB transcript × N clones).',
+      false,
+    )
+    .option(
+      '--distill-threshold-bytes <n>',
+      'Parent transcripts strictly larger than this (bytes) skip transcript inheritance unless --force-full-transcript is set (RB1/bug #56). Default 2 MB.',
+      parseInt,
+    )
     .action(
       async (
         mode: string,
@@ -216,6 +226,8 @@ async function main(): Promise<void> {
           heartbeatTimeoutMs?: number;
           startupGraceMs?: number;
           parentSessionId?: string;
+          forceFullTranscript: boolean;
+          distillThresholdBytes?: number;
         },
       ) => {
         const splitCsv = (s: string): string[] =>
@@ -258,6 +270,8 @@ async function main(): Promise<void> {
             ...(cloneAssignments !== undefined ? { cloneAssignments } : {}),
             castId: `cast-${Date.now()}`,
             ...(options.parentSessionId !== undefined ? { parentSessionId: options.parentSessionId } : {}),
+            forceFullTranscript: options.forceFullTranscript,
+            ...(options.distillThresholdBytes !== undefined ? { distillThresholdBytes: options.distillThresholdBytes } : {}),
             runner: runClaudeCli(),
             reporter,
             dryRun: options.dryRun,

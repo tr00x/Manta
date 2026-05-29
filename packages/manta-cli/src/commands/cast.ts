@@ -9,6 +9,7 @@ import type {
 } from '@manta/bus';
 import type { CloneRunner, CloneHandle } from '../spawner/clone-spawner.js';
 import { spawnClone } from '../spawner/clone-spawner.js';
+import { forkParentSession } from '../spawner/session-fork.js';
 import { addWorktree, removeWorktree, type WorktreeRecord } from '../spawner/worktree.js';
 import { buildCloneSnapshot } from '../spawner/snapshot-builder.js';
 import { runTickLoop } from '../tick-loop.js';
@@ -142,6 +143,13 @@ export function resolveParentSessionId(
 const DEFAULT_DEADLINE_MS = 1_200_000; // 20 min per spec Sec 6.2
 
 /**
+ * RB1/bug #56 (Chunk 2): default transcript-fork size guard. Above this the
+ * parent JSONL is not copied (Chunk 4 will distill); matches the
+ * `--distill-threshold-bytes` commander default in `bin/manta.ts`.
+ */
+const DEFAULT_DISTILL_THRESHOLD_BYTES = 2_000_000;
+
+/**
  * Build a ModeRegistry seeded with built-ins + every library mode declared
  * in the lockfile. Reads each library package's `manta-package.json` from
  * `~/.manta/library/<scope>/<name>/<version>/` to discover the host
@@ -220,6 +228,20 @@ export interface RunCastOptions {
    * the operator relied on env (`MANTA_PARENT_SESSION_ID` / `CLAUDE_CODE_SESSION_ID`).
    */
   parentSessionId?: string | undefined;
+  /**
+   * `--force-full-transcript` (RB1/bug #56, Chunk 2). When set, the parent
+   * transcript is forked regardless of size — the size guard is bypassed. Off
+   * by default: Tier A is safe-by-default and never silently copies an 11.7 MB
+   * transcript × N clones.
+   */
+  forceFullTranscript?: boolean | undefined;
+  /**
+   * `--distill-threshold-bytes <n>` (RB1/bug #56, Chunk 2). Parent transcripts
+   * strictly larger than this skip the fork (Chunk 4 will distill instead).
+   * Default 2 MB. A genuine numeric default — not an env-precedence tier — so
+   * it is fine as a commander default (contrast the Chunk-1 flag-default trap).
+   */
+  distillThresholdBytes?: number | undefined;
   budgetUsdPerClone: number;
   budgetUsdPerCast: number;
   /**
@@ -570,6 +592,50 @@ export async function runCastCommand(
       const sessionId = sessionMode === 'daemon'
         ? `${opts.castId}-${cloneId}-${randomUUID()}`
         : undefined;
+
+      // RB1/bug #56 (Chunk 2): fork the parent transcript into THIS clone's
+      // worktree project dir so it can `--resume` it (Chunk 3) and boot as a
+      // continuation of the parent conversation. Done after `wt.path` is known
+      // and before the snapshot is built so the snapshot's `resumeEnabled`
+      // reflects whether the fork actually succeeded. Per-clone: each clone
+      // gets a private fork (distinct uuid in its own project dir).
+      let cloneResumeEnabled = resumeEnabled;
+      let forkedSessionId: string | undefined;
+      if (resumeEnabled && parentSessionId !== null) {
+        const fork = await forkParentSession({
+          parentSessionId,
+          parentCwd: rt.repoRoot,
+          cloneCwd: wt.path,
+          // --force-full-transcript bypasses the size guard entirely (copy the
+          // full transcript no matter how large); otherwise the guard skips
+          // above the threshold (Decision #4: safe-by-default).
+          thresholdBytes: opts.forceFullTranscript
+            ? Number.POSITIVE_INFINITY
+            : opts.distillThresholdBytes ?? DEFAULT_DISTILL_THRESHOLD_BYTES,
+        });
+        if ('forkedSessionId' in fork) {
+          forkedSessionId = fork.forkedSessionId;
+        } else {
+          // not_found or over_threshold → fall back to today's empty-context
+          // behaviour (Decision #4). Chunk 4 turns over_threshold into distill.
+          cloneResumeEnabled = false;
+          opts.reporter.warn('cast.transcript_fork.skipped', {
+            castId: opts.castId,
+            cloneId,
+            reason: fork.skipped,
+            message:
+              fork.skipped === 'over_threshold'
+                ? 'parent transcript exceeds --distill-threshold-bytes; clone boots without transcript inheritance (pass --force-full-transcript to override)'
+                : 'parent transcript not found on disk; clone boots without transcript inheritance',
+          });
+        }
+      }
+      // `forkedSessionId` is captured here (Chunk 2) and consumed by the
+      // per-clone runner selection in Chunk 3. Keep it referenced so the build
+      // stays lint-clean until that wiring lands (same pattern as
+      // `void libraryModeName` above).
+      void forkedSessionId;
+
       const snap = buildCloneSnapshot({
         cloneId,
         mode: opts.mode,
@@ -586,7 +652,7 @@ export async function runCastCommand(
         cloneWorktree: wt.path,
         parentPid: process.pid,
         parentSessionId,
-        resumeEnabled,
+        resumeEnabled: cloneResumeEnabled,
         castId: opts.castId,
         budgetUsd: e.budgetUsd,
         sessionMode,
