@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CastOriginSchema } from './cast-origin-schema.js';
 
 const NPM_BARE_NAME = /^[a-z][a-z0-9-]*$/;
 const NPM_SCOPED_NAME = /^@[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*$/;
@@ -150,10 +151,32 @@ export const MantaPackageManifestSchema = z
     contributes: ContributesSchema,
     deps: z.record(SemverRangeSchema).default({}),
     integrity: IntegritySchema.optional(),
+    // Phase 7b additive extension. OPTIONAL on the frozen 7a contract so the
+    // install path (`validatePackage`) tolerates shared bundles (which carry
+    // a populated `castOrigin`) AND pre-7b bundles (which omit it) through the
+    // same schema. `null` is rejected (only absent or a valid CastOrigin) so
+    // pre-7b bundles keep the field genuinely absent rather than present-null.
+    castOrigin: CastOriginSchema.optional(),
   })
   .strict();
 
 export type MantaPackageManifest = z.infer<typeof MantaPackageManifestSchema>;
+
+/**
+ * A *shared* bundle's manifest = the frozen flat 7a manifest + a REQUIRED
+ * `castOrigin` block. Intersection, NOT a rewrite of `MantaPackageManifestSchema`
+ * — the base schema stays back-compatible for the install path (where
+ * `castOrigin` is optional), while a shared bundle must carry lineage.
+ *
+ * Lives here (not in `cast-origin-schema.ts`) to avoid a circular import:
+ * the base schema already imports `CastOriginSchema`, so this file has both
+ * halves of the intersection without a back-edge. Re-exported from the index.
+ */
+export const SharedBundleManifestSchema = MantaPackageManifestSchema.and(
+  z.object({ castOrigin: CastOriginSchema }),
+);
+
+export type SharedBundleManifest = z.infer<typeof SharedBundleManifestSchema>;
 
 export const LibraryModeJsonSchema = z
   .object({
