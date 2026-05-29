@@ -737,3 +737,25 @@ The `.gitignore` correctly excludes `.manta/worktrees/` for future files but doe
 **Reproducer:** `claude --print --snapshot /dev/null --version` → prints `2.1.132 (Claude Code)` and exits 0 with no warning about `--snapshot`.
 **Root cause:** Current `claude` CLI tolerates unknown flags (probably to forward-compatibility for plugins). Manta's spawner relied on it being a real flag.
 **Lessons:** When integrating with a third-party CLI, validate every new flag with `--help | grep <flag>` and a positive behavioural smoke, not just exit-code 0 from a no-op invocation. The Phase-1 lockdown plan formalised this as task 1.2 (probe + smoke before code change).
+
+### #53 — `heartbeat-hook` touch-script test fails in a freshly-`pnpm install`ed worktree
+
+**Discovered:** 2026-05-28, by clone-B (cast-1780020786877) during Phase 7b Chunk 1 `pnpm gate` verification
+**Severity:** Medium — gate-reddening, but environment-scoped (does not reproduce in the main repo)
+**Status:** Open — PRE-EXISTING, unrelated to Phase 7b Chunk 1 (see proof below)
+
+**Symptom:** `packages/manta-cli/tests/spawner/heartbeat-hook.test.ts > touch script updates last_heartbeat_at in registry` fails:
+`AssertionError: expected 1000 to be greater than or equal to <now>` — the generated `heartbeat-touch.cjs`, run via `execSync('node …')`, returns early (one of its `catch { return }` arms fires) and leaves `last_heartbeat_at` at the fixture value `1000` instead of `Date.now()`.
+
+**Proof it is NOT Phase 7b Chunk 1:**
+1. `git diff 1f70b19 --name-only` for clone-B's branch touches only `packages/manta-cli/src/share/*`, `packages/manta-skill-validator/src/{cast-origin-schema,manifest-schema,index}.ts`, and `packages/manta-snapshot/src/{sanitized-schema,index}.ts` + their tests. `spawner/heartbeat-hook.{ts,test.ts}` are byte-identical to base.
+2. The touch-script logic works in isolation: manually resolving `proper-lockfile` the same way and running the exact lock→read→mutate→rename sequence against an identical fixture registry updates `last_heartbeat_at` to `now` correctly.
+3. Memory obs 16798 records a green gate ("1150 tests pass") at 9:48pm today in the **main repo**, before this session. The failure only appears in clone-B's freshly-`pnpm install`ed worktree.
+
+**Root cause (hypothesised):** Environment/hoisting-sensitive resolution of `proper-lockfile`. The generated `heartbeat-touch.cjs` embeds `PROPER_LOCKFILE_PATH = createRequire(require_.resolve('@manta/bus')).resolve('proper-lockfile')`, resolved at install time inside the vitest process. In a fresh worktree install, vitest's workspace resolution of `@manta/bus` (source vs dist `exports` conditions) can land `require_.resolve` on a base path whose `createRequire(...).resolve('proper-lockfile')` differs from what the plain-`node` subprocess can lock with under `realpath:false` on the macOS `/var`→`/private/var` symlinked tmpdir — so `lockfile.lock(REGISTRY, LOCK_OPTS)` throws in the subprocess and the best-effort `catch { return }` swallows it, skipping the update.
+
+**Workaround:** None needed for Phase 7b — the failure is isolated to one spawner test and does not affect the share/ sanitization layer. Re-running the gate in the main repo (established node_modules) is green.
+
+**Fix:** Pending (out of scope for Phase 7b). Candidate fixes: (a) make the touch script resolve `proper-lockfile` at runtime inside the subprocess rather than embedding an install-time absolute path; (b) in the test, assert on a deterministic clock injected into the subprocess via env; (c) have the touch script's lock `catch` surface the error to stderr (currently fully swallowed) so failures are diagnosable instead of silent.
+
+**Lessons:** A best-effort `catch { return }` that swallows ALL errors makes a real regression indistinguishable from a benign skipped-heartbeat — the script should at least `console.error` the masked failure so a reddening gate is diagnosable without a manual repro.
