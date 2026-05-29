@@ -749,6 +749,22 @@ The `.gitignore` correctly excludes `.manta/worktrees/` for future files but doe
 **Root cause:** Current `claude` CLI tolerates unknown flags (probably to forward-compatibility for plugins). Manta's spawner relied on it being a real flag.
 **Lessons:** When integrating with a third-party CLI, validate every new flag with `--help | grep <flag>` and a positive behavioural smoke, not just exit-code 0 from a no-op invocation. The Phase-1 lockdown plan formalised this as task 1.2 (probe + smoke before code change).
 
+### #55 — `manta install` local-tgz spec parser rejects the native `*.manta-pkg.tar.gz` bundle name
+
+(Renumbered from B's `#54` during ceremony — main's `#54` is the trigger-store audit-trail gap from 7c Chunk 1, unrelated.)
+
+**Discovered:** 2026-05-28, by clone-B (cast-1780023574334) during Phase 7b Chunk 2 round-trip verification
+**Severity:** Low — usability gap, not a correctness bug; the bundle content installs fine once renamed
+**Status:** Fixed 2026-05-28 in the 7b Chunk 2 merge ceremony (`packages/manta-cli/src/library/registry-client.ts:65` — `LOCAL_TGZ` regex widened to `.(?:tgz|tar\.gz)$`).
+
+**Symptom:** `manta share` emits a bundle named `<name>-<version>.manta-pkg.tar.gz` (the plan §1.2 / CHANGELOG convention). Phase 7a's local-tgz spec parser was `LOCAL_TGZ = /^(?:\.{1,2}\/|\/).+\.tgz$/`, which only matched a `.tgz` extension. Passing the native bundle path to `manta install` threw `install_spec_parse_failed` (exit 11) even though the bytes are a valid gzipped tar.
+
+**Proof:** The pre-fix Chunk 2 round-trip test (`tests/commands/share.test.ts`) produced a `.manta-pkg.tar.gz`, COPIED it to a `.tgz` sibling, then `runInstallCommand` succeeded — same bytes, different extension. Same-bytes-rename confirmed extension-only mismatch.
+
+**Fix:** Widened `LOCAL_TGZ` to `/^(?:\.{1,2}\/|\/).+\.(?:tgz|tar\.gz)$/` (additive alternation, back-compat). The `share.test.ts` rename shim is now retired in the same ceremony commit. Code-review blocker B1 (cast-1780023574334) which flagged the rename hack as "does not prove share→install accepts a bundle by its plan-mandated name" — closed by this fix.
+
+---
+
 ### #53 — `heartbeat-hook` touch-script test fails in a freshly-`pnpm install`ed worktree
 
 **Discovered:** 2026-05-28, by clone-B (cast-1780020786877) during Phase 7b Chunk 1 `pnpm gate` verification

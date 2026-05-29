@@ -23,5 +23,6 @@ export * from './library/registry-client.js';
 export * from './library/compat.js';
 export * from './library/cli-version.js';
 export * from './commands/install.js';
+export * from './commands/share.js';
 export * from './commands/uninstall.js';
 export * from './commands/library.js';

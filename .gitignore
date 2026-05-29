@@ -68,3 +68,4 @@ junit.xml
 packages/*/dist/
 .tsbuild/
 pnpm-debug.log*
+last-gasp-report.md

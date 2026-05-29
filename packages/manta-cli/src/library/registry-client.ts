@@ -62,7 +62,15 @@ export class RegistryClientError extends Error {
 const SCOPED_NPM = /^(@[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*)(?:@(.+))?$/;
 const BARE_NPM = /^([a-z][a-z0-9-]*)(?:@(.+))?$/;
 const GIT_PREFIX = /^git\+(https?|ssh):\/\//;
-const LOCAL_TGZ = /^(?:\.{1,2}\/|\/).+\.tgz$/;
+// Bug #55 fix: accept both `.tgz` (npm pack default) and `.tar.gz` (the
+// suffix `/manta share` emits for its bundle name
+// `<name>-<version>.manta-pkg.tar.gz`). Without `.tar.gz` here, the
+// share→install round-trip canary (Phase 7b Chunk 2 Task 2.4 step 5)
+// failed the parser and required renaming before install — broke the
+// cross-phase integration assertion. Surfaced by clone-B in
+// cast-1780023574334; one-line widening is back-compat (additive
+// alternation).
+const LOCAL_TGZ = /^(?:\.{1,2}\/|\/).+\.(?:tgz|tar\.gz)$/;
 
 export function parseSpec(spec: string): ParsedSpec {
   if (LOCAL_TGZ.test(spec)) {

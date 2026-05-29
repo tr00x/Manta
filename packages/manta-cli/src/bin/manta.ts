@@ -20,6 +20,7 @@ import { runDaemonStatusCommand, runDaemonStopCommand } from '../commands/daemon
 import { runRetaskCommand } from '../commands/retask.js';
 import { runFeedbackCommand } from '../commands/feedback.js';
 import { runInstallCommand, InstallError } from '../commands/install.js';
+import { runShareCommand, ShareError } from '../commands/share.js';
 import { runUninstallCommand, UninstallError } from '../commands/uninstall.js';
 import {
   runLibraryListCommand,
@@ -567,6 +568,77 @@ async function main(): Promise<void> {
             } else {
               process.stderr.write(`[manta] install: ${err.code}: ${err.message}\n`);
             }
+            process.exitCode = err.exitCode;
+          } else {
+            throw err;
+          }
+        } finally {
+          await rt.dispose();
+        }
+      },
+    );
+
+  program
+    .command('share <castId>')
+    .description('Build a publishable Manta package bundle from a finalised cast')
+    .requiredOption('--name <@scope/name>', 'npm package name for the bundle (required)')
+    .requiredOption('--version <semver>', 'package version for the bundle (required)')
+    .option('--clone <id>', 'winning clone to bundle (overrides merge-review)')
+    .option('--out <dir>', 'output directory for the .tar.gz', '.')
+    .option('--description <text>', 'package description (default: from post-mortem)')
+    .option('--author <text>', 'package author')
+    .option('--license <SPDX>', 'package license (SPDX id)')
+    .option('--manta-version-compat <range>', 'compatible manta version range (default: caret-pin current)')
+    .option('--no-edit', 'skip the $EDITOR README pass')
+    .option('--accept-warnings', 'proceed despite non-fatal sanitization warnings')
+    .option('--non-interactive', 'CI/trigger mode: no $EDITOR, any warning is fatal, no publish')
+    .action(
+      async (
+        castId: string,
+        options: {
+          name: string;
+          version: string;
+          clone?: string;
+          out: string;
+          description?: string;
+          author?: string;
+          license?: string;
+          mantaVersionCompat?: string;
+          edit: boolean;
+          acceptWarnings?: boolean;
+          nonInteractive?: boolean;
+        },
+      ) => {
+        const rt = await createRuntime({ repoRoot: process.cwd() });
+        try {
+          const result = await runShareCommand(rt, {
+            castId,
+            name: options.name,
+            version: options.version,
+            ...(options.clone !== undefined ? { clone: options.clone } : {}),
+            outDir: options.out,
+            ...(options.description !== undefined ? { description: options.description } : {}),
+            ...(options.author !== undefined ? { author: options.author } : {}),
+            ...(options.license !== undefined ? { license: options.license } : {}),
+            ...(options.mantaVersionCompat !== undefined
+              ? { mantaVersionCompat: options.mantaVersionCompat }
+              : {}),
+            noEdit: !options.edit,
+            ...(options.acceptWarnings !== undefined ? { acceptWarnings: options.acceptWarnings } : {}),
+            ...(options.nonInteractive !== undefined ? { nonInteractive: options.nonInteractive } : {}),
+          });
+          const stdout = [
+            `Built ${result.packageName}@${result.version}`,
+            `  tarball:   ${result.tarballPath}`,
+            `  digest:    ${result.directoryDigest}`,
+            `  winner:    ${result.winningCloneId}`,
+            `  warnings:  ${result.warnings.length}`,
+          ].join('\n');
+          process.stdout.write(stdout + '\n');
+          process.exitCode = 0;
+        } catch (err) {
+          if (err instanceof ShareError) {
+            process.stderr.write(`[manta] share: ${err.code}: ${err.message}\n`);
             process.exitCode = err.exitCode;
           } else {
             throw err;
