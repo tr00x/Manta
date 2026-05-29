@@ -1,7 +1,7 @@
 # Manta Pattern — Design Spec
 
 **Date:** 2026-05-06
-**Status:** Reviewed (spec-document-reviewer: Approved, 1 iteration). Ready for plan phase.
+**Status:** Reviewed (spec-document-reviewer: Approved, 1 iteration). Ready for plan phase. **Amended 2026-05-29:** Sec 9 reconcile — transcript inheritance механизм + cost-tiers (v1 release blocker #1; разрешает противоречие Sec 1↔Sec 9 по `/goal`).
 **Author:** Tim Hunt + Claude Code (Opus 4.7)
 **Quality bar:** Production-grade from day 1. No MVP, no demo, no mocks.
 
@@ -18,7 +18,7 @@
 | Свойство | Subagent | Manta-clone |
 |---|---|---|
 | Системный промпт | Свой (специалист) | Идентичен мейну |
-| Контекст разговора | Свежий, через брифинг | Полный transcript snapshot |
+| Контекст разговора | Свежий, через брифинг | Полный transcript (native session-fork; distillable для cost) |
 | Память о юзере | Нет | Полная |
 | Tooling | Подмножество | Идентично мейну |
 | Возврат | Summary | Diff / merge / live в общую память |
@@ -402,7 +402,7 @@ manta/
    → V1: batch-spawn (one-shot per клон). Хорошо работает для `recon-swarm`, `forking-realities`, `refactor-wave`. Mode'ы требующие итеративности (`pair-programming`, `test-storm`) — V2.
 
 2. **Full transcript = дорогой initial context**.
-   → Smart context distillation: compaction + last N messages + open files + task contract. Полная история — lazy load через `manta.fetch_history`.
+   → **Решено эмпирически (v1):** native forked-session resume несёт полный transcript без стоимости сборки snapshot'а (Claude Code сам грузит JSONL), но token-cost re-ingest'а на turn-1 реален. Default = full forked resume; cost-control tier = distilled forked JSONL (auto выше size-порога). Механизм + tiers — см. подсекцию «Transcript inheritance — механизм и cost-tiers (v1)» ниже. `manta.fetch_history` отложен (не нужен для v1: `--resume` несёт историю нативно).
 
 3. **API стабильности headless mode** — Anthropic может поменять.
    → `manta-cli` как abstraction layer.
@@ -419,6 +419,28 @@ manta/
 
 5. **Zombie processes** при крэше мейна.
    → `parent_pid` tracking + heartbeat-проверка `kill -0 parent`. Suicide через 30 сек после смерти parent.
+
+### Transcript inheritance — механизм и cost-tiers (v1)
+
+> Reconcile Sec 1 (claim «full context inheritance») ↔ Sec 9 блокер #2 (full transcript дорог). Разрешено `/goal` 2026-05-29: **имплементируем full inheritance**, не репозиционируем claim. Механизм доказан эмпирически (cast-1780064388927, clone-A; см. `docs/audits/2026-05-29-transcript-inheritance-plan.md`).
+
+**Механизм (проверен на Claude Code build 2.1.156):**
+
+1. Мейн узнаёт свой session id через `process.env.CLAUDE_CODE_SESSION_ID` (НЕ `CLAUDE_SESSION_ID` — тот unset). Child-процесс `manta cast` наследует env → видит id мейна.
+2. Transcript мейна лежит на диске: `~/.claude/projects/<mangle(cwd)>/<sessionId>.jsonl`, где `mangle` = замена `/` и `.` на `-`.
+3. `--resume` **cwd-scoped**: клон в своём worktree (другой cwd → другой project-dir) НЕ может `--resume <parentId>` напрямую («No conversation found»).
+4. Реальный fork: **копируем** parent JSONL в project-dir worktree'а клона под свежим per-clone uuid, затем `claude --print --resume <fork_i> --append-system-prompt <priming> <prompt>`. Клон видит полный разговор мейна, пишет только в свою forked-копию, parent JSONL **не трогается** (открывается один раз `fs.copyFile`). N клонов = N независимых форков в N разных project-dir → нет гонки за parent, нет интерференции между клонами. `--fork-session` не требуется (копия и ЕСТЬ форк).
+
+**Cost-tiers (оба — forked-session resume, т.е. оба «наследование транскрипта», а не субагент):**
+
+| Tier | Когда | Что несёт клон |
+|---|---|---|
+| **A — Full (default)** | transcript ≤ size-порог | полный parent JSONL, forked + resumed. Доставляет claim Sec 1 буквально. |
+| **B — Distilled (FIRM default выше size-порога; либо `--distill`)** | transcript > порог (default ~2 MB; live main-сессии наблюдались до **11.7 MB** — full-copy × N клонов взорвал бы budget/context) | trimmed forked JSONL: header-записи + compaction-summary + last-N message-записей, resumed. Меньше байт, но всё ещё **continuation of me**, не fresh-context+briefing. |
+
+Граница «клон vs субагент» держится на **обоих** tier'ах: клон всегда стартует как продолжение разговора мейна (forked-session resume), тогда как субагент стартует с пустого контекста + брифинг. Tier B триммит хвост ради cost — он НЕ опускает клона до субагента. **FIRM default**, не «consider»: на реальных транскриптах (11.7 MB наблюдался) full-copy по умолчанию неприемлем.
+
+**Отложено для v1 (не блокеры):** `manta.fetch_history` lazy-load (Sec 9 оригинал) — не нужен, `--resume` несёт историю нативно. Реализация — `docs/superpowers/plans/2026-05-29-release-rb1-transcript-inheritance.md`; доказательство — e2e sentinel-тест (клон воспроизводит факт, существовавший ТОЛЬКО в разговоре мейна, и недостижимый из task/priming/snapshot).
 
 ---
 

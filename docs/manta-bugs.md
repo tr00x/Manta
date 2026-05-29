@@ -24,6 +24,20 @@
 
 ## Open bugs
 
+### #56 — Transcript inheritance unwired — clones boot as subagents (Sec 1 headline claim is false)
+
+**Discovered:** 2026-05-29, cast-1780064388927 (recon-swarm, clone-A) during v1 prod-readiness recon. Empirically proven mechanism in `docs/audits/2026-05-29-transcript-inheritance-plan.md`.
+**Severity:** High — this is Manta's headline differentiator (spec Sec 1: «first same-system-prompt cloning с full context inheritance») and v1 release blocker #1. Today the claim is false: clones start from an empty Claude Code session + priming preamble = functionally subagents. The full-transcript pipe is dead at **every** stage.
+**Status:** Open — plan written + spec reconciled (this commit). Implementation = `docs/superpowers/plans/2026-05-29-release-rb1-transcript-inheritance.md` (Chunks 1–5), cast chunk-by-chunk. Chunk 0 (spec reconcile + this entry) DONE in this commit.
+**Reproducer:** `manta cast recon-swarm` with a parent session holding a sentinel fact never written to any file/task → the clone cannot recall the sentinel (it never saw the parent conversation). A flag-assertion test passes anyway — only a semantic-inheritance e2e (clone reproduces a parent-only fact) distinguishes clone from subagent.
+**Root cause (four dead stages, file:line verified by clone-A):**
+1. `packages/manta-cli/src/commands/cast.ts:538` — `parentSessionId: opts.castId` stuffs a **cast id**, not a Claude session id (`z.string().min(1)` masks the bug — always non-empty, always wrong kind).
+2. `packages/manta-cli/src/spawner/snapshot-builder.ts:46-48` — `recentMessages: [], activeTodos: [], openFiles: []` hardcoded empty; `distillContext()` has zero production callers.
+3. `packages/manta-cli/src/spawner/priming.ts` — `buildPrimingText`/`buildInitialPrompt` never render `recentMessages`/`activeTodos`/`openFiles`; even if populated, the clone never sees them.
+4. `packages/manta-cli/src/bin/manta.ts:255` — batch runner `runClaudeCli()` never `--resume`s; `runClaudeResume` exists but is daemon-only and resumes the clone's OWN id, never the parent's transcript.
+**Mechanism (proven, supersedes the pre-recon `--resume "$CLAUDE_CODE_SESSION_ID" --fork-session` model which was WRONG):** `--resume` is cwd-scoped; copy parent JSONL `~/.claude/projects/<mangle(cwd)>/<id>.jsonl` into the clone's worktree project-dir under a fresh uuid, then `claude --print --resume <fork_i> --append-system-prompt <priming>`. Parent id from `process.env.CLAUDE_CODE_SESSION_ID` (NOT `CLAUDE_SESSION_ID`). Default = full forked resume; auto-distill above a size threshold (FIRM default — live main transcript was 11.7 MB). See spec Sec 9 «Transcript inheritance — механизм и cost-tiers (v1)».
+**Lessons:** A required-but-wrong-kind field (`parentSessionId` = castId) is invisible to a `.min(1)` schema — type-presence ≠ semantic correctness. The acceptance test for an inheritance feature MUST be semantic (parent-only sentinel recalled), never flag-presence. Adjacent pre-existing gap logged separately: daemon first-turn id mismatch (`runClaudeCli` w/o threading `sessionId` while `daemon-loop` later `--resume`s a non-UUID `${castId}-${cloneId}-${uuid}`) — out of scope for #56, tracked for a future fix.
+
 ### #54 — Trigger state stores (TriggersArmedStore, TriggerCircuitStore, TriggerDebounceStore) mutate without paired `events.jsonl` append — audit-trail invariant gap (bug #24 regression class for new stores)
 
 **Discovered:** 2026-05-28, code-review subagent on Phase 7c Chunk 1 merge ceremony (cast-1780023638705 clone C).
