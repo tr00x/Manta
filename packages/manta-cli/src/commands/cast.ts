@@ -8,7 +8,7 @@ import type {
   TaskContract as BusTaskContract,
 } from '@manta/bus';
 import type { CloneRunner, CloneHandle } from '../spawner/clone-spawner.js';
-import { spawnClone } from '../spawner/clone-spawner.js';
+import { spawnClone, selectCloneRunner } from '../spawner/clone-spawner.js';
 import { forkParentSession } from '../spawner/session-fork.js';
 import { addWorktree, removeWorktree, type WorktreeRecord } from '../spawner/worktree.js';
 import { buildCloneSnapshot } from '../spawner/snapshot-builder.js';
@@ -630,11 +630,6 @@ export async function runCastCommand(
           });
         }
       }
-      // `forkedSessionId` is captured here (Chunk 2) and consumed by the
-      // per-clone runner selection in Chunk 3. Keep it referenced so the build
-      // stays lint-clean until that wiring lands (same pattern as
-      // `void libraryModeName` above).
-      void forkedSessionId;
 
       const snap = buildCloneSnapshot({
         cloneId,
@@ -672,7 +667,14 @@ export async function runCastCommand(
         repoRoot: rt.repoRoot,
         snapshot: snap,
         worktree: wt.path,
-        runner: opts.runner,
+        // RB1/bug #56 (Chunk 3, Decision #2): per-clone runner choice driven by
+        // snapshot data — resume the forked transcript when available, else
+        // fall back to today's `opts.runner` (no NODE_ENV branch).
+        runner: selectCloneRunner({
+          resumeEnabled: cloneResumeEnabled,
+          forkedSessionId,
+          fallback: opts.runner,
+        }),
         registry: rt.ctx.registry,
         casts: rt.ctx.casts,
         castMode: opts.mode,
