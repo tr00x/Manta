@@ -21,8 +21,14 @@ import { sanitizeWorktreeDiff } from '../share/sanitize-worktree-diff.js';
 import { buildCastOrigin } from '../share/build-cast-origin.js';
 import { generateReadme } from '../share/generate-readme.js';
 import { assembleBundle, type BundleArtifacts } from '../share/bundle-assembler.js';
+import {
+  publishBundle,
+  type PublishRunner,
+  type Confirmer,
+} from '../share/publish-flow.js';
 import { ShareSanitizationError } from '../share/errors.js';
 import type { SanitizationWarning } from '../share/types.js';
+import * as readline from 'node:readline/promises';
 
 /**
  * `manta share <cast-id>` — local-bundle pipeline (Phase 7b Task 2.4).
@@ -70,6 +76,10 @@ export interface ShareDeps {
   resolveWorktreeDiff: (opts: { repoRoot: string; castId: string; cloneId: string }) => Promise<string>;
   /** Absolute path to the winning clone's worktree (skills/modes walk source). */
   resolveCloneWorktree: (opts: { repoRoot: string; castId: string; cloneId: string }) => string;
+  /** npm publish shell-outs (Chunk 3). Default = execa-backed; tests inject fakes. */
+  publishRunner: PublishRunner;
+  /** Interactive yes/no prompter (Chunk 3). Default = stdin readline; tests inject fakes. */
+  confirmer: Confirmer;
 }
 
 export interface RunShareCommandOptions {
@@ -79,8 +89,10 @@ export interface RunShareCommandOptions {
   noEdit?: boolean;
   acceptWarnings?: boolean;
   nonInteractive?: boolean;
-  /** Chunk 3 plumbs this; Chunk 2 only tolerates the literal `false`. */
-  publish?: false;
+  /** Publish the assembled bundle to npm behind the MVTS-7 gates (Chunk 3). */
+  publish?: boolean;
+  /** Override the publish size cap (bytes). Default 5 MB (see publish-flow). */
+  maxBytes?: number;
   // Manifest field overrides (CLI flags). name/version are REQUIRED.
   name: string;
   version: string;
@@ -99,6 +111,8 @@ export interface RunShareCommandResult {
   directoryDigest: string;
   warnings: SanitizationWarning[];
   winningCloneId: string;
+  /** `<name>@<version>` if `--publish` ran and succeeded; undefined otherwise. */
+  published?: string;
 }
 
 function defaultDeps(): ShareDeps {
@@ -123,6 +137,40 @@ function defaultDeps(): ShareDeps {
     },
     resolveCloneWorktree: ({ repoRoot, cloneId }) =>
       path.join(repoRoot, '.manta', 'worktrees', `clone-${cloneId}`),
+    publishRunner: {
+      whoami: async () => {
+        try {
+          const { stdout } = await execa('npm', ['whoami']);
+          return stdout.trim() || null;
+        } catch {
+          return null;
+        }
+      },
+      listScopePackages: async (scope) => {
+        // `npm access list packages @<scope>` → JSON map of pkg → permission.
+        try {
+          const { stdout } = await execa('npm', ['access', 'list', 'packages', `@${scope}`, '--json']);
+          const parsed = JSON.parse(stdout) as Record<string, unknown>;
+          return Object.keys(parsed);
+        } catch {
+          return [];
+        }
+      },
+      publish: async (tarballPath, opts) => {
+        await execa('npm', ['publish', tarballPath, '--access', opts.access], { stdio: 'inherit' });
+      },
+    },
+    confirmer: {
+      confirm: async (prompt) => {
+        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        try {
+          const answer = (await rl.question(`${prompt} [y/N] `)).trim().toLowerCase();
+          return answer === 'y' || answer === 'yes';
+        } finally {
+          rl.close();
+        }
+      },
+    },
   };
 }
 
@@ -328,10 +376,18 @@ export async function runShareCommand(
   rt: Runtime,
   opts: RunShareCommandOptions,
 ): Promise<RunShareCommandResult> {
-  if ((opts as { publish?: unknown }).publish === true) {
-    // Defense-in-depth: the CLI guard rejects --publish+--non-interactive, the
-    // command also refuses any publish in Chunk 2 (publish lands in Chunk 3).
-    throw new ShareError('share_publish_blocked', 'publish is not available in this build');
+  // Command-layer defense-in-depth (Task 3.3): the CLI's pre-commander guard
+  // rejects `--publish --non-interactive` with exit 2 before commander runs, so
+  // a trigger literally cannot construct a publishing invocation. This second
+  // layer refuses the same combination even when runShareCommand is called
+  // programmatically (bypassing the CLI). Publishing ALWAYS requires interactive
+  // human confirmation (Phase 7b §0 informed-consent — auto-share may build a
+  // bundle, never publish one).
+  if (opts.publish === true && opts.nonInteractive === true) {
+    throw new ShareError(
+      'share_publish_blocked',
+      '--publish cannot be combined with --non-interactive; publishing requires interactive human confirmation',
+    );
   }
   const deps: ShareDeps = { ...defaultDeps(), ...(opts.deps ?? {}) };
   const warnings: SanitizationWarning[] = [];
@@ -531,6 +587,31 @@ export async function runShareCommand(
   const outDir = opts.outDir ?? '.';
   const assembled = await assembleBundle(artifacts, { outDir, packageBaseName: baseName });
 
+  // 11. Publish gate (Chunk 3). The local bundle is already on disk and SURVIVES
+  //     any publish failure — `publishBundle` never deletes it, so a blocked /
+  //     declined publish leaves the tarball for re-inspection. bundleJsFiles =
+  //     the shipped skill payload (scanBundleJs skips non-JS; Phase 7b bundles
+  //     ship no JS, so the static scan is usually a no-op).
+  let published: string | undefined;
+  if (opts.publish === true) {
+    const pubRes = await publishBundle({
+      tarballPath: assembled.tarballPath,
+      unpackedDir: assembled.unpackedDir,
+      manifest,
+      bundleJsFiles: skillFiles,
+      ...(opts.maxBytes !== undefined ? { maxBytes: opts.maxBytes } : {}),
+      runner: deps.publishRunner,
+      confirmer: deps.confirmer,
+    });
+    if (!pubRes.ok) {
+      throw new ShareError('share_publish_blocked', `publish ${pubRes.reason}: ${pubRes.detail}`, {
+        reason: pubRes.reason,
+        tarballPath: assembled.tarballPath,
+      });
+    }
+    published = pubRes.published;
+  }
+
   return {
     tarballPath: assembled.tarballPath,
     packageName: manifest.name,
@@ -538,6 +619,7 @@ export async function runShareCommand(
     directoryDigest: assembled.directoryDigest,
     warnings,
     winningCloneId,
+    ...(published !== undefined ? { published } : {}),
   };
 }
 
