@@ -11,6 +11,7 @@ const valid: Snapshot = {
   version: CURRENT_SCHEMA_VERSION,
   castId: 'cast-001',
   parentSessionId: 'session-abc',
+  resumeEnabled: false,
   parentPid: 12345,
   createdAt: '2026-05-06T10:00:00.000Z',
   taskContract: {

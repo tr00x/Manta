@@ -191,6 +191,10 @@ async function main(): Promise<void> {
       'Override default 300s startup grace period (first heartbeat must arrive within this window). Pair with --heartbeat-timeout-ms when the clone needs longer cold-start due to large priming/snapshot.',
       parseInt,
     )
+    .option(
+      '--parent-session-id <uuid>',
+      'Real Claude session uuid whose transcript clones should inherit (RB1/bug #56). When omitted, resolves from MANTA_PARENT_SESSION_ID then CLAUDE_CODE_SESSION_ID; if all are unset, clones boot without transcript inheritance.',
+    )
     .action(
       async (
         mode: string,
@@ -211,6 +215,7 @@ async function main(): Promise<void> {
           chargeCheck: boolean;
           heartbeatTimeoutMs?: number;
           startupGraceMs?: number;
+          parentSessionId?: string;
         },
       ) => {
         const splitCsv = (s: string): string[] =>
@@ -252,6 +257,7 @@ async function main(): Promise<void> {
             // the property when --tasks was supplied.
             ...(cloneAssignments !== undefined ? { cloneAssignments } : {}),
             castId: `cast-${Date.now()}`,
+            ...(options.parentSessionId !== undefined ? { parentSessionId: options.parentSessionId } : {}),
             runner: runClaudeCli(),
             reporter,
             dryRun: options.dryRun,

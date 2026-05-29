@@ -8,7 +8,9 @@ import { ModeSchema, SessionModeSchema, TaskContractSchema, TodoSchema, OpenFile
  * sensitive material is OMITTED entirely rather than redacted in place —
  * `parentSessionId`, `parentPid`, `recentMessages` (raw transcript),
  * `budget`, and the internal `sessionId` are gone. `parentWorktree` /
- * `cloneWorktree` collapse to opaque markers.
+ * `cloneWorktree` collapse to opaque markers. `resumeEnabled` (RB1/bug #56) is
+ * a harmless boolean and is KEPT — it carries no host-local or sensitive data,
+ * and must be in the allow-list or `.strict()` would reject the round-trip.
  *
  * Built as a fresh `z.object` (not `SnapshotSchema.omit(...)`) because
  * `SnapshotSchema` is a `ZodEffects` (it carries a `.refine`), which has no
@@ -32,6 +34,7 @@ export const SanitizedSnapshotSchema = z
     ttlSeconds: z.number().int().positive(),
     siblingCloneIds: z.array(z.string().min(1)),
     sessionMode: SessionModeSchema,
+    resumeEnabled: z.boolean(),
   })
   .strict();
 

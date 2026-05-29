@@ -99,6 +99,46 @@ export async function allocateCloneIds(
   }
   return available.slice(0, count);
 }
+
+/**
+ * RB1/bug #56 — resolve the REAL parent Claude session uuid for transcript
+ * inheritance. Resolution order (Decision #5, locked):
+ *   1. `--parent-session-id` flag (`opts.parentSessionId`)
+ *   2. `MANTA_PARENT_SESSION_ID` env
+ *   3. `CLAUDE_CODE_SESSION_ID` env (set in-process by Claude Code; the cast
+ *      child inherits it)
+ *   4. else → `null`, `resumeEnabled = false`, and a `reporter.warn`.
+ *
+ * We NEVER fabricate an id (the old `parentSessionId: opts.castId` stuffed a
+ * cast id — the wrong kind of value, which was the root of bug #56). `null`
+ * means "no parent session known → clone boots without transcript inheritance".
+ *
+ * Note: the env fallbacks live here (not as a commander default on the flag) on
+ * purpose — baking `CLAUDE_CODE_SESSION_ID` into the flag default would let it
+ * mask `MANTA_PARENT_SESSION_ID`, breaking Decision #5's precedence (and the
+ * Chunk-5 e2e, which drives inheritance via `MANTA_PARENT_SESSION_ID`).
+ */
+export function resolveParentSessionId(
+  opts: { castId: string; parentSessionId?: string | undefined },
+  reporter: Pick<Reporter, 'warn'>,
+  env: NodeJS.ProcessEnv = process.env,
+): { parentSessionId: string | null; resumeEnabled: boolean } {
+  const flag = opts.parentSessionId?.trim();
+  const mantaEnv = env.MANTA_PARENT_SESSION_ID?.trim();
+  const claudeEnv = env.CLAUDE_CODE_SESSION_ID?.trim();
+  const resolved = flag || mantaEnv || claudeEnv || null;
+  if (resolved === null) {
+    reporter.warn('cast.parent_session.unresolved', {
+      castId: opts.castId,
+      message:
+        'no parent Claude session id (--parent-session-id / MANTA_PARENT_SESSION_ID / ' +
+        'CLAUDE_CODE_SESSION_ID all unset); clones boot without transcript inheritance',
+    });
+    return { parentSessionId: null, resumeEnabled: false };
+  }
+  return { parentSessionId: resolved, resumeEnabled: true };
+}
+
 const DEFAULT_DEADLINE_MS = 1_200_000; // 20 min per spec Sec 6.2
 
 /**
@@ -174,6 +214,12 @@ export interface RunCastOptions {
   cycleIntervalMs: number;
   tickBudgetMs: number;
   castId: string;
+  /**
+   * Explicit `--parent-session-id <uuid>` flag value (RB1/bug #56). When set it
+   * wins the resolution order in {@link resolveParentSessionId}. Undefined when
+   * the operator relied on env (`MANTA_PARENT_SESSION_ID` / `CLAUDE_CODE_SESSION_ID`).
+   */
+  parentSessionId?: string | undefined;
   budgetUsdPerClone: number;
   budgetUsdPerCast: number;
   /**
@@ -502,6 +548,10 @@ export async function runCastCommand(
       worktrees.push(sharedWorktree);
     }
 
+    // RB1/bug #56: resolve the real parent Claude session uuid ONCE per cast
+    // (it's the same for every clone); a single warn fires if nothing resolves.
+    const { parentSessionId, resumeEnabled } = resolveParentSessionId(opts, opts.reporter);
+
     for (const cloneId of cloneIds) {
       const e = effective[cloneId]!;
 
@@ -535,7 +585,8 @@ export async function runCastCommand(
         parentWorktree: rt.repoRoot,
         cloneWorktree: wt.path,
         parentPid: process.pid,
-        parentSessionId: opts.castId,
+        parentSessionId,
+        resumeEnabled,
         castId: opts.castId,
         budgetUsd: e.budgetUsd,
         sessionMode,

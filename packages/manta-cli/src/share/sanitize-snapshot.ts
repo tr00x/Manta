@@ -17,7 +17,8 @@ function relativiseToRepo(p: string, root: string): string | null {
  *
  * Default-deny: drops `parentSessionId`, `parentPid`, `recentMessages` (raw
  * transcript — research §1.4 "highest risk"), `budget`, and `sessionId`
- * entirely; collapses `parentWorktree`/`cloneWorktree` to opaque markers;
+ * entirely; keeps `resumeEnabled` (RB1/bug #56 — a harmless boolean);
+ * collapses `parentWorktree`/`cloneWorktree` to opaque markers;
  * relativises `openFiles[].path` to the repo root (dropping any that escape).
  * `taskContract` is passed through verbatim — the command swaps in the
  * separately-sanitized contract (Task 1.4).
@@ -71,6 +72,7 @@ export function sanitizeSnapshot(s: Snapshot): {
     ttlSeconds: s.ttlSeconds,
     siblingCloneIds: s.siblingCloneIds,
     sessionMode: s.sessionMode,
+    resumeEnabled: s.resumeEnabled,
   };
 
   return { sanitized, warnings };
