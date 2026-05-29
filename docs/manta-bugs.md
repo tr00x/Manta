@@ -24,6 +24,20 @@
 
 ## Open bugs
 
+### #62 — `heartbeat-hook.test.ts` leaks the ambient `MANTA_CLONE_ID` into the spawned touch-script → `pnpm gate` reds whenever the suite runs INSIDE a Manta clone (dogfood path)
+
+**Discovered:** 2026-05-29, cast-1780081439432 (RB2 Chunk 1, forking-realities clone B). Surfaced because the clone ran `pnpm gate` from inside its own worktree, where `MANTA_CLONE_ID=B` is set in the process env. NOT caused by the RB2 rename — proven by `git stash` + re-run on clean base `01b5a33`: the test fails identically without any RB2 change.
+**Severity:** Medium — green on the curator's main session (no `MANTA_CLONE_ID`), red on every clone-run gate. Since bootstrap-by-Manta runs `pnpm gate` inside clones for essentially every cast, this is a standing false-red that would block or noise-up any clone-driven release work, and could be mistaken for a real regression introduced by the cast.
+**Status:** Fixed in cast-1780081439432 (RB2 Chunk 1 commit) — test-only env pin; no production-code change.
+
+**Reproducer:** `MANTA_CLONE_ID=B pnpm --filter manta exec vitest run tests/spawner/heartbeat-hook.test.ts` → `touch script updates last_heartbeat_at in registry` fails with `expected 1000 to be greater than or equal to <now>`. Unset `MANTA_CLONE_ID` (or run from the main session) → passes.
+
+**Root cause:** the generated heartbeat touch-script reads `CLONE_ID = process.env.MANTA_CLONE_ID || "<baked-in id>"` — an intentional production feature (a clone's own env names which registry row it touches). The test seeds a registry containing only clone `A` and spawns the script via `execSync`/`spawn` WITHOUT scrubbing the env, so the child inherits the ambient `MANTA_CLONE_ID=B`. `data.clones["B"]` is `undefined` → the script hits its `!clone` early-return and no-ops → `last_heartbeat_at` stays at the seeded `1000`. The two sibling cases (`no-op for DEAD`, `cross-process race`) coincidentally still passed for the *wrong* reason (no-op against the missing `B` vs. the intended DEAD-skip / A-already-advanced), so only the positive-update assertion went red.
+
+**Fix:** pin `env: { ...process.env, MANTA_CLONE_ID: 'A' }` on all three child-process launches in `heartbeat-hook.test.ts` (the two `execSync` calls + the `spawn` in the race test) so each script deterministically targets the seeded/registered clone regardless of the host environment. Production code untouched — the env-override behaviour is correct.
+
+**Lessons:** a test that spawns a child process inheriting `process.env` is not hermetic — ambient vars set by the harness (here a Manta clone's own `MANTA_CLONE_ID`) can silently steer the child down a different branch. Any test asserting on a spawned binary's behaviour must control the child env explicitly, especially for vars the production code reads as a feature. "Green on main, red in a clone" is the diagnostic signature of an env-leak: the dogfood runtime sets vars the main session does not.
+
 ### #61 — `mangle()` derived the wrong on-disk project-dir → fork written where `--resume` never looks (silent empty inheritance)
 
 **Discovered:** 2026-05-29, surfaced by the RB1 real-claude e2e bring-up (run 1: `ENOENT` stat on the parent JSONL at `transcript-inheritance.e2e.test.ts:219`). NOT caught by any hermetic unit test.

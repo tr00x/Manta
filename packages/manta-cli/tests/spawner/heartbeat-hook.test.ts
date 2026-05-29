@@ -84,7 +84,13 @@ describe('heartbeat-hook', () => {
       const scriptPath = path.join(worktree, '.manta', 'heartbeat-touch.cjs');
 
       const before = Date.now();
-      execSync(`node "${scriptPath}"`, { timeout: 5000 });
+      // The generated touch-script reads CLONE_ID from MANTA_CLONE_ID, falling
+      // back to the baked-in id only when that env var is absent. When this
+      // suite runs INSIDE a Manta clone (the dogfood path — `pnpm gate` during
+      // a cast), the ambient MANTA_CLONE_ID would override the seeded clone and
+      // the script would no-op against a non-existent clone. Pin it to the
+      // seeded clone so the test is deterministic regardless of the host env.
+      execSync(`node "${scriptPath}"`, { timeout: 5000, env: { ...process.env, MANTA_CLONE_ID: 'A' } });
       const after = Date.now();
 
       const updated = JSON.parse(await fs.readFile(regPath, 'utf8')) as Record<string, unknown>;
@@ -121,7 +127,10 @@ describe('heartbeat-hook', () => {
     const regPath = path.join(root, '.manta', 'state', 'registry.json');
 
     const runHook = (): Promise<void> => new Promise((resolve, reject) => {
-      const child = spawn('node', [scriptPath], { stdio: 'ignore' });
+      // Pin MANTA_CLONE_ID so the touch-script targets the registered clone A
+      // even when this suite runs inside a Manta clone (see the env note in the
+      // "updates last_heartbeat_at" test).
+      const child = spawn('node', [scriptPath], { stdio: 'ignore', env: { ...process.env, MANTA_CLONE_ID: 'A' } });
       child.on('exit', (code) => code === 0 ? resolve() : reject(new Error(`hook exit ${code ?? 'null'}`)));
       child.on('error', reject);
     });
@@ -182,7 +191,9 @@ describe('heartbeat-hook', () => {
     try {
       await installHeartbeatHook(worktree, root, 'A');
       const scriptPath = path.join(worktree, '.manta', 'heartbeat-touch.cjs');
-      execSync(`node "${scriptPath}"`, { timeout: 5000 });
+      // Pin MANTA_CLONE_ID to the seeded clone so the DEAD-skip path is what's
+      // actually exercised (not an accidental no-op from an ambient clone id).
+      execSync(`node "${scriptPath}"`, { timeout: 5000, env: { ...process.env, MANTA_CLONE_ID: 'A' } });
 
       const updated = JSON.parse(await fs.readFile(regPath, 'utf8')) as Record<string, unknown>;
       const clone = (updated.clones as Record<string, Record<string, unknown>>).A;
