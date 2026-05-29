@@ -43,6 +43,28 @@ describe('runtime', () => {
     await rt.dispose();
   });
 
+  // Phase 7c Task 2.1 — the four trigger stores must be wired into ctx so the
+  // fire orchestrator (Chunk 3) and the trigger CLI commands consume them via
+  // the runtime. TriggersArmed/Circuit carry the bug #54 EventsLog audit dep.
+  it('createRuntime wires the four trigger stores into ctx (Phase 7c)', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({ repoRoot: fx.root });
+    expect(rt.ctx.triggersArmed).toBeDefined();
+    expect(rt.ctx.triggerFires).toBeDefined();
+    expect(rt.ctx.triggerDebounce).toBeDefined();
+    expect(rt.ctx.triggerCircuit).toBeDefined();
+    // Armed store is functional end-to-end against the repo stateDir.
+    expect(await rt.ctx.triggersArmed!.getState('nope')).toBe('disarmed');
+    // Circuit store carries its EventsLog audit dep (bug #54): a trip writes
+    // a trigger_circuit_opened event into the repo's events.jsonl.
+    await rt.ctx.triggerCircuit!.recordBudgetRefusal('ta');
+    await rt.ctx.triggerCircuit!.recordBudgetRefusal('tb');
+    await rt.ctx.triggerCircuit!.recordBudgetRefusal('tc');
+    const opened = (await rt.ctx.events.readAll()).filter((e) => e.type === 'trigger_circuit_opened');
+    expect(opened).toHaveLength(1);
+    await rt.dispose();
+  });
+
   it('createRuntime accepts threshold overrides', async () => {
     fx = await makeRepoFixture();
     const rt = await createRuntime({

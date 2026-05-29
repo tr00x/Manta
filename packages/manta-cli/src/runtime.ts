@@ -12,6 +12,10 @@ import {
   DailySpendLedger,
   EventsLog,
   WorkQueueStore,
+  TriggersArmedStore,
+  TriggerFiresLog,
+  TriggerDebounceStore,
+  TriggerCircuitStore,
   fsMemoryWriters,
   systemClock,
   type BusContext,
@@ -75,6 +79,10 @@ export async function createRuntime(opts: CreateRuntimeOptions): Promise<Runtime
 
   const clock = systemClock;
   const paths = busPaths(repoRoot);
+  // events is constructed up front so the trigger stores that pair mutations
+  // with an audit append (bug #54: triggersArmed, triggerCircuit) share the
+  // same EventsLog instance the rest of the bus writes to.
+  const events = new EventsLog(paths, clock);
   const ctx: BusContext = {
     paths,
     clock,
@@ -85,7 +93,7 @@ export async function createRuntime(opts: CreateRuntimeOptions): Promise<Runtime
     casts: new CastsStore(paths, clock),
     charges: new ChargeStore(paths, clock),
     dailySpend: new DailySpendLedger(paths, clock),
-    events: new EventsLog(paths, clock),
+    events,
     // Bug #20: workQueue must be present in production ctx — Phase 5/6 daemon
     // modes (pair-programming, test-storm, documentation-chase) and the
     // retask command all branch on `rt.ctx.workQueue` being defined. Prior
@@ -93,6 +101,12 @@ export async function createRuntime(opts: CreateRuntimeOptions): Promise<Runtime
     // no-ops in production while tests passed (tests wire workQueue manually).
     workQueue: new WorkQueueStore(paths, clock),
     memoryWriters: fsMemoryWriters({ repoRoot, clock }),
+    // Phase 7c Task 2.1: the four trigger stores. Armed + Circuit take the
+    // shared `events` log so their state transitions are audit-paired (bug #54).
+    triggersArmed: new TriggersArmedStore(paths, clock, events),
+    triggerFires: new TriggerFiresLog(paths, clock),
+    triggerDebounce: new TriggerDebounceStore(paths, clock),
+    triggerCircuit: new TriggerCircuitStore(paths, clock, events),
   };
 
   const orchestrator = new Orchestrator({

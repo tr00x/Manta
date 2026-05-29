@@ -15,6 +15,10 @@ import { ChargeStore } from './state/charge-store';
 import { DailySpendLedger } from './state/daily-spend';
 import { EventsLog } from './state/events';
 import { WorkQueueStore } from './state/work-queue';
+import { TriggersArmedStore } from './state/triggers-armed';
+import { TriggerFiresLog } from './state/triggers-fires';
+import { TriggerDebounceStore } from './state/triggers-debounce';
+import { TriggerCircuitStore } from './state/triggers-circuit';
 import { fsMemoryWriters, type MemoryWriters } from './memory-writers';
 import type { BusContext } from './tools/index';
 import { createLifecycleHandlers } from './tools/lifecycle';
@@ -109,6 +113,13 @@ export async function createBusServer(opts: CreateBusServerOptions): Promise<Bus
     events,
     memoryWriters,
     workQueue,
+    // Phase 7c Task 2.1: trigger stores on the MCP server ctx too, so any
+    // future bus-side trigger handler resolves them. Armed + Circuit share the
+    // `events` log for audit-paired transitions (bug #54).
+    triggersArmed: new TriggersArmedStore(paths, clock, events),
+    triggerFires: new TriggerFiresLog(paths, clock),
+    triggerDebounce: new TriggerDebounceStore(paths, clock),
+    triggerCircuit: new TriggerCircuitStore(paths, clock, events),
   };
 
   const lifecycle = createLifecycleHandlers(context);
