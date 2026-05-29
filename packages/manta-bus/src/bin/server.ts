@@ -67,7 +67,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
+  // eslint-disable-next-line no-console -- Reason: top-level CLI boot-failure handler; console.error is the last-resort sink before process.exit (no logger exists yet at startup).
   console.error('manta-bus failed to start:', err);
   process.exit(EXIT_RUNTIME);
 });

@@ -84,7 +84,7 @@ export class EventsLog {
       }
     }
     if (skipped > 0) {
-      // eslint-disable-next-line no-console
+      // eslint-disable-next-line no-console -- Reason: operational warning on torn-tail recovery; skip-and-warn avoids poisoning every reader for one bad line.
       console.warn(
         `EventsLog.readAll: skipped ${skipped} malformed line(s) in ${this.paths.eventsLog} (likely a torn last write)`,
       );

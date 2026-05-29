@@ -85,7 +85,7 @@ function jsonSchema(): { type: 'object'; additionalProperties: boolean } {
  * need to perform async setup here (warmup, initial events.append, etc.) —
  * even though Chunk 2 wiring is synchronous.
  */
-// eslint-disable-next-line @typescript-eslint/require-await
+// eslint-disable-next-line @typescript-eslint/require-await -- Reason: async return is forward-compat for Phase 5 daemon setup (see JSDoc above); body is synchronous today by design.
 export async function createBusServer(opts: CreateBusServerOptions): Promise<BusServerHandle> {
   const clock = opts.clock ?? systemClock;
   const paths = busPaths(opts.repoRoot);
