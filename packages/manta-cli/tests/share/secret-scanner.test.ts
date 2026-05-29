@@ -16,8 +16,12 @@ const CASES: Case[] = [
   },
   {
     kind: 'openai-anthropic-key',
-    positive: 'sk-abcdef0123456789ABCDEF0123',
-    negative: 'sk-short',
+    // Merge-ceremony regex tightening (cast-1780020786877 code review):
+    // bare `sk-…` form was too loose and false-positive'd on benign
+    // prose. The scanner now requires a real provider prefix
+    // (sk-ant/proj/live/test/or-...) or the 48+ char alphanumeric form.
+    positive: 'sk-ant-abcdef0123456789ABCDEF0123',
+    negative: 'sk-learn-version-0.24.1-installation-guide', // proves the false-positive fix
   },
   {
     kind: 'github-pat',
@@ -82,7 +86,7 @@ describe('scanForSecrets', () => {
   });
 
   it('returns ≥1 finding for an export OPENAI_KEY assignment and never leaks the token', () => {
-    const findings = scanForSecrets('export OPENAI_KEY=sk-abc123def456ghi789jkl012');
+    const findings = scanForSecrets('export OPENAI_KEY=sk-proj-abc123def456ghi789jkl012');
     expect(findings.length).toBeGreaterThanOrEqual(1);
     for (const f of findings) {
       expect(f.masked).not.toContain('abc123def456ghi789jkl012');

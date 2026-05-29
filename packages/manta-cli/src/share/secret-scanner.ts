@@ -28,7 +28,17 @@ interface SecretRule {
  */
 const RULES: readonly SecretRule[] = [
   { kind: 'aws-access-key', pattern: /AKIA[0-9A-Z]{16}/g },
-  { kind: 'openai-anthropic-key', pattern: /sk-[A-Za-z0-9_-]{20,}/g },
+  // Code-review must-fix (cast-1780020786877 merge ceremony): the loose
+  // `sk-[A-Za-z0-9_-]{20,}` form false-positive'd on benign prose like
+  // `sk-learn-version-0.24.1-installation-guide` and tripped a HARD-BLOCK
+  // (fatal, no --accept) on share bundles. Tightened to the prefixed forms
+  // Anthropic/OpenAI actually issue (`sk-ant-…`, `sk-proj-…`, `sk-live-…`,
+  // `sk-test-…`) plus the long alphanumeric form (≥48 chars, no
+  // underscores/dashes — too long to occur by accident in identifiers).
+  {
+    kind: 'openai-anthropic-key',
+    pattern: /sk-(?:ant|proj|live|test|or)-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{48,}/g,
+  },
   { kind: 'github-pat', pattern: /ghp_[A-Za-z0-9]{36}/g },
   { kind: 'github-fine-grained-pat', pattern: /github_pat_[A-Za-z0-9_]{40,}/g },
   { kind: 'slack-token', pattern: /xox[baprs]-[A-Za-z0-9-]{10,}/g },

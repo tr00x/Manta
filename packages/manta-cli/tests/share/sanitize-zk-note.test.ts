@@ -55,7 +55,7 @@ describe('sanitizeZkNote', () => {
   });
 
   it('throws fatal when the body contains a secret', () => {
-    const body = 'token sk-abcdef0123456789ABCDEF0123 leaked here';
+    const body = 'token sk-ant-abcdef0123456789ABCDEF0123 leaked here';
     expect(() => sanitizeZkNote(note({ body }), { repoRoot: ROOT, bundledAt: BUNDLED_AT })).toThrow(
       ShareSanitizationError,
     );
