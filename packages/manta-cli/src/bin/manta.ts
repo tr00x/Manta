@@ -103,12 +103,37 @@ function rejectHookOverrideEarly(argv: string[]): boolean {
   return false;
 }
 
+/**
+ * Pre-commander guard for `manta share --publish` (Phase 7b §0 trust model):
+ * a trigger-fired cast may BUILD a bundle (`--non-interactive`) but MUST NOT
+ * publish it — publishing always requires interactive human confirmation. So
+ * `--publish` together with `--non-interactive` is structurally rejected before
+ * commander parses, the same enforcement shape as `install --no-hooks`. A
+ * trigger literally cannot construct a publishing invocation. `runShareCommand`
+ * also refuses the same combination (defense-in-depth); this is the CLI layer.
+ */
+function rejectPublishNonInteractiveEarly(argv: string[]): boolean {
+  const idx = argv.indexOf('share');
+  if (idx < 0) return false;
+  const rest = argv.slice(idx);
+  return rest.includes('--publish') && rest.includes('--non-interactive');
+}
+
 async function main(): Promise<void> {
   if (rejectHookOverrideEarly(process.argv)) {
     process.stderr.write(
       '[manta] install: hooks distribution is deferred to Phase 8; --no-hooks cannot be disabled\n',
     );
     process.exitCode = 11;
+    return;
+  }
+
+  if (rejectPublishNonInteractiveEarly(process.argv)) {
+    process.stderr.write(
+      '[manta] share: --publish cannot be combined with --non-interactive; ' +
+        'publishing always requires interactive human confirmation (Phase 7b trust model)\n',
+    );
+    process.exitCode = 2;
     return;
   }
 
@@ -592,6 +617,8 @@ async function main(): Promise<void> {
     .option('--no-edit', 'skip the $EDITOR README pass')
     .option('--accept-warnings', 'proceed despite non-fatal sanitization warnings')
     .option('--non-interactive', 'CI/trigger mode: no $EDITOR, any warning is fatal, no publish')
+    .option('--publish', 'publish the bundle to npm behind MVTS-7 gates (interactive only)')
+    .option('--max-bytes <n>', 'refuse publish if the tarball exceeds this many bytes (default 5 MB)', (v: string) => parseInt(v, 10))
     .action(
       async (
         castId: string,
@@ -607,6 +634,8 @@ async function main(): Promise<void> {
           edit: boolean;
           acceptWarnings?: boolean;
           nonInteractive?: boolean;
+          publish?: boolean;
+          maxBytes?: number;
         },
       ) => {
         const rt = await createRuntime({ repoRoot: process.cwd() });
@@ -626,6 +655,8 @@ async function main(): Promise<void> {
             noEdit: !options.edit,
             ...(options.acceptWarnings !== undefined ? { acceptWarnings: options.acceptWarnings } : {}),
             ...(options.nonInteractive !== undefined ? { nonInteractive: options.nonInteractive } : {}),
+            ...(options.publish === true ? { publish: true } : {}),
+            ...(options.maxBytes !== undefined ? { maxBytes: options.maxBytes } : {}),
           });
           const stdout = [
             `Built ${result.packageName}@${result.version}`,
@@ -633,6 +664,7 @@ async function main(): Promise<void> {
             `  digest:    ${result.directoryDigest}`,
             `  winner:    ${result.winningCloneId}`,
             `  warnings:  ${result.warnings.length}`,
+            ...(result.published !== undefined ? [`  published: ${result.published}`] : []),
           ].join('\n');
           process.stdout.write(stdout + '\n');
           process.exitCode = 0;

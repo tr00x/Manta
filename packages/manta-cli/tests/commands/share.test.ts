@@ -136,13 +136,50 @@ async function buildFixture(opts: { diff?: string; recentMessages?: number } = {
   rt = await createRuntime({ repoRoot, homeDir });
 }
 
-function fakeDeps(diff = 'diff --git a/x.ts b/x.ts\n+const ok = 1;\n'): Partial<ShareDeps> {
+interface PublishProbe {
+  publishCalls: number;
+  lastAccess: string | null;
+}
+
+/**
+ * Fake publish seams (Chunk 3). The default runner is logged-in, owns the
+ * scope, and a confirmer that says yes twice — the all-pass happy path. Tests
+ * override per-case. Real execa-npm + stdin readline are NEVER reached.
+ */
+function fakeDeps(
+  diff = 'diff --git a/x.ts b/x.ts\n+const ok = 1;\n',
+  publish: {
+    who?: string | null;
+    scopePkgs?: string[];
+    answers?: boolean[];
+    probe?: PublishProbe;
+  } = {},
+): Partial<ShareDeps> {
+  let i = 0;
   return {
     now: () => FIXED_NOW,
     resolveGitRemote: async () => null,
     resolveWorktreeDiff: async () => diff,
     resolveCloneWorktree: ({ repoRoot: r, cloneId }) =>
       path.join(r, '.manta', 'worktrees', `clone-${cloneId}`),
+    publishRunner: {
+      whoami: async () => (publish.who === undefined ? 'tester' : publish.who),
+      listScopePackages: async () => publish.scopePkgs ?? ['@manta-library/other'],
+      publish: async (_tarball, opts) => {
+        if (publish.probe) {
+          publish.probe.publishCalls += 1;
+          publish.probe.lastAccess = opts.access;
+        }
+      },
+    },
+    confirmer: {
+      confirm: async () => {
+        const ans = publish.answers ?? [true, true];
+        const a = ans[i] ?? false;
+        i += 1;
+        return a;
+      },
+    },
   };
 }
 
@@ -261,13 +298,6 @@ describe('runShareCommand — local bundle', () => {
     }
   });
 
-  it('publish=true is refused (share_publish_blocked) — Chunk 3 only', async () => {
-    await buildFixture();
-    await expect(
-      runShareCommand(rt, baseOpts({ publish: true })),
-    ).rejects.toMatchObject({ code: 'share_publish_blocked' });
-  });
-
   it('ShareError is the thrown type', async () => {
     await buildFixture();
     let caught: unknown;
@@ -277,5 +307,54 @@ describe('runShareCommand — local bundle', () => {
       caught = e;
     }
     expect(caught).toBeInstanceOf(ShareError);
+  });
+});
+
+describe('runShareCommand — --publish (Chunk 3)', () => {
+  it('publish + non-interactive → share_publish_blocked (command-layer defense)', async () => {
+    await buildFixture();
+    await expect(
+      runShareCommand(rt, baseOpts({ publish: true, nonInteractive: true })),
+    ).rejects.toMatchObject({ code: 'share_publish_blocked', exitCode: 27 });
+  });
+
+  it('interactive publish with all gates passing → publishes once with access:public', async () => {
+    await buildFixture();
+    const probe: PublishProbe = { publishCalls: 0, lastAccess: null };
+    const result = await runShareCommand(
+      rt,
+      baseOpts({ publish: true, deps: fakeDeps(undefined, { probe }) }),
+    );
+    expect(result.published).toBe('@manta-library/share-sample@0.1.0');
+    expect(probe.publishCalls).toBe(1);
+    expect(probe.lastAccess).toBe('public');
+  });
+
+  it('a declined confirmation → share_publish_blocked; the local tarball survives', async () => {
+    await buildFixture();
+    const probe: PublishProbe = { publishCalls: 0, lastAccess: null };
+    let caught: ShareError | undefined;
+    try {
+      await runShareCommand(
+        rt,
+        baseOpts({ publish: true, deps: fakeDeps(undefined, { answers: [false], probe }) }),
+      );
+    } catch (e) {
+      caught = e as ShareError;
+    }
+    expect(caught?.code).toBe('share_publish_blocked');
+    expect(probe.publishCalls).toBe(0);
+    // The bundle assembled before the publish gate; it must remain on disk.
+    const tarball = caught?.details.tarballPath as string;
+    await expect(fs.access(tarball)).resolves.toBeUndefined();
+  });
+
+  it('not-logged-in → share_publish_blocked, publish never called', async () => {
+    await buildFixture();
+    const probe: PublishProbe = { publishCalls: 0, lastAccess: null };
+    await expect(
+      runShareCommand(rt, baseOpts({ publish: true, deps: fakeDeps(undefined, { who: null, probe }) })),
+    ).rejects.toMatchObject({ code: 'share_publish_blocked' });
+    expect(probe.publishCalls).toBe(0);
   });
 });
