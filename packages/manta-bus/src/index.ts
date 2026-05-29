@@ -1,6 +1,24 @@
 // Public exports — Chunk 2 wires the MCP server on top of Chunk 1's stores.
 export * from './errors';
 export * from './schema';
+export {
+  TriggerDefSchema,
+  TriggerNameSchema,
+  EventSourceSchema,
+  ConditionSchema,
+  TriggerScopeSchema,
+  TriggerSafetySchema,
+  TriggerActionSchema,
+} from './trigger-schema';
+export type {
+  TriggerDef,
+  TriggerName,
+  EventSource,
+  TriggerCondition,
+  TriggerScope,
+  TriggerSafety,
+  TriggerAction,
+} from './trigger-schema';
 export type { Clock } from './clock';
 export { systemClock, FakeClock } from './clock';
 export { busPaths } from './state/paths';
