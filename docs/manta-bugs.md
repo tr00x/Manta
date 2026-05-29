@@ -24,6 +24,17 @@
 
 ## Open bugs
 
+### #54 — Trigger state stores (TriggersArmedStore, TriggerCircuitStore, TriggerDebounceStore) mutate without paired `events.jsonl` append — audit-trail invariant gap (bug #24 regression class for new stores)
+
+**Discovered:** 2026-05-28, code-review subagent on Phase 7c Chunk 1 merge ceremony (cast-1780023638705 clone C).
+**Severity:** Medium — armed-state transitions (disarm-all panic, validation-error-disarm), circuit trip/reset are exactly the events that need a cross-store reconstruction path via `events.jsonl`. A corrupted/lost `armed.json` or `circuit.json` cannot be replayed without it (bug #24 lesson: "mutate paired with events.jsonl append inside the mutex"). Doesn't bite under normal operation; bites hard during recovery / forensics.
+**Status:** Open — Chunk 2 follow-up (when the handlers wire the stores together, the events dep can be threaded through cleanly).
+**Files:** `packages/manta-bus/src/state/triggers-armed.ts`, `packages/manta-bus/src/state/triggers-circuit.ts`, `packages/manta-bus/src/state/triggers-debounce.ts`.
+**Reproducer:** Open the breaker → delete `circuit.json` from disk → restart → state is lost; no replay possible because no `trigger_circuit_opened` event was written to `events.jsonl`. Same shape for any of the four state stores.
+**Root cause:** All three new stores use `atomicMutateJson(file, factory, mutator)` without the optional `auditAppend` 4th arg. The bus's `atomic-fs` primitive supports paired events.jsonl appends inside the file mutex specifically to close this gap (added per bug #24). Phase 7c Chunk 1's stores landed without the audit-trail wiring because the events.append targets (event types `trigger_armed`, `trigger_circuit_opened`, `trigger_circuit_reset`, `trigger_disarmed_by_validation_error`) hadn't been threaded through `BusContext.events` at the store-constructor level.
+**Fix (proposed):** Add `events: EventsLog` ctor dep to `TriggersArmedStore` and `TriggerCircuitStore` (TriggerFiresLog is itself the audit, so it's exempt; TriggerDebounceStore is low-stakes — a debounce miss is recoverable). Pass `() => events.append({type: 'trigger_armed', name, ...})` etc. as the 4th `auditAppend` arg of `atomicMutateJson` for every state-changing mutate. ~30 lines per store, no new tests required if existing `EventsLog` tests cover the primitive. Recommended schedule: Phase 7c Chunk 2 (when handlers wire stores together — natural seam to inject `events` into the store constructors).
+**Lessons:** Every new state store that lands in `@manta/bus` must, on first commit, demonstrate audit-trail pairing. Add a unit-test convention: any new `state/*.ts` store must include a `mutates events.jsonl on commit` test that verifies the events.append fires INSIDE the mutex (not after). Codify in CLAUDE.md / spec Sec on bus state.
+
 ### #52 — Heavy-generation tasks (plan-drafting, complex synthesis) exceed `heartbeatTimeoutMs` between tool calls
 
 **Discovered:** 2026-05-28, plan-drafting cast `cast-1780018345492` (recon-swarm × 2 drafting Phase 7b + 7c plans). Both clones DEAD by heartbeat timeout (`heartbeat 302916ms ago > 300000ms`) before producing any deliverable file.

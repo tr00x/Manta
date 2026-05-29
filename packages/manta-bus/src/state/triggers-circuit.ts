@@ -88,13 +88,23 @@ export class TriggerCircuitStore {
     return { tripped };
   }
 
+  /**
+   * Reset the breaker to closed/clean state.
+   *
+   * `reason` is for the CALLER's audit trail (e.g. `events.append({type:
+   * 'trigger_circuit_reset', reason})` when bug #54's audit-trail wiring
+   * lands). This store does not persist it because the circuit is a
+   * forward-only state machine — `opened_reason` reflects the CURRENT
+   * trip, not history; reset clears it back to `null`. The param exists
+   * so the API documents intent at the call site and is ready to thread
+   * through to events.append once Chunk 3's audit-trail pairing arrives.
+   * Bug-hunt code-review (cast-1780023638705) flagged the previous
+   * `void reason;` as misleading API — this comment makes the contract
+   * explicit instead.
+   */
   async reset(reason: string): Promise<void> {
-    await this.mutate(() => {
-      const fresh = emptyFile();
-      // reset clears windows; opened_reason cleared to null (the reset reason is logged by the caller).
-      void reason;
-      return fresh;
-    });
+    void reason; // intentional — see JSDoc above for why this is not persisted yet.
+    await this.mutate(() => emptyFile());
   }
 
   private async mutate(mutator: (file: CircuitFile) => CircuitFile): Promise<CircuitFile> {
