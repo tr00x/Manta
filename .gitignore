@@ -11,6 +11,7 @@ last-gasp-report.md
 .manta/worktrees/
 .manta/active.json
 .manta/config/
+.manta/heartbeat-touch.cjs
 
 # Graphify runtime artifacts (regenerable, not source)
 graphify-out/

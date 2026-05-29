@@ -4,14 +4,18 @@ import { createRequire } from 'node:module';
 import { busPaths } from '@manta/bus';
 
 const require_ = createRequire(import.meta.url);
-// Resolve proper-lockfile through @manta/bus's dep chain. The generated .cjs
-// hook runs from inside a clone's worktree, where pnpm hoisting may differ
-// from the main repo, so we embed the absolute host-path resolved at install
-// time. @manta/bus is a direct dep of this package; proper-lockfile is a
-// direct dep of @manta/bus, so chained resolve always lands on the workspace
-// copy that the bus itself uses.
-const PROPER_LOCKFILE_PATH = createRequire(require_.resolve('@manta/bus'))
-  .resolve('proper-lockfile');
+// Resolve proper-lockfile from THIS package's own context (bug #53). The
+// generated .cjs hook runs from inside a clone's worktree that may have no
+// node_modules at all, so we embed the absolute host-path resolved at install
+// time — the touch-script never re-resolves at runtime. We deliberately do
+// NOT chain through @manta/bus: under Chunk 2's tsup `noExternal: [/^@manta\//]`
+// the bus is inlined into manta's bundle and vanishes from the published
+// node_modules, so a runtime `require.resolve('@manta/bus')` would throw
+// "Cannot find module '@manta/bus'" and kill every cast's spawn. manta now
+// declares proper-lockfile as a DIRECT dep (matching @manta/bus's version), so
+// this resolves to manta's own copy and the baked path carries no @manta/bus
+// reference.
+const PROPER_LOCKFILE_PATH = require_.resolve('proper-lockfile');
 
 /**
  * Write a `.claude/settings.local.json` into the clone's worktree that
@@ -94,7 +98,7 @@ const lockfile = require(${JSON.stringify(PROPER_LOCKFILE_PATH)});
 
 const REGISTRY = ${JSON.stringify(registryPath)};
 const CLONE_ID = process.env.MANTA_CLONE_ID || ${JSON.stringify(cloneId)};
-// Mirror @manta/bus's atomic-fs LOCK_OPTS verbatim so hook + bus share the
+// Mirror the bus's atomic-fs LOCK_OPTS verbatim so hook + bus share the
 // same retry budget and stale-steal threshold on the same lock file.
 const LOCK_OPTS = {
   retries: { retries: 50, minTimeout: 5, maxTimeout: 50, factor: 1.2 },
@@ -106,7 +110,11 @@ async function run() {
   let release;
   try {
     release = await lockfile.lock(REGISTRY, LOCK_OPTS);
-  } catch {
+  } catch (err) {
+    // bug #53(c): surface the masked lock-acquire failure to stderr so a
+    // reddening gate is diagnosable instead of a silent skip. Benign data-skip
+    // catches below (missing/empty/torn registry, DEAD clone) stay silent.
+    console.error('[manta heartbeat] registry lock failed:', err && err.message ? err.message : err);
     return; // could not acquire lock under retry budget — best-effort skip
   }
   try {
