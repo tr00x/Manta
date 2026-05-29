@@ -34,7 +34,7 @@ describe('TriggerFiresLog', () => {
       const log = new TriggerFiresLog(busPaths(dir), new FakeClock(7777));
       await log.append({ trigger: 'tx', event_source: 'git', event_type: 'post-commit', decision: 'refused', reason: 'disarmed', cause_chain: [] });
       const recent = await log.recentFor('tx', HOUR);
-      expect(recent[0].ts).toBe(7777);
+      expect(recent[0]?.ts).toBe(7777);
     } finally {
       cleanup();
     }
@@ -51,7 +51,7 @@ describe('TriggerFiresLog', () => {
       await log.append({ trigger: 'tx', event_source: 'git', event_type: 'e', decision: 'refused', reason: 'cooldown_active', cause_chain: [] });
       const recent = await log.recentFor('tx', HOUR);
       expect(recent).toHaveLength(1);
-      expect(recent[0].reason).toBe('cooldown_active');
+      expect(recent[0]?.reason).toBe('cooldown_active');
     } finally {
       cleanup();
     }
@@ -121,8 +121,8 @@ describe('TriggerFiresLog', () => {
       }
       const tail = await log.tail('tx', 5);
       expect(tail).toHaveLength(5);
-      expect(tail[0].event_type).toBe('e6');
-      expect(tail[4].event_type).toBe('e2');
+      expect(tail[0]?.event_type).toBe('e6');
+      expect(tail[4]?.event_type).toBe('e2');
     } finally {
       cleanup();
     }

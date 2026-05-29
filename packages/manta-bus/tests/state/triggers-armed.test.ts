@@ -44,9 +44,10 @@ describe('TriggersArmedStore', () => {
       await s.arm('tx', { dryRunEstimateUsd: 2.9 });
       expect(await s.getState('tx')).toBe('armed');
       const file = await s.read();
-      expect(file.triggers['tx'].armed_at).toBe(4242);
-      expect(file.triggers['tx'].armed_by_dry_run_ok).toBe(true);
-      expect(file.triggers['tx'].dry_run_estimate_usd).toBe(2.9);
+      const entry = file.triggers['tx'];
+      expect(entry?.armed_at).toBe(4242);
+      expect(entry?.armed_by_dry_run_ok).toBe(true);
+      expect(entry?.dry_run_estimate_usd).toBe(2.9);
     } finally {
       cleanup();
     }

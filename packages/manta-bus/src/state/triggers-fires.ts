@@ -88,7 +88,7 @@ export class TriggerFiresLog {
   /** Most recent `spawned` record for `name`, or null (cooldown anchor). */
   async lastSpawnedFor(name: string): Promise<TriggerFireRecord | null> {
     const spawned = (await this.readAll()).filter((r) => r.trigger === name && r.decision === 'spawned');
-    return spawned.length === 0 ? null : spawned[spawned.length - 1];
+    return spawned[spawned.length - 1] ?? null;
   }
 
   /** Tail for `list --verbose` — last n records for `name`, newest-first. */
