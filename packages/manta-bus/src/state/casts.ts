@@ -50,6 +50,9 @@ export class CastsStore {
         clones: input.clones,
         policy: input.policy,
         created_at: this.clock.now(),
+        // Only carry metadata when the caller supplied it — manual casts omit
+        // the key entirely (backward-compatible with every Phase 0-7a manifest).
+        ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
       }),
       (current) => {
         // First-write path: defaultFactory's value is what `current` is. No
@@ -93,6 +96,30 @@ export class CastsStore {
     const file = this.paths.castFile(castId);
     const raw = await atomicReadJson<CastManifest | null>(file, () => null);
     if (raw == null) throw new BusNotFoundError('cast', castId);
+    return CastManifestSchema.parse(raw);
+  }
+
+  /**
+   * The cast's trigger cause-chain, or [] if the cast has no metadata or does
+   * not exist. Used by the Phase 7c loop detector to compose a child's chain
+   * before deciding whether a trigger may spawn. Never throws on a missing cast
+   * — an absent parent is a [] chain, not an error.
+   */
+  async getCauseChain(castId: string): Promise<string[]> {
+    const manifest = await this.tryRead(castId);
+    return manifest?.metadata?.cause_chain ?? [];
+  }
+
+  /** The cast's originating trigger name (for chain composition), or null. */
+  async getTriggerName(castId: string): Promise<string | null> {
+    const manifest = await this.tryRead(castId);
+    return manifest?.metadata?.trigger?.trigger_name ?? null;
+  }
+
+  private async tryRead(castId: string): Promise<CastManifest | null> {
+    const file = this.paths.castFile(castId);
+    const raw = await atomicReadJson<CastManifest | null>(file, () => null);
+    if (raw == null) return null;
     return CastManifestSchema.parse(raw);
   }
 

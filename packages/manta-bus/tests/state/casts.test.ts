@@ -404,6 +404,94 @@ describe('CastsStore.create', () => {
   });
 });
 
+describe('CastsStore metadata round-trip + cause-chain accessors (Task 1.9)', () => {
+  it('persists metadata.cause_chain through create + read', async () => {
+    const { dir, cleanup } = tmpRepo();
+    try {
+      const store = new CastsStore(busPaths(dir), fixedClock(1));
+      await store.create({
+        cast_id: 'cast-meta',
+        mode: 'bug-hunt',
+        clones: [{ clone_id: 'A', assignment: null }],
+        policy: { peer_messaging: 'denied', auto_merge_threshold: null, session_mode: 'batch' as const },
+        metadata: {
+          trigger: { trigger_name: 'test-trigger', fired_at: 123, parent_cast_id: null },
+          cause_chain: ['test-trigger'],
+        },
+      });
+      const round = await store.read('cast-meta');
+      expect(round.metadata?.cause_chain).toEqual(['test-trigger']);
+      expect(round.metadata?.trigger?.trigger_name).toBe('test-trigger');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('getCauseChain returns the stored chain', async () => {
+    const { dir, cleanup } = tmpRepo();
+    try {
+      const store = new CastsStore(busPaths(dir), fixedClock(1));
+      await store.create({
+        cast_id: 'cast-cc',
+        mode: 'bug-hunt',
+        clones: [{ clone_id: 'A', assignment: null }],
+        policy: { peer_messaging: 'denied', auto_merge_threshold: null, session_mode: 'batch' as const },
+        metadata: {
+          trigger: { trigger_name: 'tt', fired_at: 1, parent_cast_id: null },
+          cause_chain: ['aa', 'bb'],
+        },
+      });
+      expect(await store.getCauseChain('cast-cc')).toEqual(['aa', 'bb']);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('getCauseChain returns [] when the cast has no metadata', async () => {
+    const { dir, cleanup } = tmpRepo();
+    try {
+      const store = new CastsStore(busPaths(dir), fixedClock(1));
+      await store.create({
+        cast_id: 'cast-nometa',
+        mode: 'recon-swarm',
+        clones: [{ clone_id: 'A', assignment: null }],
+        policy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' as const },
+      });
+      expect(await store.getCauseChain('cast-nometa')).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('getCauseChain returns [] for an unknown cast (no throw)', async () => {
+    const { dir, cleanup } = tmpRepo();
+    try {
+      const store = new CastsStore(busPaths(dir), fixedClock(1));
+      expect(await store.getCauseChain('cast-unknown')).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('getTriggerName returns the name when present, null otherwise', async () => {
+    const { dir, cleanup } = tmpRepo();
+    try {
+      const store = new CastsStore(busPaths(dir), fixedClock(1));
+      await store.create({
+        cast_id: 'cast-tn',
+        mode: 'bug-hunt',
+        clones: [{ clone_id: 'A', assignment: null }],
+        policy: { peer_messaging: 'denied', auto_merge_threshold: null, session_mode: 'batch' as const },
+        metadata: { trigger: { trigger_name: 'the-trigger', fired_at: 1, parent_cast_id: null }, cause_chain: ['the-trigger'] },
+      });
+      expect(await store.getTriggerName('cast-tn')).toBe('the-trigger');
+      expect(await store.getTriggerName('cast-unknown')).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe('CastsStore.read', () => {
   it('throws BusNotFoundError on missing cast_id', async () => {
     const { dir, cleanup } = tmpRepo();
