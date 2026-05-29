@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { atomicMutateJson, atomicReadJson } from '../atomic-fs';
 import type { Clock } from '../clock';
 import { TriggerNameSchema } from '../trigger-schema';
+import type { EventsLog } from './events';
 import type { BusPaths } from './paths';
 
 // Phase 7c Task 1.8 — the hard global circuit breaker (research §3.7). Trips on:
@@ -36,9 +37,14 @@ function emptyFile(): CircuitFile {
 }
 
 export class TriggerCircuitStore {
+  // Bug #54: `events` is REQUIRED. The two breaker transitions — trip (open)
+  // and reset — are precisely the events a forensic replay needs after a lost
+  // circuit.json. Pairing the mutation with an events.jsonl append inside the
+  // file mutex (bug #24 invariant) is what makes the breaker reconstructable.
   constructor(
     private readonly paths: BusPaths,
     private readonly clock: Clock,
+    private readonly events: EventsLog,
   ) {}
 
   async isOpen(): Promise<boolean> {
@@ -50,20 +56,37 @@ export class TriggerCircuitStore {
   async recordBudgetRefusal(trigger: string): Promise<{ tripped: boolean }> {
     const now = this.clock.now();
     let tripped = false;
-    await this.mutate((file) => {
-      const cutoff = now - BUDGET_WINDOW_MS;
-      const pruned = file.budget_refusals.filter((r) => r.ts >= cutoff);
-      pruned.push({ trigger, ts: now });
-      file.budget_refusals = pruned;
-      const distinct = new Set(pruned.map((r) => r.trigger));
-      if (!file.open && distinct.size >= BUDGET_DISTINCT_TRIP) {
-        file.open = true;
-        file.opened_at = now;
-        file.opened_reason = `budget-refusal burst: ${distinct.size} distinct triggers within ${BUDGET_WINDOW_MS / 60000}m`;
-        tripped = true;
-      }
-      return file;
-    });
+    let openedReason: string | null = null;
+    await this.mutate(
+      (file) => {
+        const cutoff = now - BUDGET_WINDOW_MS;
+        const pruned = file.budget_refusals.filter((r) => r.ts >= cutoff);
+        pruned.push({ trigger, ts: now });
+        file.budget_refusals = pruned;
+        const distinct = new Set(pruned.map((r) => r.trigger));
+        if (!file.open && distinct.size >= BUDGET_DISTINCT_TRIP) {
+          file.open = true;
+          file.opened_at = now;
+          file.opened_reason = `budget-refusal burst: ${distinct.size} distinct triggers within ${BUDGET_WINDOW_MS / 60000}m`;
+          openedReason = file.opened_reason;
+          tripped = true;
+        }
+        return file;
+      },
+      // Bug #54: only the TRIP is audit-worthy. Non-tripping refusals churn the
+      // pruned-window array (a changed write) but emit no circuit event — the
+      // per-refusal audit lives in fires.jsonl, not events.jsonl.
+      async () => {
+        if (tripped) {
+          await this.appendEvent('trigger_circuit_opened', {
+            cause: 'budget_refusal_burst',
+            trigger,
+            opened_at: now,
+            reason: openedReason,
+          });
+        }
+      },
+    );
     return { tripped };
   }
 
@@ -71,46 +94,76 @@ export class TriggerCircuitStore {
   async recordDepthBreach(chainHead: string): Promise<{ tripped: boolean }> {
     const now = this.clock.now();
     let tripped = false;
-    await this.mutate((file) => {
-      const cutoff = now - DEPTH_WINDOW_MS;
-      const pruned = file.depth_breaches.filter((b) => b.ts >= cutoff);
-      pruned.push({ chain_head: chainHead, ts: now });
-      file.depth_breaches = pruned;
-      const sameHead = pruned.filter((b) => b.chain_head === chainHead).length;
-      if (!file.open && sameHead >= DEPTH_REPEAT_TRIP) {
-        file.open = true;
-        file.opened_at = now;
-        file.opened_reason = `cause-chain depth breached twice for head '${chainHead}' within ${DEPTH_WINDOW_MS / 60000}m`;
-        tripped = true;
-      }
-      return file;
-    });
+    let openedReason: string | null = null;
+    await this.mutate(
+      (file) => {
+        const cutoff = now - DEPTH_WINDOW_MS;
+        const pruned = file.depth_breaches.filter((b) => b.ts >= cutoff);
+        pruned.push({ chain_head: chainHead, ts: now });
+        file.depth_breaches = pruned;
+        const sameHead = pruned.filter((b) => b.chain_head === chainHead).length;
+        if (!file.open && sameHead >= DEPTH_REPEAT_TRIP) {
+          file.open = true;
+          file.opened_at = now;
+          file.opened_reason = `cause-chain depth breached twice for head '${chainHead}' within ${DEPTH_WINDOW_MS / 60000}m`;
+          openedReason = file.opened_reason;
+          tripped = true;
+        }
+        return file;
+      },
+      async () => {
+        if (tripped) {
+          await this.appendEvent('trigger_circuit_opened', {
+            cause: 'depth_breach_repeat',
+            chain_head: chainHead,
+            opened_at: now,
+            reason: openedReason,
+          });
+        }
+      },
+    );
     return { tripped };
   }
 
   /**
    * Reset the breaker to closed/clean state.
    *
-   * `reason` is for the CALLER's audit trail (e.g. `events.append({type:
-   * 'trigger_circuit_reset', reason})` when bug #54's audit-trail wiring
-   * lands). This store does not persist it because the circuit is a
-   * forward-only state machine — `opened_reason` reflects the CURRENT
-   * trip, not history; reset clears it back to `null`. The param exists
-   * so the API documents intent at the call site and is ready to thread
-   * through to events.append once Chunk 3's audit-trail pairing arrives.
-   * Bug-hunt code-review (cast-1780023638705) flagged the previous
-   * `void reason;` as misleading API — this comment makes the contract
-   * explicit instead.
+   * Bug #54: `reason` is now persisted to the audit trail via a paired
+   * `trigger_circuit_reset` events.jsonl append inside the file mutex. The
+   * circuit file itself stays forward-only — `opened_reason` reflects the
+   * CURRENT trip, so reset clears it back to `null` — but the reset reason
+   * lives durably in events.jsonl so a forensic replay can attribute who
+   * cleared the breaker and why. (Previously this param was `void`'d pending
+   * Chunk 2's audit wiring; that wiring is this change.)
    */
   async reset(reason: string): Promise<void> {
-    void reason; // intentional — see JSDoc above for why this is not persisted yet.
-    await this.mutate(() => emptyFile());
+    await this.mutate(
+      () => emptyFile(),
+      () => this.appendEvent('trigger_circuit_reset', { reason }),
+    );
   }
 
-  private async mutate(mutator: (file: CircuitFile) => CircuitFile): Promise<CircuitFile> {
-    return atomicMutateJson<CircuitFile>(this.paths.triggersCircuit, emptyFile, (current) => {
-      const parsed = CircuitFileSchema.parse(current);
-      return mutator(parsed);
-    });
+  /**
+   * Bug #54: append an audit event from within the circuit.json file mutex,
+   * before the tmp+rename commit. A throwing append rolls back the breaker
+   * mutation. `clone_id` omitted — the breaker is repo-global, not clone-scoped.
+   */
+  private async appendEvent(type: string, payload: Record<string, unknown>): Promise<void> {
+    await this.events.append({ type, payload });
+  }
+
+  private async mutate(
+    mutator: (file: CircuitFile) => CircuitFile,
+    auditAppend?: () => Promise<void>,
+  ): Promise<CircuitFile> {
+    return atomicMutateJson<CircuitFile>(
+      this.paths.triggersCircuit,
+      emptyFile,
+      (current) => {
+        const parsed = CircuitFileSchema.parse(current);
+        return mutator(parsed);
+      },
+      auditAppend,
+    );
   }
 }

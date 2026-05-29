@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { busPaths } from '../../src/state/paths';
 import { TriggersArmedStore, TriggerStateError } from '../../src/state/triggers-armed';
+import { EventsLog } from '../../src/state/events';
 import { FakeClock } from '../../src/clock';
 
 function tmpRepo(): { dir: string; cleanup: () => void } {
@@ -12,7 +13,10 @@ function tmpRepo(): { dir: string; cleanup: () => void } {
 }
 
 function store(dir: string, clock = new FakeClock(1000)): TriggersArmedStore {
-  return new TriggersArmedStore(busPaths(dir), clock);
+  // Bug #54: EventsLog is a required ctor dep — audit-trail pairing for every
+  // armed-state transition. These tests assert state-machine behaviour; the
+  // dedicated audit-pairing assertions live in trigger-stores-audit-trail.test.ts.
+  return new TriggersArmedStore(busPaths(dir), clock, new EventsLog(busPaths(dir), clock));
 }
 
 describe('TriggersArmedStore', () => {

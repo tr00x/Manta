@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { busPaths } from '../../src/state/paths';
 import { TriggerCircuitStore } from '../../src/state/triggers-circuit';
+import { EventsLog } from '../../src/state/events';
 import { FakeClock } from '../../src/clock';
 
 function tmpRepo(): { dir: string; cleanup: () => void } {
@@ -11,11 +12,18 @@ function tmpRepo(): { dir: string; cleanup: () => void } {
   return { dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
+// Bug #54: EventsLog is a required ctor dep (audit-trail pairing for trip/reset
+// transitions). These tests assert breaker behaviour; dedicated audit-pairing
+// assertions live in trigger-stores-audit-trail.test.ts.
+function circuit(dir: string, clock: FakeClock): TriggerCircuitStore {
+  return new TriggerCircuitStore(busPaths(dir), clock, new EventsLog(busPaths(dir), clock));
+}
+
 describe('TriggerCircuitStore', () => {
   it('is closed on a fresh store', async () => {
     const { dir, cleanup } = tmpRepo();
     try {
-      expect(await new TriggerCircuitStore(busPaths(dir), new FakeClock(0)).isOpen()).toBe(false);
+      expect(await circuit(dir, new FakeClock(0)).isOpen()).toBe(false);
     } finally {
       cleanup();
     }
@@ -24,7 +32,7 @@ describe('TriggerCircuitStore', () => {
   it('trips on 3 budget refusals from 3 distinct triggers within 10m', async () => {
     const { dir, cleanup } = tmpRepo();
     try {
-      const s = new TriggerCircuitStore(busPaths(dir), new FakeClock(0));
+      const s = circuit(dir, new FakeClock(0));
       expect((await s.recordBudgetRefusal('ta')).tripped).toBe(false);
       expect((await s.recordBudgetRefusal('tb')).tripped).toBe(false);
       expect((await s.recordBudgetRefusal('tc')).tripped).toBe(true);
@@ -37,7 +45,7 @@ describe('TriggerCircuitStore', () => {
   it('does NOT trip on 3 budget refusals from the SAME trigger (distinct-name rule)', async () => {
     const { dir, cleanup } = tmpRepo();
     try {
-      const s = new TriggerCircuitStore(busPaths(dir), new FakeClock(0));
+      const s = circuit(dir, new FakeClock(0));
       await s.recordBudgetRefusal('tx');
       await s.recordBudgetRefusal('tx');
       expect((await s.recordBudgetRefusal('tx')).tripped).toBe(false);
@@ -51,7 +59,7 @@ describe('TriggerCircuitStore', () => {
     const { dir, cleanup } = tmpRepo();
     try {
       const clock = new FakeClock(0);
-      const s = new TriggerCircuitStore(busPaths(dir), clock);
+      const s = circuit(dir, clock);
       await s.recordBudgetRefusal('ta');
       await s.recordBudgetRefusal('tb');
       clock.advance(600_001); // ta + tb now outside the window
@@ -65,7 +73,7 @@ describe('TriggerCircuitStore', () => {
   it('trips on 2 depth breaches with the same chain_head within 5m', async () => {
     const { dir, cleanup } = tmpRepo();
     try {
-      const s = new TriggerCircuitStore(busPaths(dir), new FakeClock(0));
+      const s = circuit(dir, new FakeClock(0));
       expect((await s.recordDepthBreach('ta')).tripped).toBe(false);
       expect((await s.recordDepthBreach('ta')).tripped).toBe(true);
       expect(await s.isOpen()).toBe(true);
@@ -77,7 +85,7 @@ describe('TriggerCircuitStore', () => {
   it('does NOT trip on 2 depth breaches with different chain heads', async () => {
     const { dir, cleanup } = tmpRepo();
     try {
-      const s = new TriggerCircuitStore(busPaths(dir), new FakeClock(0));
+      const s = circuit(dir, new FakeClock(0));
       await s.recordDepthBreach('ta');
       expect((await s.recordDepthBreach('tb')).tripped).toBe(false);
       expect(await s.isOpen()).toBe(false);
@@ -89,7 +97,7 @@ describe('TriggerCircuitStore', () => {
   it('reset closes the breaker and clears the windows', async () => {
     const { dir, cleanup } = tmpRepo();
     try {
-      const s = new TriggerCircuitStore(busPaths(dir), new FakeClock(0));
+      const s = circuit(dir, new FakeClock(0));
       await s.recordBudgetRefusal('ta');
       await s.recordBudgetRefusal('tb');
       await s.recordBudgetRefusal('tc');
