@@ -28,13 +28,25 @@ describe('loadBudgetConfig', () => {
     expect(config.charges.min).toBe(-1);
     expect(config.charges.idleRecoveryMinutes).toBe(30);
     expect(config.charges.cooldownHours).toBe(24);
+    expect(config.triggersGlobalHourlyCap).toBe(6);
+  });
+
+  it('resolves triggers.global_hourly_cap override from file', async () => {
+    const configDir = path.join(tmpDir, '.manta', 'config');
+    await fs.mkdir(configDir, { recursive: true });
+    await fs.writeFile(
+      path.join(configDir, 'budget.json'),
+      JSON.stringify({ triggers: { global_hourly_cap: 2 } }),
+    );
+    const config = await loadBudgetConfig(tmpDir);
+    expect(config.triggersGlobalHourlyCap).toBe(2);
   });
 
   it('all fields in ResolvedBudgetConfig are required (not undefined)', async () => {
     const config = await loadBudgetConfig(tmpDir);
     const keys: (keyof ResolvedBudgetConfig)[] = [
       'perCastUsd', 'perCloneUsd', 'dailyCapUsd',
-      'costEstimates', 'autoDowngrade', 'charges',
+      'costEstimates', 'autoDowngrade', 'charges', 'triggersGlobalHourlyCap',
     ];
     for (const key of keys) {
       expect(config[key]).toBeDefined();

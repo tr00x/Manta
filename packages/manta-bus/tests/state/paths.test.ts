@@ -57,4 +57,26 @@ describe('busPaths', () => {
     const p = busPaths('/tmp/repo');
     expect(p.budgetConfig).toBe('/tmp/repo/.manta/config/budget.json');
   });
+
+  it('resolves the trigger state subtree under stateDir/triggers', () => {
+    const p = busPaths('/repo');
+    expect(p.triggersDir).toBe('/repo/.manta/state/triggers');
+    expect(p.triggersArmed).toBe('/repo/.manta/state/triggers/armed.json');
+    expect(p.triggersFires).toBe('/repo/.manta/state/triggers/fires.jsonl');
+    expect(p.triggersCircuit).toBe('/repo/.manta/state/triggers/circuit.json');
+  });
+
+  it('triggersDebounce(name) resolves under triggers/debounce/<name>.json', () => {
+    const p = busPaths('/repo');
+    expect(p.triggersDebounce('test-failure-bug-hunt')).toBe(
+      '/repo/.manta/state/triggers/debounce/test-failure-bug-hunt.json',
+    );
+  });
+
+  it('triggersDebounce guards against path traversal in the name', () => {
+    const p = busPaths('/repo');
+    expect(() => p.triggersDebounce('../escape')).toThrow();
+    expect(() => p.triggersDebounce('a/b')).toThrow();
+    expect(() => p.triggersDebounce('UPPER')).toThrow();
+  });
 });

@@ -329,6 +329,28 @@ export const CastClonesEntrySchema = z
   })
   .strict();
 
+// Phase 7c — trigger provenance. A reactively-spawned cast records which
+// trigger fired it and the cause-chain of trigger names that led here, so the
+// loop detector (Phase 7c Chunk 3) can refuse a spawn before it recurses. This
+// is the frozen contract clone-A's share-bundle `castOrigin` block propagates
+// verbatim — renaming these fields is a breaking change to that contract.
+export const CastTriggerProvenanceSchema = z
+  .object({
+    trigger_name: z.string().min(2).max(48).regex(/^[a-z0-9-]+$/),
+    fired_at: z.number().int().nonnegative(),
+    parent_cast_id: CastIdSchema.nullable(), // null = user-fired / outside any Manta context
+  })
+  .strict();
+
+export const CastMetadataSchema = z
+  .object({
+    trigger: CastTriggerProvenanceSchema.optional(),
+    // trigger names; .max(8) is a backstop above the depth-3 refusal so a
+    // poisoned manifest cannot carry an unbounded chain.
+    cause_chain: z.array(z.string().min(2).max(48)).max(8).default([]),
+  })
+  .strict();
+
 export const CastManifestSchema = z
   .object({
     version: z.literal(1),
@@ -343,6 +365,7 @@ export const CastManifestSchema = z
       ),
     policy: CastPolicySchema,
     created_at: z.number().int().nonnegative(),
+    metadata: CastMetadataSchema.optional(),
   })
   .strict();
 
@@ -358,6 +381,7 @@ export const CreateCastInputSchema = z
         { message: 'roster must not contain duplicate clone_ids' },
       ),
     policy: CastPolicySchema,
+    metadata: CastMetadataSchema.optional(),
   })
   .strict();
 
@@ -462,7 +486,20 @@ export const BudgetConfigSchema = z
       .strict(),
   })
   .partial()
-  .strict();
+  .strict()
+  // Phase 7c Task 1.2: global hourly cap spanning ALL triggers (research §3.2),
+  // on top of each trigger's own hourly_cap — covers many small triggers firing
+  // simultaneously. Added via .extend() (NOT inside the .partial() block) so its
+  // .default() actually fires: .partial() wraps each field in ZodOptional, which
+  // short-circuits before reaching an inner ZodDefault.
+  .extend({
+    triggers: z
+      .object({
+        global_hourly_cap: z.number().int().positive().default(6),
+      })
+      .strict()
+      .default({ global_hourly_cap: 6 }),
+  });
 
 // Inferred types — exported so handlers and stores can share them.
 export type CloneId = z.infer<typeof CloneIdSchema>;
@@ -492,6 +529,8 @@ export type CloneAssignment = z.infer<typeof CloneAssignmentSchema>;
 export type CastClonesEntry = z.infer<typeof CastClonesEntrySchema>;
 export type CastManifest = z.infer<typeof CastManifestSchema>;
 export type CreateCastInput = z.infer<typeof CreateCastInputSchema>;
+export type CastTriggerProvenance = z.infer<typeof CastTriggerProvenanceSchema>;
+export type CastMetadata = z.infer<typeof CastMetadataSchema>;
 export type ChargeState = z.infer<typeof ChargeStateSchema>;
 export type ChargeEvent = z.infer<typeof ChargeEventSchema>;
 export type ChargeEventType = z.infer<typeof ChargeEventTypeSchema>;

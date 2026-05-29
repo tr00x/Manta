@@ -1,6 +1,24 @@
 // Public exports — Chunk 2 wires the MCP server on top of Chunk 1's stores.
 export * from './errors';
 export * from './schema';
+export {
+  TriggerDefSchema,
+  TriggerNameSchema,
+  EventSourceSchema,
+  ConditionSchema,
+  TriggerScopeSchema,
+  TriggerSafetySchema,
+  TriggerActionSchema,
+} from './trigger-schema';
+export type {
+  TriggerDef,
+  TriggerName,
+  EventSource,
+  TriggerCondition,
+  TriggerScope,
+  TriggerSafety,
+  TriggerAction,
+} from './trigger-schema';
 export type { Clock } from './clock';
 export { systemClock, FakeClock } from './clock';
 export { busPaths } from './state/paths';
@@ -13,6 +31,13 @@ export { CastsStore } from './state/casts';
 export { ChargeStore, DEFAULT_CHARGE_CONFIG } from './state/charge-store';
 export type { ChargeStoreConfig } from './state/charge-store';
 export { DailySpendLedger } from './state/daily-spend';
+export { TriggersArmedStore, TriggerStateError, TriggerArmedStateSchema } from './state/triggers-armed';
+export type { TriggerArmedState, ArmedFile, TriggerStateErrorCode } from './state/triggers-armed';
+export { TriggerFiresLog, TriggerFireRecordSchema, TriggerRefusalReasonSchema } from './state/triggers-fires';
+export type { TriggerFireRecord, TriggerRefusalReason } from './state/triggers-fires';
+export { TriggerDebounceStore } from './state/triggers-debounce';
+export type { DebounceObserveResult } from './state/triggers-debounce';
+export { TriggerCircuitStore } from './state/triggers-circuit';
 export { EventsLog } from './state/events';
 export type { CloneRecord } from './state/registry';
 export type { WorkItem } from './state/work-queue';
