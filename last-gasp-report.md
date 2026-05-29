@@ -1,80 +1,81 @@
-# Last-gasp report — clone-B (cast-1780020786877)
-
-**Task:** Implement Phase 7b Chunk 1 ONLY (Tasks 1.1–1.7 of `docs/superpowers/plans/2026-05-28-phase-7b-manta-share.md`) via TDD. STOP at Chunk 1.
-**Mode:** forking-realities · **Sibling:** A · **Outcome:** ✅ task_complete
-
-> Note on task wording: the contract said "Tasks 1.1-1.10", but the plan defines Chunk 1 as **Tasks 1.1–1.7** ("Chunk 1 complete when" sits right after Task 1.7; Task 2.1 begins Chunk 2). I followed the plan's Chunk-1 task list exactly and stopped at Chunk 1 as instructed. Chunk 1 has 7 tasks, not 10.
+# Last-gasp report — clone-C, cast-1780023638705 (forking-realities)
 
 ## Summary
 
-All 7 Chunk-1 tasks implemented production-grade via the plan's Step-by-step TDD (failing test → impl → passing test → commit). The full sanitization data layer now exists: the `castOrigin` manifest extension + `SharedBundleManifestSchema`, the secret-format scanner, and one sanitizer per bundled artifact (snapshot, task-contract, post-mortem, ZK note, events, worktree-diff). 126 Chunk-1 tests are green; `pnpm typecheck` and root `pnpm lint` are clean. The full `pnpm test` is 1251/1252 — the single failure is a **pre-existing, environment-scoped** heartbeat-hook test unrelated to this work (logged as bug #53, proof below).
+Implemented **Phase 7c Chunk 1 in full** (Tasks 1.1–1.9): every Zod schema and bus-side
+state store the auto-cast-trigger feature needs, landed schema-first per the plan, each via
+the TDD Step 1-7 pattern with its own atomic commit. `CastManifestSchema` now carries optional
+trigger provenance (`metadata.trigger` + `metadata.cause_chain`), `BudgetConfigSchema` carries
+`triggers.global_hourly_cap` (default 6), `TriggerDefSchema` parses the strict trigger DSL with
+mandatory `forbidden_paths` and a parse-time budget-cap refine, the four trigger state stores
+(armed / fires / debounce / circuit) read/write atomically through the existing `atomicMutateJson`
+/ `appendJsonLine` primitives, and `CastsStore` gained `getCauseChain`/`getTriggerName` accessors
+with metadata round-tripping through `create`. **STOPPED at Chunk 1** — Chunk 2+ untouched, per contract.
 
-## Commits made (branch `manta/cast-1780020786877/B`, 7 commits)
+`pnpm gate`: **typecheck clean, lint clean, 1324/1325 tests pass.** The single red test
+(`heartbeat-hook.test.ts > touch script updates last_heartbeat_at`) is the already-documented,
+pre-existing, environment-scoped **Bug #53** (fresh-worktree `pnpm install` + `proper-lockfile`
+resolution in the macOS tmpdir symlink) — it lives in the spawner subsystem, is byte-identical to
+base, and is outside Chunk 1's surface. Confirmation appended to `docs/manta-bugs.md` #53.
 
-| Commit | Task | Title |
+## Commits (branch manta/cast-1780023638705/C, oldest→newest)
+
+| Task | SHA | Subject |
 |---|---|---|
-| `5db641d` | 1.1 | feat(skill-validator): CastOriginSchema + SharedBundleManifest + castOrigin.optional() on MantaPackageManifestSchema |
-| `2a87180` | 1.2 | feat(cli): SanitizationWarning type + secret-format scanner for share bundles |
-| `d5fb9a0` | 1.3 | feat(cli): snapshot sanitizer — drop transcript/PID/session/budget, redact worktree paths |
-| `ff7fb01` | 1.4 | feat(cli): task-contract sanitizer — secret hard-block + path relativisation |
-| `087b6ec` | 1.5 | feat(cli): post-mortem markdown sanitizer — header redaction + defense-in-depth scan (amended once for a repoRoot lint fix) |
-| `c9ab141` | 1.6 | feat(cli): ZK-note sanitizer — created_at rewrite + body path/secret scan (warn-no-redact) |
-| `d3275c1` | 1.7 | feat(cli): event-timeline + worktree-diff sanitizers (per-type projection + secret hard-block) |
+| 1.1 | `8b3f601` | feat(bus): CastManifest trigger provenance metadata (triggered_by + cause_chain) |
+| 1.2 | `c25cc81` | feat(bus,cli): budget config triggers.global_hourly_cap (default 6) |
+| 1.3 | `727a4e6` | feat(bus): TriggerDefSchema — strict trigger DSL with mandatory forbidden_paths + budget cap refine |
+| 1.4 | `857abec` | feat(bus): resolve .manta/state/triggers/* paths with name traversal guard |
+| 1.5 | `a5eed1b` | feat(bus): TriggersArmedStore — disarmed/pending_dry_run/armed state machine + panic disarm-all |
+| 1.6 | `05d8a6f` | feat(bus): TriggerFiresLog — append-only audit + sliding-window cap/cooldown counters |
+| 1.7 | `b4ee393` | feat(bus): TriggerDebounceStore — collapse event bursts within debounce_ms |
+| 1.8 | `f978faa` | feat(bus): TriggerCircuitStore — global breaker on budget-refusal burst + depth-breach repeat |
+| 1.9 | `f086b20` | feat(bus): CastsStore.getCauseChain + getTriggerName for loop-detection chain composition (+ Bug #53 note) |
 
-(An 8th commit follows this report: the final graceful-death commit of `last-gasp-report.md` + bug-log entry #53.)
+## Tests added (all green)
 
-26 files changed vs base `1f70b19` (cap was 30).
+- `packages/manta-bus/tests/cast-manifest-trigger-metadata.test.ts` — **15 tests** (provenance / metadata / manifest / create-input).
+- `packages/manta-bus/tests/state/charge-schemas.test.ts` — **+5 tests** (triggers.global_hourly_cap default/override/positive/strict) + updated empty-config assertion.
+- `packages/manta-cli/tests/config/budget-config.test.ts` — **+1 test** (`triggersGlobalHourlyCap` file override) + `triggersGlobalHourlyCap` added to all-required-fields list + default-6 assertion in the no-file test.
+- `packages/manta-bus/tests/trigger-schema.test.ts` — **16 tests** (3 worked examples + 13 refusal paths).
+- `packages/manta-bus/tests/state/paths.test.ts` — **+3 tests** (trigger subtree paths + debounce-name traversal guard).
+- `packages/manta-bus/tests/state/triggers-armed.test.ts` — **9 tests** (state machine, illegal_transition, panic disarm-all, validation-error disarm, 10-way concurrency).
+- `packages/manta-bus/tests/state/triggers-fires.test.ts` — **9 tests** (cross-field invariants + all sliding-window queries).
+- `packages/manta-bus/tests/state/triggers-debounce.test.ts` — **4 tests** (zero / within-window / expired / clear).
+- `packages/manta-bus/tests/state/triggers-circuit.test.ts` — **7 tests** (both trip rules, distinct-name, pruning, reset).
+- `packages/manta-bus/tests/state/casts.test.ts` — **+5 tests** (metadata round-trip + getCauseChain/getTriggerName).
 
-## Tests added (126 total, all green)
+## Gate output (final `pnpm gate` run)
 
-**`@manta/skill-validator` (50 tests across 2 files):**
-- `tests/cast-origin-schema.test.ts` (22 new): user-fired/provenance-populated round-trips; URL-not-path repo origin; 10 Mode literals; causeChain max-8 boundary; parentCastId null; triggerName length bounds; non-int firedAtOffsetMs; `.strict` on castOrigin + provenance; semver/datetime/castId validation; `SharedBundleManifestSchema` intersection (+ rejects missing castOrigin, rejects invalid base).
-- `tests/manifest-schema.test.ts` (+4 Step-0a regression): every fixture manifest still parses; pre-7b manifest (no castOrigin) parses; manifest with valid castOrigin parses; **castOrigin: null THROWS** (the gated invariant).
-
-**`@manta/snapshot` (7 tests):**
-- `tests/sanitized-schema.test.ts`: SanitizedSnapshotSchema parses sanitized output; `<worktree>` literal required; rejects leaked parentSessionId/parentPid/budget/recentMessages/sessionId.
-
-**`@manta/cli` (69 tests across 7 files in `tests/share/`):**
-- `secret-scanner.test.ts` (27): table-driven positive+negative per provider, masking never re-leaks, multi-secret blob, canonical AKIA, maskSecret first-4.
-- `sanitize-snapshot.test.ts` (9): worktree markers, transcript-drop warning, openFiles relativise/drop, PID/session/budget omitted, schema round-trip.
-- `sanitize-task-contract.test.ts` (7): clean passthrough, secret-in-task/approachHint throw, scope path relativise/drop, non-sensitive verbatim.
-- `sanitize-post-mortem.test.ts` (9): Worktree redact, PID drop, epoch→offset, Died unknown, Metadata/Event-timeline intact, secret fatal, stray-path masked warn.
-- `sanitize-zk-note.test.ts` (6): created_at→bundledAt ISO, frontmatter preserved, path warn-no-redact, secret-in-body/title fatal.
-- `sanitize-events.test.ts` (8): broadcast→{event_type}, heartbeat→{state}, unknown→null, ts offset, winning-clone filter, drop-all control events, **drift-guard vs renderEventPayload**.
-- `sanitize-worktree-diff.test.ts` (3): clean passthrough, secret fatal, empty diff.
-
-## Gate verification output
-
-`pnpm typecheck` — **PASS** (tsc -b, all packages).
-Root `pnpm lint` (`eslint 'packages/**/src/**/*.ts'`, the canonical gate) — **PASS** (0 errors). My new src files lint clean. (The per-package `eslint "tests/**"` reports pre-existing debt in *other* test files; the canonical gate does not lint tests.)
-`pnpm test` (full workspace, `vitest run`):
 ```
-Test Files  1 failed | 150 passed (151)
-     Tests  1 failed | 1251 passed (1252)
+pnpm typecheck → tsc -b: clean
+pnpm lint      → eslint: clean
+pnpm test      → Test Files 1 failed | 156 passed (157)
+                 Tests       1 failed | 1324 passed (1325)
 ```
-The single failure: `packages/manta-cli/tests/spawner/heartbeat-hook.test.ts > touch script updates last_heartbeat_at in registry`.
+The lone failure is Bug #53 (pre-existing, env-scoped, spawner subsystem, NOT Chunk 1).
 
-All 126 Chunk-1 tests pass in isolation:
-```
-@manta/cli   tests/share/        7 files  69 passed
-@manta/skill-validator           2 files  50 passed
-@manta/snapshot tests/sanitized-schema.test.ts  7 passed
-```
+## Decisions worth flagging to the main
 
-## The one gate failure is NOT mine (bug #53)
+1. **`triggers.global_hourly_cap` via `.extend()`, not inside `.partial()`** — the plan snippet placed
+   it inside the `.object({...})` block, but `.partial()` wraps each field in `ZodOptional` which
+   short-circuits the inner `ZodDefault`, so the default never fires. Moved it to `.extend()` after
+   `.partial().strict()` so the acceptance criterion (`parse({}).triggers.global_hourly_cap === 6`)
+   holds. **Side effect:** `BudgetConfigSchema.parse({})` now returns `{ triggers: { global_hourly_cap: 6 } }`
+   instead of `{}`; the one existing test asserting `{}` was updated (sanctioned by the plan's "modify
+   budget schema test"). Downstream readers use specific keys, so the injected `triggers` is harmless.
+2. **Trigger names are min-2-char kebab everywhere** (`TriggerNameSchema` `/^[a-z0-9-]{2,48}$/`).
+   `z.record(TriggerNameSchema, …)` validates keys, so armed/debounce/circuit reject single-char names;
+   the path-traversal guard in `triggersDebounce` reuses the same regex.
+3. **`create()` metadata round-trip** required a 1-line `defaultFactory` change (conditionally spread
+   `input.metadata`) — the plan said "no algorithmic change, just verify it persists," but the factory
+   hard-coded the field list and dropped metadata. Conditional spread keeps manual casts metadata-key-free
+   (backward-compatible).
 
-- `git diff 1f70b19 --name-only` for this branch touches **only** `packages/manta-cli/src/share/*`, three `manta-skill-validator/src` files, two `manta-snapshot/src` files, and their tests. `spawner/heartbeat-hook.{ts,test.ts}` are byte-identical to base.
-- The touch-script logic works in isolation (a manual repro with the same proper-lockfile resolution updated `last_heartbeat_at` to `now` correctly).
-- Memory obs 16798 records a green gate ("1150 tests pass") earlier today in the **main repo**. The failure only manifests in this freshly-`pnpm install`ed worktree → environment/hoisting-sensitive resolution of `proper-lockfile` inside the generated `.cjs`, whose lock error is silently swallowed by `catch { return }`.
-- Full root-cause + candidate fixes logged in `docs/manta-bugs.md` #53.
+## Pending / not done (by design)
 
-## Two deviations from the plan (both fix real plan bugs — documented in commit bodies)
-
-1. **Circular import (Task 1.1).** The plan places `SharedBundleManifestSchema` in `cast-origin-schema.ts` importing `MantaPackageManifestSchema`, while `manifest-schema.ts` imports `CastOriginSchema` — a fatal eval-time cycle (`.optional()`/`.and()` both run at module load). Fix: `cast-origin-schema.ts` imports nothing from manifest-schema; `SharedBundleManifestSchema` lives in `manifest-schema.ts` (which has both halves). Acyclic graph: `manifest-schema → cast-origin`. Both re-exported from the package index; behaviour + acceptance identical.
-2. **Test location.** The plan puts tests under `src/share/tests/`, but every package's `vitest.config.ts` has `include: ['tests/**/*.test.ts']` and coverage `include: ['src/**/*.ts']` — tests under `src/share/tests/` would be **invisible to `vitest run`** (gate would pass without running them) and counted as source for coverage. Fix: source in `src/share/` (per plan), tests in `tests/share/` (repo convention + the include glob). Keeps the gate honest.
-
-## Pending / next (Chunk 2 — NOT started, per STOP instruction)
-
-- Chunk 2 (Tasks 2.1–2.5): bundle-assembler + `checksum.json`, `buildCastOrigin` from live cast state, README auto-gen, `manta share` command, bin registration. Chunk 1's sanitizers + `SharedBundleManifestSchema` are the inputs it consumes.
-- **For the main:** bug #53 (heartbeat-hook env failure) is worth a quick fix before the next worktree-based cast — the silent `catch { return }` should at least `console.error` so a reddening gate is diagnosable.
-- The Chunk-1 sanitizers are pure functions over fixtures; no `manta share` CLI exists yet, so nothing is wired into a command (by design).
+- **Chunk 2+** (spawnCast seam, runtime wiring, CLI `trigger` commands, fire orchestrator, install-hooks,
+  manta-hook shim) — **NOT started**. Contract was Chunk 1 only.
+- **Bug #53** — still Open, out of scope; fix candidates listed in `docs/manta-bugs.md`.
+- Sibling clone **D** ran the same contract independently (forking-realities). The main should consult
+  `docs/merge-reviews/cast-1780023638705.md` (if generated) and follow its verdict — do not blind-merge both.
