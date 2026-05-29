@@ -7,6 +7,11 @@ export * from './tick-loop.js';
 export * from './spawner/worktree.js';
 export * from './spawner/snapshot-builder.js';
 export * from './spawner/clone-spawner.js';
+// RB1/bug #56: expose the transcript-fork primitives (notably `mangle`) so the
+// Chunk-5 e2e can derive parent/fork JSONL paths from the REAL scheme instead of
+// re-implementing it (a re-implementation could drift from Claude Code's on-disk
+// layout — the silent-empty-inheritance failure mode the e2e exists to catch).
+export * from './spawner/session-fork.js';
 export * from './output/status-table.js';
 export * from './output/reporter.js';
 export * from './commands/cast.js';
