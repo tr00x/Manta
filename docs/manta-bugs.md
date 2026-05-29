@@ -816,7 +816,7 @@ The `.gitignore` correctly excludes `.manta/worktrees/` for future files but doe
 
 **Discovered:** 2026-05-28, by clone-B (cast-1780020786877) during Phase 7b Chunk 1 `pnpm gate` verification
 **Severity:** Medium — gate-reddening, but environment-scoped (does not reproduce in the main repo)
-**Status:** Open — PRE-EXISTING, unrelated to Phase 7b Chunk 1 (see proof below)
+**Status:** Fix applied (source) — bundled-artifact re-verification is Chunk 2's gate (RB2 publish path)
 
 **Symptom:** `packages/manta-cli/tests/spawner/heartbeat-hook.test.ts > touch script updates last_heartbeat_at in registry` fails:
 `AssertionError: expected 1000 to be greater than or equal to <now>` — the generated `heartbeat-touch.cjs`, run via `execSync('node …')`, returns early (one of its `catch { return }` arms fires) and leaves `last_heartbeat_at` at the fixture value `1000` instead of `Date.now()`.
@@ -831,7 +831,13 @@ The `.gitignore` correctly excludes `.manta/worktrees/` for future files but doe
 
 **Workaround:** None needed for Phase 7b — the failure is isolated to one spawner test and does not affect the share/ sanitization layer. Re-running the gate in the main repo (established node_modules) is green.
 
-**Fix:** Pending (out of scope for Phase 7b). Candidate fixes: (a) make the touch script resolve `proper-lockfile` at runtime inside the subprocess rather than embedding an install-time absolute path; (b) in the test, assert on a deterministic clock injected into the subprocess via env; (c) have the touch script's lock `catch` surface the error to stderr (currently fully swallowed) so failures are diagnosable instead of silent.
+**Fix:** Applied (source) 2026-05-29 in RB2 Chunk 2a (`fix(rb2): Chunk 2a — heartbeat-hook resolves proper-lockfile without @manta/bus`). Took candidate (a) in the install-time form + (c):
+- `heartbeat-hook.ts` now resolves `proper-lockfile` directly from manta's own context — `const PROPER_LOCKFILE_PATH = require_.resolve('proper-lockfile')` — dropping the `createRequire(require_.resolve('@manta/bus')).resolve(...)` hop. This is the load-bearing change for Chunk 2: tsup `noExternal: [/^@manta\//]` inlines `@manta/bus` into manta's bundle and removes it from the published `node_modules`, so the old runtime `require.resolve('@manta/bus')` would throw "Cannot find module '@manta/bus'" and kill every cast's spawn. The static `import { busPaths } from '@manta/bus'` (install-time, inside the manta process) is kept — tsup inlines static imports, so it survives bundling.
+- `proper-lockfile` promoted from a transitive (via `@manta/bus`) to a **direct** dependency of `manta` (`^4.1.2`, matching `@manta/bus`) + `@types/proper-lockfile` devDep, so `require_.resolve('proper-lockfile')` finds manta's own copy and Chunk 2's bundle ships it.
+- (c) the lock-acquire `catch` in the generated touch-script now `console.error`s the masked failure before the best-effort return; benign data-skip catches (missing/empty/torn registry, DEAD clone) stay silent.
+- New test `heartbeat-hook.test.ts > heartbeat-hook performs no runtime @manta/bus resolve; generated script runs (bug #53)`. Its DISCRIMINATOR asserts (on comment-stripped `heartbeat-hook.ts` source) that no runtime `require.resolve('@manta/bus')` survives — proven to RED when the fix is reverted. The in-process behavioral run is only a smoke check (the dev monorepo cannot reproduce the fresh-install divergence).
+
+**Flips to `Fixed`** only after **Chunk 2's** empirical pack→extract→`npm i --omit=dev`→run-both-bins gate proves the BUNDLED artifact spawns a clone — the in-monorepo source fix cannot prove bundling survival on its own (candidate (b), an injected deterministic clock, was not needed).
 
 **Lessons:** A best-effort `catch { return }` that swallows ALL errors makes a real regression indistinguishable from a benign skipped-heartbeat — the script should at least `console.error` the masked failure so a reddening gate is diagnosable without a manual repro.
 

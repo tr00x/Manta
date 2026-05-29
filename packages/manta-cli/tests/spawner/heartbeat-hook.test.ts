@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { execSync, spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { busPaths, Registry, systemClock } from '@manta/bus';
 import { installHeartbeatHook, _resetInstalledWorktrees } from '../../src/spawner/heartbeat-hook.js';
 
@@ -198,6 +199,104 @@ describe('heartbeat-hook', () => {
       const updated = JSON.parse(await fs.readFile(regPath, 'utf8')) as Record<string, unknown>;
       const clone = (updated.clones as Record<string, Record<string, unknown>>).A;
       expect(clone!.last_heartbeat_at).toBe(1000);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('heartbeat-hook performs no runtime @manta/bus resolve; generated script runs (bug #53)', async () => {
+    // bug #53: heartbeat-hook.ts used to bake proper-lockfile's path via
+    //   createRequire(require_.resolve('@manta/bus')).resolve('proper-lockfile')
+    // — a RUNTIME resolve of '@manta/bus'. Under Chunk 2's tsup
+    // noExternal: [/^@manta\//] the bus is inlined into manta's bundle and
+    // disappears from the published node_modules, so that runtime resolve throws
+    // "Cannot find module '@manta/bus'" and kills every cast's spawn. The fix
+    // resolves proper-lockfile directly (require_.resolve('proper-lockfile'),
+    // proper-lockfile promoted to a direct dep). The STATIC top-level
+    // `import { busPaths } from '@manta/bus'` stays — tsup inlines static imports
+    // so it survives bundling; only the runtime resolve had to go.
+    //
+    // What this test can and cannot prove at Chunk-2a time:
+    //  • DISCRIMINATOR (reds if the fix is reverted): heartbeat-hook.ts's own
+    //    source must perform NO runtime require/require.resolve of '@manta/bus'.
+    //    The buggy version contains `require_.resolve('@manta/bus')`; the fix
+    //    does not. Asserted on comment-stripped source so prose mentions of the
+    //    bug don't create false matches.
+    //  • SMOKE (not a discriminator): the generated touch-script executes as a
+    //    standalone `node` process and advances last_heartbeat_at. This proves
+    //    the baked path is usable — NOT that bundling survives. In this dev
+    //    monorepo @manta/bus IS in node_modules, so the OLD chained resolve also
+    //    produces a working baked path; the real bundling-survival proof is
+    //    Chunk 2's pack→extract→run gate.
+
+    // --- DISCRIMINATOR: heartbeat-hook.ts performs no runtime @manta/bus resolve
+    const moduleSourcePath = fileURLToPath(
+      new URL('../../src/spawner/heartbeat-hook.ts', import.meta.url),
+    );
+    const moduleSource = await fs.readFile(moduleSourcePath, 'utf8');
+    const codeOnly = moduleSource
+      .replace(/\/\*[\s\S]*?\*\//g, '') // strip block comments
+      .replace(/\/\/[^\n]*/g, ''); // strip line comments
+    // The static install-time import is the ONLY @manta/bus reference allowed.
+    expect(codeOnly).toMatch(/import\s*\{[^}]*\bbusPaths\b[^}]*\}\s*from\s*['"]@manta\/bus['"]/);
+    // No runtime resolution of the bus in any form (this is what reverting the
+    // fix puts back, and what must never ship under noExternal).
+    expect(codeOnly).not.toMatch(/\.resolve\(\s*['"]@manta\/bus['"]/);
+    expect(codeOnly).not.toMatch(/require\(\s*['"]@manta\/bus['"]/);
+
+    // --- Generated script + behavioral smoke run
+    const root = await makeTmp();
+    const worktree = path.join(root, 'worktree');
+    const stateDir = path.join(root, '.manta', 'state');
+    const lockDir = path.join(stateDir, '.locks');
+    await fs.mkdir(worktree, { recursive: true });
+    await fs.mkdir(lockDir, { recursive: true });
+
+    const registry = {
+      version: 1,
+      clones: {
+        A: {
+          clone_id: 'A',
+          mode: 'recon-swarm',
+          state: 'WORKING',
+          last_heartbeat_at: 1000,
+          registered_at: 500,
+          parent_pid: 1,
+          worktree: '/w',
+          metadata: {},
+        },
+      },
+    };
+    const regPath = path.join(stateDir, 'registry.json');
+    await fs.writeFile(regPath, JSON.stringify(registry, null, 2));
+
+    try {
+      await installHeartbeatHook(worktree, root, 'A');
+      const scriptPath = path.join(worktree, '.manta', 'heartbeat-touch.cjs');
+      const source = await fs.readFile(scriptPath, 'utf8');
+
+      // Secondary guard (not a discriminator): the SHIPPED generated script must
+      // never carry a @manta/bus / manta-bus path. True for old and new alike in
+      // this monorepo, but guards against a future change baking a bus path.
+      expect(source).not.toMatch(/@manta\/bus/);
+      expect(source).not.toMatch(/manta-bus/);
+
+      // Smoke: standalone `node` run from a cwd with no upward node_modules (the
+      // mktemp worktree mirrors a fresh clone). The script require()s the baked
+      // absolute proper-lockfile path, so this proves it executes and advances
+      // the heartbeat — not resolution-independence (see header).
+      const before = Date.now();
+      execSync(`node "${scriptPath}"`, {
+        timeout: 5000,
+        cwd: worktree,
+        env: { ...process.env, MANTA_CLONE_ID: 'A' },
+      });
+      const after = Date.now();
+
+      const updated = JSON.parse(await fs.readFile(regPath, 'utf8')) as Record<string, unknown>;
+      const clone = (updated.clones as Record<string, Record<string, unknown>>).A;
+      expect(clone!.last_heartbeat_at).toBeGreaterThanOrEqual(before);
+      expect(clone!.last_heartbeat_at).toBeLessThanOrEqual(after);
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
