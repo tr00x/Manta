@@ -1,6 +1,6 @@
 # v1 Release Blocker #1 — Transcript Inheritance (implementation plan)
 
-> **Status:** Under review (curator-written from recon audit; reviewer-per-chunk loop pending — Task #6).
+> **Status:** Approved (curator-written from recon audit; plan-review subagent pass `2026-05-29` → verdict NEEDS-FIXES, 2 MUST-FIX [e2e gate env-var drift; unverified `CLAUDE_CONFIG_DIR`] + 2 advisories applied. Ready to execute Chunks 1–5 via casts).
 > **Date:** 2026-05-29
 > **Author:** Claude Code (curator), from clone-A recon `docs/audits/2026-05-29-transcript-inheritance-plan.md` (cast-1780064388927).
 > **Spec basis:** Sec 1 (claim) + Sec 9 «Transcript inheritance — механизм и cost-tiers (v1)» (reconciled in `d201e20`).
@@ -59,7 +59,8 @@ Spec Sec 9 subsection + Sec 1 cell + Status amended; bug #56 logged. No code. **
 - `packages/manta-snapshot/tests/capture.test.ts`: `parentSessionId` round-trips verbatim (real uuid distinct from `castId`); `resumeEnabled` round-trips; the `.refine` rejects `resumeEnabled:true + parentSessionId:null`.
 
 **Implementation (exact):**
-- `packages/manta-snapshot/src/schema.ts:69` — apply Decision #1 (nullable + `resumeEnabled` + refine). Mirror into `capture.ts` `CaptureInput` + `captureState` (the existing `sessionId` conditional-spread at `capture.ts:50` is the pattern). Update `sanitized-schema.ts` if `resumeEnabled` must also be stripped/kept (decide: keep `resumeEnabled` boolean, strip `parentSessionId` — already stripped).
+- `packages/manta-snapshot/src/schema.ts:69` — apply Decision #1 (nullable + `resumeEnabled` + refine). Mirror into `capture.ts` `CaptureInput` + `captureState` (the existing `sessionId` conditional-spread at `capture.ts:50` is the pattern).
+- **`sanitized-schema.ts` (FIRM — reviewer-locked, not "decide"):** `SanitizedSnapshotSchema` is `.strict()` (`sanitized-schema.ts:36`), so the new `resumeEnabled` field MUST be added to its allow-list (`resumeEnabled: z.boolean()`) or the `manta share` round-trip parse throws on the unknown kept key. `parentSessionId`/`recentMessages`/`sessionId` are already omitted (`:9-10`) — correct, keep stripping them; only `resumeEnabled` (a harmless boolean) is added.
 - new `resolveParentSessionId(opts)` helper in `cast.ts` (order per Decision #5).
 - `packages/manta-cli/src/commands/cast.ts:538` — replace `parentSessionId: opts.castId` with `parentSessionId: resolveParentSessionId(opts)` and pass `resumeEnabled` into `buildCloneSnapshot`.
 - `packages/manta-cli/src/bin/manta.ts` — add `.option('--parent-session-id <uuid>', …)` to the cast command (default `process.env.CLAUDE_CODE_SESSION_ID`); thread into `runCast` opts.
@@ -69,7 +70,7 @@ Spec Sec 9 subsection + Sec 1 cell + Status amended; bug #56 logged. No code. **
 ### Chunk 2 — Fork the parent JSONL into each clone's worktree project dir (+ size guard) — ~2.5 h
 
 **TDD first (hermetic — temp `claudeHome`, no real `claude`):**
-- new `packages/manta-cli/src/spawner/session-fork.ts`: `forkParentSession({ parentSessionId, parentCwd, cloneCwd, claudeHome?, thresholdBytes? }): Promise<{ forkedSessionId } | { skipped: 'not_found' | 'no_parent' | 'over_threshold' }>`.
+- new `packages/manta-cli/src/spawner/session-fork.ts`: `forkParentSession({ parentSessionId, parentCwd, cloneCwd, claudeHome?, thresholdBytes? }): Promise<{ forkedSessionId } | { skipped: 'not_found' | 'over_threshold' }>`. `parentSessionId: string` (non-null — the sole caller invokes only when `snap.resumeEnabled`, which the Chunk-1 `.refine` guarantees ⇒ `parentSessionId !== null`; no `no_parent` variant, per quality-bar "don't handle states that can't happen").
 - `packages/manta-cli/tests/spawner/session-fork.test.ts`:
   - fixture JSONL at `<claudeHome>/projects/<mangle(parentCwd)>/<parentId>.jsonl` → copy written to `<claudeHome>/projects/<mangle(cloneCwd)>/<newUuid>.jsonl`; returns the new uuid; **source byte-identical** (`readFile` equality); the two project dirs differ.
   - parent file missing → `{ skipped: 'not_found' }`, nothing written.
@@ -78,7 +79,7 @@ Spec Sec 9 subsection + Sec 1 cell + Status amended; bug #56 logged. No code. **
   - **size guard:** parent JSONL > `thresholdBytes` → `{ skipped: 'over_threshold' }` (Chunk 4 later replaces this branch with distill).
 
 **Implementation (exact):**
-- `session-fork.ts`: `claudeHome = process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), '.claude')` (**verify** the env-override name against the running CLI before shipping). `mangle(cwd) = cwd.replaceAll('/','-').replaceAll('.','-')`. `randomUUID()` for the fork id. Plain `fs.copyFile`.
+- `session-fork.ts`: `claudeHome` is an **injected parameter** defaulting to `path.join(os.homedir(), '.claude')` — the empirically-proven path (every live transcript is under `~/.claude/projects/`). **Do not read `CLAUDE_CONFIG_DIR`** (reviewer MUST-FIX): `claude --help` exposes no `--config-dir` flag and no such env var, so reading it would ship an *unverified guess* dressed as fact. Relocatable-home support → deferred follow-up bug only if a real user ever needs it; the `claudeHome?` param already covers test injection. `mangle(cwd) = cwd.replaceAll('/','-').replaceAll('.','-')`. `randomUUID()` for the fork id. Plain `fs.copyFile`.
 - Wire into `cast.ts` clone loop (verified at `cast.ts:505-543`): **after** `wt.path` is known (`cloneWorktree: wt.path` at :536) and **before** `spawnClone`, call `forkParentSession` when `snap.resumeEnabled`. On `over_threshold` without `--force-full-transcript` → flip `resumeEnabled=false` + `reporter.warn` (Decision #4). Store `forkedSessionId` for Chunk 3.
 - add `--force-full-transcript` + `--distill-threshold-bytes` flags in `manta.ts` (threshold default 2 MB).
 
@@ -119,7 +120,7 @@ Spec Sec 9 subsection + Sec 1 cell + Status amended; bug #56 logged. No code. **
 
 ### Chunk 5 — End-to-end sentinel proof + share-leak guard — ~2 h
 
-**E2E** (`packages/manta-e2e/tests/transcript-inheritance.e2e.test.ts`, gated `MANTA_E2E_REAL_CLAUDE=1`, haiku, real `claude`):
+**E2E** (`packages/manta-e2e/tests/transcript-inheritance.e2e.test.ts`, gated via the **existing** `claudeBin.ts` helper — `MANTA_E2E=1`, enforced at `claudeBin.ts:20`; reuse `assertClaudeAvailable` + `sampleRepo`, do **not** invent a new env var (all 6 existing e2e tests share this gate); haiku, real `claude`):
 1. Seed a throwaway parent in a temp cwd: `claude --print --session-id <PARENT_UUID> --model haiku --permission-mode bypassPermissions "Remember this exact build token: MANTA_E2E_<random12>. Reply ACK."`; assert JSONL at `<claudeHome>/projects/<mangle(tempcwd)>/<PARENT_UUID>.jsonl`.
 2. `manta cast recon-swarm` (2 clones) with `MANTA_PARENT_SESSION_ID=<PARENT_UUID>`, task: *"Write the build token you were told to remember into `token.txt`, then graceful-death."* (real spawner path, Chunks 1–3).
 3. **The crux:** each clone's `token.txt` contains the exact `MANTA_E2E_<random12>` — only possible if the clone saw the parent conversation (token was never in task/priming/snapshot/file).
@@ -147,7 +148,7 @@ Spec Sec 9 subsection + Sec 1 cell + Status amended; bug #56 logged. No code. **
 | `--resume` + `--append-system-prompt` conflict | priming dropped on resume | proven to coexist (audit exp. C); keep priming as-is | Chunk 5 step 5 |
 | **Trimmed-fork won't resume** | dangling `parentUuid` after trim | **Chunk 4 step 4.0 proves the sub-mechanism first**; degrade to size-cap+warn if unprovable | Chunk 4.0 |
 | Token blow-up / huge transcript | 11.7 MB JSONL × N re-ingested | size guard (Chunk 2) + distill (Chunk 4); FIRM default above 2 MB | Chunk 2 guard + Chunk 4 |
-| `CLAUDE_CONFIG_DIR` override | relocated `~/.claude` | read `CLAUDE_CONFIG_DIR ?? ~/.claude`; verify env name vs running CLI | Chunk 2 (injectable `claudeHome`) |
+| Relocated `~/.claude` (non-default home) | user moved Claude's config dir | injectable `claudeHome` param (default `~/.claude`); **no** `CLAUDE_CONFIG_DIR` read (unverified in `claude --help`) → deferred follow-up if ever needed | Chunk 2 (injectable `claudeHome`) |
 | Transcript leaks via `manta share` | forked JSONL bundled into `.tar.gz` | `sanitized-schema.ts:9-10` strips fields + new no-`*.jsonl`-in-bundle assert | Chunk 5 share-leak guard |
 | Daemon first-turn id mismatch (adjacent, pre-existing) | daemon spawn uses `runClaudeCli` w/o `sessionId`; later `--resume`s a non-UUID id | **out of scope**; logged in bug #56 lessons for a future fix | n/a (tracked) |
 
