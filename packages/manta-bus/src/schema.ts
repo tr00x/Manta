@@ -486,7 +486,20 @@ export const BudgetConfigSchema = z
       .strict(),
   })
   .partial()
-  .strict();
+  .strict()
+  // Phase 7c Task 1.2: global hourly cap spanning ALL triggers (research §3.2),
+  // on top of each trigger's own hourly_cap — covers many small triggers firing
+  // simultaneously. Added via .extend() (NOT inside the .partial() block) so its
+  // .default() actually fires: .partial() wraps each field in ZodOptional, which
+  // short-circuits before reaching an inner ZodDefault.
+  .extend({
+    triggers: z
+      .object({
+        global_hourly_cap: z.number().int().positive().default(6),
+      })
+      .strict()
+      .default({ global_hourly_cap: 6 }),
+  });
 
 // Inferred types — exported so handlers and stores can share them.
 export type CloneId = z.infer<typeof CloneIdSchema>;

@@ -240,8 +240,29 @@ describe('DailySpendStateSchema', () => {
 });
 
 describe('BudgetConfigSchema', () => {
-  it('accepts empty object (all fields optional)', () => {
-    expect(BudgetConfigSchema.parse({})).toEqual({});
+  it('accepts empty object (all fields optional; triggers defaults)', () => {
+    // Phase 7c Task 1.2: triggers carries a firing default even on empty input.
+    expect(BudgetConfigSchema.parse({})).toEqual({ triggers: { global_hourly_cap: 6 } });
+  });
+
+  it('defaults triggers.global_hourly_cap to 6 when no triggers key', () => {
+    const parsed = BudgetConfigSchema.parse({ per_cast_usd: 5 });
+    expect(parsed.triggers.global_hourly_cap).toBe(6);
+  });
+
+  it('accepts an explicit triggers.global_hourly_cap', () => {
+    const parsed = BudgetConfigSchema.parse({ triggers: { global_hourly_cap: 2 } });
+    expect(parsed.triggers.global_hourly_cap).toBe(2);
+  });
+
+  it('rejects triggers.global_hourly_cap: 0 (must be positive)', () => {
+    expect(() => BudgetConfigSchema.parse({ triggers: { global_hourly_cap: 0 } })).toThrow();
+  });
+
+  it('rejects unknown keys inside triggers (strict)', () => {
+    expect(() =>
+      BudgetConfigSchema.parse({ triggers: { global_hourly_cap: 6, extra: 1 } }),
+    ).toThrow();
   });
 
   it('accepts per_clone_usd: "auto"', () => {

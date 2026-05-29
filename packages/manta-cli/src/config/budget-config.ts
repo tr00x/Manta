@@ -23,6 +23,7 @@ export interface ResolvedBudgetConfig {
   costEstimates: Record<Mode, number>;
   autoDowngrade: ResolvedAutoDowngrade;
   charges: ResolvedCharges;
+  triggersGlobalHourlyCap: number;
 }
 
 const DEFAULT_COST_ESTIMATES: Record<Mode, number> = {
@@ -55,6 +56,7 @@ export const BUDGET_DEFAULTS: ResolvedBudgetConfig = {
     idleRecoveryMinutes: 30,
     cooldownHours: 24,
   },
+  triggersGlobalHourlyCap: 6,
 };
 
 export async function loadBudgetConfig(repoRoot: string): Promise<ResolvedBudgetConfig> {
@@ -95,5 +97,7 @@ export async function loadBudgetConfig(repoRoot: string): Promise<ResolvedBudget
       idleRecoveryMinutes: data.charges?.idle_recovery_minutes ?? BUDGET_DEFAULTS.charges.idleRecoveryMinutes,
       cooldownHours: data.charges?.cooldown_hours ?? BUDGET_DEFAULTS.charges.cooldownHours,
     },
+    triggersGlobalHourlyCap:
+      data.triggers?.global_hourly_cap ?? BUDGET_DEFAULTS.triggersGlobalHourlyCap,
   };
 }
