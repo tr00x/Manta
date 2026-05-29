@@ -738,6 +738,22 @@ The `.gitignore` correctly excludes `.manta/worktrees/` for future files but doe
 **Root cause:** Current `claude` CLI tolerates unknown flags (probably to forward-compatibility for plugins). Manta's spawner relied on it being a real flag.
 **Lessons:** When integrating with a third-party CLI, validate every new flag with `--help | grep <flag>` and a positive behavioural smoke, not just exit-code 0 from a no-op invocation. The Phase-1 lockdown plan formalised this as task 1.2 (probe + smoke before code change).
 
+### #54 — `manta install` local-tgz spec parser rejects the native `*.manta-pkg.tar.gz` bundle name
+
+**Discovered:** 2026-05-28, by clone-B (cast-1780023574334) during Phase 7b Chunk 2 round-trip verification
+**Severity:** Low — usability gap, not a correctness bug; the bundle content installs fine once renamed
+**Status:** Open — surfaced by Chunk 2, the fix belongs to the Phase 7a install path (out of Chunk 2 scope)
+
+**Symptom:** `manta share` emits a bundle named `<name>-<version>.manta-pkg.tar.gz` (the plan §1.2 / CHANGELOG convention). Phase 7a's local-tgz spec parser is `LOCAL_TGZ = /^(?:\.{1,2}\/|\/).+\.tgz$/` (`packages/manta-cli/src/library/registry-client.ts:65`), which only matches a `.tgz` extension. Passing the native bundle path to `manta install` throws `install_spec_parse_failed` (exit 11) even though the bytes are a valid gzipped tar.
+
+**Proof:** The Chunk 2 round-trip test (`tests/commands/share.test.ts`) produces a `.manta-pkg.tar.gz`, copies it to a `.tgz` sibling, and `runInstallCommand` then succeeds — same bytes, different extension. So the content is install-compatible; only the extension recognition is the gap.
+
+**Workaround:** Pass the bundle to `manta install` after renaming to `*.tgz`, or `manta install ./bundle.manta-pkg.tar.gz` is rejected — rename first.
+
+**Fix (out of Chunk 2 scope):** widen `LOCAL_TGZ` to also accept `\.manta-pkg\.tar\.gz$` (and/or a bare `\.tar\.gz$`) so a freshly-`manta share`d bundle installs by its native name. Single-line regex change in the 7a-frozen `registry-client.ts`; deferred so Chunk 2 does not touch a frozen install-path file.
+
+---
+
 ### #53 — `heartbeat-hook` touch-script test fails in a freshly-`pnpm install`ed worktree
 
 **Discovered:** 2026-05-28, by clone-B (cast-1780020786877) during Phase 7b Chunk 1 `pnpm gate` verification

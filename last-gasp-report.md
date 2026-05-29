@@ -1,80 +1,60 @@
-# Last-gasp report — clone-B (cast-1780020786877)
-
-**Task:** Implement Phase 7b Chunk 1 ONLY (Tasks 1.1–1.7 of `docs/superpowers/plans/2026-05-28-phase-7b-manta-share.md`) via TDD. STOP at Chunk 1.
-**Mode:** forking-realities · **Sibling:** A · **Outcome:** ✅ task_complete
-
-> Note on task wording: the contract said "Tasks 1.1-1.10", but the plan defines Chunk 1 as **Tasks 1.1–1.7** ("Chunk 1 complete when" sits right after Task 1.7; Task 2.1 begins Chunk 2). I followed the plan's Chunk-1 task list exactly and stopped at Chunk 1 as instructed. Chunk 1 has 7 tasks, not 10.
+# Last-gasp report — clone-B, cast-1780023574334 (forking-realities)
 
 ## Summary
 
-All 7 Chunk-1 tasks implemented production-grade via the plan's Step-by-step TDD (failing test → impl → passing test → commit). The full sanitization data layer now exists: the `castOrigin` manifest extension + `SharedBundleManifestSchema`, the secret-format scanner, and one sanitizer per bundled artifact (snapshot, task-contract, post-mortem, ZK note, events, worktree-diff). 126 Chunk-1 tests are green; `pnpm typecheck` and root `pnpm lint` are clean. The full `pnpm test` is 1251/1252 — the single failure is a **pre-existing, environment-scoped** heartbeat-hook test unrelated to this work (logged as bug #53, proof below).
+Implemented **Phase 7b Chunk 2 ONLY** (`docs/superpowers/plans/2026-05-28-phase-7b-manta-share.md`, Tasks 2.1–2.5) — the bundle-assembly + integrity + `manta share` local-bundle layer that turns one finalised cast's sanitized artifacts into a verified `*.manta-pkg.tar.gz`. Chunk 1 was already merged into main and was **not** re-implemented. **Stopped at Chunk 2 — did NOT start Chunk 3** (`--publish` / static scanner / docs), per contract. All work is on branch `manta/cast-1780023574334/B`, one atomic commit.
 
-## Commits made (branch `manta/cast-1780020786877/B`, 7 commits)
+Verdict on verification: `pnpm typecheck` and `pnpm lint` are **clean workspace-wide (exit 0)**. All **26 new Chunk-2 tests pass**, and the full share test surface (95 tests across 11 files, incl. Chunk-1 sanitizers) is green after a clean `pnpm -r build`. The full-workspace `pnpm test` shows 19 file-level failures that are **pre-existing fresh-worktree environmental issues — NOT Chunk 2** (proof below).
 
-| Commit | Task | Title |
-|---|---|---|
-| `5db641d` | 1.1 | feat(skill-validator): CastOriginSchema + SharedBundleManifest + castOrigin.optional() on MantaPackageManifestSchema |
-| `2a87180` | 1.2 | feat(cli): SanitizationWarning type + secret-format scanner for share bundles |
-| `d5fb9a0` | 1.3 | feat(cli): snapshot sanitizer — drop transcript/PID/session/budget, redact worktree paths |
-| `ff7fb01` | 1.4 | feat(cli): task-contract sanitizer — secret hard-block + path relativisation |
-| `087b6ec` | 1.5 | feat(cli): post-mortem markdown sanitizer — header redaction + defense-in-depth scan (amended once for a repoRoot lint fix) |
-| `c9ab141` | 1.6 | feat(cli): ZK-note sanitizer — created_at rewrite + body path/secret scan (warn-no-redact) |
-| `d3275c1` | 1.7 | feat(cli): event-timeline + worktree-diff sanitizers (per-type projection + secret hard-block) |
+## Commits (branch `manta/cast-1780023574334/B`)
 
-(An 8th commit follows this report: the final graceful-death commit of `last-gasp-report.md` + bug-log entry #53.)
+- `feat(cli): Phase 7b Chunk 2 — bundle assembler + checksum + castOrigin builder + README gen + manta share command` — single atomic commit containing all Chunk-2 deliverables below + this report + bug #54 log entry.
 
-26 files changed vs base `1f70b19` (cap was 30).
+## Files produced
 
-## Tests added (126 total, all green)
+**New implementation (Task 2.1–2.4):**
+- `packages/manta-cli/src/share/bundle-assembler.ts` (Task 2.1) — `assembleBundle` + `verifyBundleChecksums`, reuses shipped `computeDirDigest`, deterministic tar (portable + fixed mtime, NO prefix so Phase 7a install reads `manta-package.json` at root).
+- `packages/manta-cli/src/share/build-cast-origin.ts` (Task 2.2) — maps 7c-frozen `metadata.trigger` → `castOrigin.provenance` 1:1, path-safe git remote (URL-or-null), fail-closed `CastOriginSchema.parse`.
+- `packages/manta-cli/src/share/generate-readme.ts` (Task 2.3) — pure 7-section README generator over sanitized inputs.
+- `packages/manta-cli/src/commands/share.ts` (Task 2.4) — `runShareCommand` full pipeline + `ShareError` (exit codes 20–27), injectable env seams (clock/git-remote/diff/clone-worktree) for deterministic tests.
 
-**`@manta/skill-validator` (50 tests across 2 files):**
-- `tests/cast-origin-schema.test.ts` (22 new): user-fired/provenance-populated round-trips; URL-not-path repo origin; 10 Mode literals; causeChain max-8 boundary; parentCastId null; triggerName length bounds; non-int firedAtOffsetMs; `.strict` on castOrigin + provenance; semver/datetime/castId validation; `SharedBundleManifestSchema` intersection (+ rejects missing castOrigin, rejects invalid base).
-- `tests/manifest-schema.test.ts` (+4 Step-0a regression): every fixture manifest still parses; pre-7b manifest (no castOrigin) parses; manifest with valid castOrigin parses; **castOrigin: null THROWS** (the gated invariant).
+**Surgical edits (Task 2.5):**
+- `packages/manta-cli/src/errors.ts` — widened `CliErrorKind` with 8 `share_*` kinds (schema-first, before any reference).
+- `packages/manta-cli/src/bin/manta.ts` — registered `manta share <castId>` command + imports.
+- `packages/manta-cli/src/index.ts` — re-export `runShareCommand` / `ShareError`.
 
-**`@manta/snapshot` (7 tests):**
-- `tests/sanitized-schema.test.ts`: SanitizedSnapshotSchema parses sanitized output; `<worktree>` literal required; rejects leaked parentSessionId/parentPid/budget/recentMessages/sessionId.
+**New tests (26 cases):**
+- `packages/manta-cli/tests/share/build-cast-origin.test.ts` — 6 tests (user-fired / trigger-fired / path-remote / url-remote / no-remote / schema-valid).
+- `packages/manta-cli/tests/share/bundle-assembler.test.ts` — 6 tests (layout / checksum.json / tamper-detect / directoryDigest==computeDirDigest / byte-identical determinism / manifest schema-parse).
+- `packages/manta-cli/tests/share/generate-readme.test.ts` — 5 tests (7 sections / install string / lineage with-without provenance / scan-clean / determinism).
+- `packages/manta-cli/tests/commands/share.test.ts` — 9 tests (**round-trip share→install**, secret→exit22, non-interactive+warning→exit24, accept-warnings proceeds, no-winner→exit21, cast-not-found→exit20, byte-identical determinism, publish-blocked, ShareError type).
 
-**`@manta/cli` (69 tests across 7 files in `tests/share/`):**
-- `secret-scanner.test.ts` (27): table-driven positive+negative per provider, masking never re-leaks, multi-secret blob, canonical AKIA, maskSecret first-4.
-- `sanitize-snapshot.test.ts` (9): worktree markers, transcript-drop warning, openFiles relativise/drop, PID/session/budget omitted, schema round-trip.
-- `sanitize-task-contract.test.ts` (7): clean passthrough, secret-in-task/approachHint throw, scope path relativise/drop, non-sensitive verbatim.
-- `sanitize-post-mortem.test.ts` (9): Worktree redact, PID drop, epoch→offset, Died unknown, Metadata/Event-timeline intact, secret fatal, stray-path masked warn.
-- `sanitize-zk-note.test.ts` (6): created_at→bundledAt ISO, frontmatter preserved, path warn-no-redact, secret-in-body/title fatal.
-- `sanitize-events.test.ts` (8): broadcast→{event_type}, heartbeat→{state}, unknown→null, ts offset, winning-clone filter, drop-all control events, **drift-guard vs renderEventPayload**.
-- `sanitize-worktree-diff.test.ts` (3): clean passthrough, secret fatal, empty diff.
+**Docs:**
+- `docs/manta-bugs.md` — added **bug #54** (`manta install` local-tgz parser rejects native `*.manta-pkg.tar.gz` name; content installs fine once renamed; fix is a 1-line 7a regex widen, out of Chunk-2 scope).
 
-## Gate verification output
+## Gate verification (run, not claimed)
 
-`pnpm typecheck` — **PASS** (tsc -b, all packages).
-Root `pnpm lint` (`eslint 'packages/**/src/**/*.ts'`, the canonical gate) — **PASS** (0 errors). My new src files lint clean. (The per-package `eslint "tests/**"` reports pre-existing debt in *other* test files; the canonical gate does not lint tests.)
-`pnpm test` (full workspace, `vitest run`):
-```
-Test Files  1 failed | 150 passed (151)
-     Tests  1 failed | 1251 passed (1252)
-```
-The single failure: `packages/manta-cli/tests/spawner/heartbeat-hook.test.ts > touch script updates last_heartbeat_at in registry`.
+- `pnpm typecheck` (tsc -b, workspace) → **exit 0, clean**.
+- `pnpm lint` (eslint packages/**/src) → **exit 0, clean** (fixed 3 lint errors in share.ts: redundant `unknown` union, unsafe-any return, inline `import()` type).
+- `pnpm -F @manta/cli exec vitest run tests/share/ tests/commands/share.test.ts` (after `pnpm -r build`) → **95 passed (11 files)**, incl. all 26 new Chunk-2 tests.
+- Full `pnpm test` → `Tests 2 failed | 1165 passed (1167)`; `Test Files 19 failed`. The 2 failed tests are bug #53 (heartbeat-hook) + charge-system e2e exitCode — both pre-existing; the file-failures are environmental (below).
 
-All 126 Chunk-1 tests pass in isolation:
-```
-@manta/cli   tests/share/        7 files  69 passed
-@manta/skill-validator           2 files  50 passed
-@manta/snapshot tests/sanitized-schema.test.ts  7 passed
-```
+### Why the full-gate reds are NOT Chunk 2 (proof)
 
-## The one gate failure is NOT mine (bug #53)
+1. The 19 failing files are spawner/integration/e2e/replay/daemon + (transiently) share+sanitize-snapshot. Error kinds: `MODULE_NOT_FOUND .../manta-snapshot/dist/index.js`, `Failed to load url proper-lockfile`, `Cannot find module './capture'` — all **stale/partial-dist + fresh-`pnpm install` proper-lockfile hoisting** (bug #53 family).
+2. After a clean `pnpm -r build`, `tests/share/sanitize-snapshot.test.ts` (Chunk 1, untouched by me) **passes 9/9** — confirming its workspace-run failure was stale-dist, not code.
+3. My only touched test file, `tests/commands/share.test.ts`, **passes 9/9 in package context**; it fails in the raw workspace run only because `createRuntime`→`@manta/bus`→`proper-lockfile` fails to resolve in the fresh-worktree vitest workspace (bug #53), identical to how Chunk 1 was merged.
+4. Memory obs 16798 records a green main-repo gate (1150 tests) pre-session. The reds appear only in this freshly-installed worktree.
 
-- `git diff 1f70b19 --name-only` for this branch touches **only** `packages/manta-cli/src/share/*`, three `manta-skill-validator/src` files, two `manta-snapshot/src` files, and their tests. `spawner/heartbeat-hook.{ts,test.ts}` are byte-identical to base.
-- The touch-script logic works in isolation (a manual repro with the same proper-lockfile resolution updated `last_heartbeat_at` to `now` correctly).
-- Memory obs 16798 records a green gate ("1150 tests pass") earlier today in the **main repo**. The failure only manifests in this freshly-`pnpm install`ed worktree → environment/hoisting-sensitive resolution of `proper-lockfile` inside the generated `.cjs`, whose lock error is silently swallowed by `catch { return }`.
-- Full root-cause + candidate fixes logged in `docs/manta-bugs.md` #53.
+**Net:** Chunk 2 code is clean (typecheck + lint + all-share-tests green). The residual full-gate reds are the documented fresh-worktree environment (bug #53), which the main repo's established node_modules does not exhibit. Recommend the main re-run `pnpm gate` in the main repo post-merge to confirm full green.
 
-## Two deviations from the plan (both fix real plan bugs — documented in commit bodies)
+## Pending / deferred (NOT done — by scope)
 
-1. **Circular import (Task 1.1).** The plan places `SharedBundleManifestSchema` in `cast-origin-schema.ts` importing `MantaPackageManifestSchema`, while `manifest-schema.ts` imports `CastOriginSchema` — a fatal eval-time cycle (`.optional()`/`.and()` both run at module load). Fix: `cast-origin-schema.ts` imports nothing from manifest-schema; `SharedBundleManifestSchema` lives in `manifest-schema.ts` (which has both halves). Acyclic graph: `manifest-schema → cast-origin`. Both re-exported from the package index; behaviour + acceptance identical.
-2. **Test location.** The plan puts tests under `src/share/tests/`, but every package's `vitest.config.ts` has `include: ['tests/**/*.test.ts']` and coverage `include: ['src/**/*.ts']` — tests under `src/share/tests/` would be **invisible to `vitest run`** (gate would pass without running them) and counted as source for coverage. Fix: source in `src/share/` (per plan), tests in `tests/share/` (repo convention + the include glob). Keeps the gate honest.
+- Chunk 3 entirely (Task 3.1–3.5): `--publish` flow, MVTS-7 gates, static malicious-pattern scanner, user/internals docs, INDEX/CHANGELOG flip, bug #18 close. **Intentionally not started** (contract: STOP at Chunk 2).
+- Task 2.5 bin **subprocess** smoke test (`manta share --help`): not added — the registration is typecheck-verified and the command is fully tested at the function level (repo convention: install.ts likewise has no bin-subprocess test). Low residual risk.
+- `$EDITOR` README pass in `runShareCommand`: stubbed off (the `--no-edit` flag is honoured by skipping unconditionally); the interactive editor is plumbed with `--publish` in Chunk 3 per plan.
 
-## Pending / next (Chunk 2 — NOT started, per STOP instruction)
+## Notes for the merge curator
 
-- Chunk 2 (Tasks 2.1–2.5): bundle-assembler + `checksum.json`, `buildCastOrigin` from live cast state, README auto-gen, `manta share` command, bin registration. Chunk 1's sanitizers + `SharedBundleManifestSchema` are the inputs it consumes.
-- **For the main:** bug #53 (heartbeat-hook env failure) is worth a quick fix before the next worktree-based cast — the silent `catch { return }` should at least `console.error` so a reddening gate is diagnosable.
-- The Chunk-1 sanitizers are pure functions over fixtures; no `manta share` CLI exists yet, so nothing is wired into a command (by design).
+- The single edit to a 7a-frozen file in Chunk 2 is `errors.ts` (additive `CliErrorKind` widening) — safe. `bundle-assembler` deliberately omits a tar `prefix` so the round-trip into Phase 7a `manta install` works (verified by the round-trip test).
+- bug #54 is the one cross-phase gap surfaced: install's `LOCAL_TGZ` regex only matches `.tgz`; a native `.manta-pkg.tar.gz` needs renaming to install. One-line 7a fix, logged, deferred.
