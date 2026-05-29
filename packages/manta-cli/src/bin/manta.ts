@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
+import type { Thresholds } from '@manta/orchestrator';
 import { createRuntime, type Runtime } from '../runtime.js';
 import { runCastCommand } from '../commands/cast.js';
 import { runStatusCommand } from '../commands/status.js';
@@ -48,8 +49,20 @@ import type { CloneAssignment } from '@manta/bus';
  */
 async function runWithRuntime(
   action: (rt: Runtime) => Promise<CommandResult>,
+  /**
+   * Optional partial threshold overrides. Bug #52 fix: heavy-generation
+   * tasks (plan-drafting, complex synthesis) can take >5 min between
+   * tool calls during a single thinking phase — heartbeat hook only fires
+   * on PreToolUse/PostToolUse, so the gap is invisible to the reaper.
+   * Exposing the existing `thresholdOverrides` seam through the CLI lets
+   * the operator pick a timeout that matches the task's thinking budget.
+   */
+  thresholdOverrides?: Partial<Thresholds>,
 ): Promise<void> {
-  const rt = await createRuntime({ repoRoot: process.cwd() });
+  const rt = await createRuntime({
+    repoRoot: process.cwd(),
+    ...(thresholdOverrides !== undefined ? { thresholdOverrides } : {}),
+  });
   try {
     const r = await action(rt);
     if (r.stdout.length > 0) {
@@ -142,6 +155,16 @@ async function main(): Promise<void> {
     .option('--daily-cap-usd <amount>', 'Override daily budget cap (default: from config or $50)', parseFloat)
     .option('--force', 'Force cast even if daily cap would be exceeded', false)
     .option('--charge-check', 'Enable charge system check (use --no-charge-check to skip)', true)
+    .option(
+      '--heartbeat-timeout-ms <ms>',
+      'Override default 300s heartbeat-stale threshold. Use for heavy-generation tasks (plan-drafting, complex synthesis) where >5min thinking gaps between tool calls are normal — the PostToolUse hook can\'t fire during generation. Bug #52.',
+      parseInt,
+    )
+    .option(
+      '--startup-grace-ms <ms>',
+      'Override default 300s startup grace period (first heartbeat must arrive within this window). Pair with --heartbeat-timeout-ms when the clone needs longer cold-start due to large priming/snapshot.',
+      parseInt,
+    )
     .action(
       async (
         mode: string,
@@ -160,6 +183,8 @@ async function main(): Promise<void> {
           dailyCapUsd?: number;
           force: boolean;
           chargeCheck: boolean;
+          heartbeatTimeoutMs?: number;
+          startupGraceMs?: number;
         },
       ) => {
         const splitCsv = (s: string): string[] =>
@@ -173,8 +198,15 @@ async function main(): Promise<void> {
         // branch.
         const cloneAssignments: Record<string, CloneAssignment> | undefined =
           options.tasks != null ? parseTasksFile(options.tasks) : undefined;
-        await runWithRuntime((rt) =>
-          runCastCommand(rt, {
+        // Bug #52: collect threshold overrides; pass only if any are set
+        // (createRuntime accepts Partial<Thresholds> via thresholdOverrides).
+        const thresholdOverrides: Partial<Thresholds> = {};
+        if (options.heartbeatTimeoutMs !== undefined) thresholdOverrides.heartbeatTimeoutMs = options.heartbeatTimeoutMs;
+        if (options.startupGraceMs !== undefined) thresholdOverrides.startupGraceMs = options.startupGraceMs;
+        const hasOverrides = Object.keys(thresholdOverrides).length > 0;
+        await runWithRuntime(
+          (rt) =>
+            runCastCommand(rt, {
             // Cast through unknown so commander's stringly-typed mode flows
             // into the runtime's invalid_input branch for unsupported values.
             mode: mode as unknown as Mode,
@@ -201,6 +233,7 @@ async function main(): Promise<void> {
             noChargeCheck: !options.chargeCheck,
             ...(options.dailyCapUsd !== undefined ? { dailyCapUsdOverride: options.dailyCapUsd } : {}),
           }),
+          hasOverrides ? thresholdOverrides : undefined,
         );
       },
     );

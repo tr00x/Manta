@@ -24,6 +24,20 @@
 
 ## Open bugs
 
+### #52 — Heavy-generation tasks (plan-drafting, complex synthesis) exceed `heartbeatTimeoutMs` between tool calls
+
+**Discovered:** 2026-05-28, plan-drafting cast `cast-1780018345492` (recon-swarm × 2 drafting Phase 7b + 7c plans). Both clones DEAD by heartbeat timeout (`heartbeat 302916ms ago > 300000ms`) before producing any deliverable file.
+**Severity:** High — blocks every cast whose task contains long thinking phases between tool calls (plan-drafting, large-doc synthesis, complex multi-file refactors that require reasoning). The reaper kills clones mid-work; no deliverable, no last-gasp report.
+**Status:** Fixed 2026-05-28 (`packages/manta-cli/src/bin/manta.ts` `--heartbeat-timeout-ms` + `--startup-grace-ms` CLI flags).
+**Reproducer:**
+1. `manta cast recon-swarm --clones 2 --task "draft a 1500-line plan based on this 1000-line research doc"`
+2. Clones spend >5 min thinking between tool calls (reading research + reasoning about plan structure + drafting the chunk-by-chunk task list).
+3. PostToolUse heartbeat hook only fires on tool-call completion. During pure-generation phases, no tool calls happen → no heartbeat → reaper marks DEAD at the default 300s threshold → cast.ts #40 force-terminates the wedged-from-reaper-pov clone before any deliverable lands.
+**Root cause:** The heartbeat mechanism is event-driven (PostToolUse hook on every tool call) but pure-thinking phases between tool calls are invisible to it. The 300s default was tuned for IMPLEMENTATION clones (frequent Write/Edit/Bash calls); generation-heavy tasks have very different cadence. No mechanism for the model to assert "still alive, just thinking" during generation.
+**Fix (operator-controlled):** Two new CLI flags on `manta cast` — `--heartbeat-timeout-ms <ms>` and `--startup-grace-ms <ms>` — expose the existing `thresholdOverrides` seam in `createRuntime`. Operator picks a timeout that matches the task's thinking budget. For plan-drafting, 20 min (`1200000`) is the empirically-good default. Default (5 min) stays unchanged so implementation-class casts are unaffected.
+**Deferred (Phase 8+):** A clone-side keepalive process that touches the registry every N seconds regardless of tool-call cadence would close this structurally — operator wouldn't need to know task-class up front. Defer because: (a) it's a new long-running sidecar inside the clone subprocess (new lifecycle to manage), (b) most casts have fine-grained tool-call cadence and don't need it, (c) the CLI-flag operator-control surface is enough for the workloads we ship today.
+**Lessons:** Event-driven heartbeats are blind to between-event silence. Any timeout based on event cadence must be tunable for tasks whose cadence is structurally different. The default cannot be "right" for every task class; expose the override.
+
 ### #44 — `sweepOrphanWorktrees` force-deletes LIVE clone worktrees under a symlinked repo root (regression on the #43 fix)
 
 **Discovered:** 2026-05-28, bug-hunt cast `cast-1780011340100` (both clones A and B independently flagged).
