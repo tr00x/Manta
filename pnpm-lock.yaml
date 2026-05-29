@@ -87,24 +87,21 @@ importers:
 
   packages/manta-cli:
     dependencies:
-      '@manta/bus':
-        specifier: workspace:*
-        version: link:../manta-bus
-      '@manta/orchestrator':
-        specifier: workspace:*
-        version: link:../manta-orchestrator
-      '@manta/skill-validator':
-        specifier: workspace:*
-        version: link:../manta-skill-validator
-      '@manta/snapshot':
-        specifier: workspace:*
-        version: link:../manta-snapshot
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.0.0
+        version: 1.29.0(zod@3.25.76)
       commander:
         specifier: ^12.0.0
         version: 12.1.0
       execa:
         specifier: ^8.0.0
         version: 8.0.1
+      gray-matter:
+        specifier: ^4.0.3
+        version: 4.0.3
+      nanoid:
+        specifier: ^5.0.0
+        version: 5.1.11
       proper-lockfile:
         specifier: ^4.1.2
         version: 4.1.2
@@ -121,6 +118,18 @@ importers:
         specifier: ^3.23.0
         version: 3.25.76
     devDependencies:
+      '@manta/bus':
+        specifier: workspace:*
+        version: link:../manta-bus
+      '@manta/orchestrator':
+        specifier: workspace:*
+        version: link:../manta-orchestrator
+      '@manta/skill-validator':
+        specifier: workspace:*
+        version: link:../manta-skill-validator
+      '@manta/snapshot':
+        specifier: workspace:*
+        version: link:../manta-snapshot
       '@types/node':
         specifier: ^20.12.0
         version: 20.19.39
