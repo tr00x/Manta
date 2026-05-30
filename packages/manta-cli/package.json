@@ -36,7 +36,13 @@
     "manta-bus": "./dist/bin/server.cjs",
     "manta-validate-skills": "./dist/bin/manta-validate-skills.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist/bin",
+    "dist/index.js",
+    "dist/index.cjs",
+    "dist/index.d.ts",
+    "dist/index.d.cts"
+  ],
   "scripts": {
     "build": "tsup",
     "test": "vitest run",
