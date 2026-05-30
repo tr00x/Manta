@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import type { Snapshot } from '@manta/snapshot';
 import { TaskContractSchema as BusTaskContractSchema } from '@manta/bus';
 import { runCastCommand, toBusContract, validateDisjointPartitions, DAEMON_IDLE_STATES } from '../../src/commands/cast.js';
+import { CliError } from '../../src/errors.js';
 import {
   runFakeCloneScript,
   type CloneRunner,
@@ -1335,6 +1336,90 @@ describe('cast command — refactor-wave operator-typo guards run before state c
 
     expect(chargesAfter.current_charges).toBe(chargesBefore.current_charges);
     expect(spendAfter.spent_usd).toBe(spendBefore.spent_usd);
+  });
+});
+
+// B8 regression — the MCP pre-flight (verifyMantaBusRegistered) ran AFTER
+// runPreSpawnGate, which had already debited the charge and recorded the daily
+// spend (`gate.committed`). A user whose bus is not registered (e.g. a plugin
+// user hit by B1) therefore drained charges to zero just retrying a cast that
+// could never spawn — the preflight threw, but the charge was already gone with
+// no refund. Fix: run the preflight BEFORE the charge-committing gate (same
+// "guards before state commit" philosophy as bug #31), so a preflight abort
+// debits nothing.
+describe('cast command — preflight failure does not burn charges (B8)', () => {
+  let fx: RepoFixture | undefined;
+  afterEach(async () => {
+    await fx?.cleanup();
+    fx = undefined;
+  });
+
+  it('a cast whose MCP preflight throws does NOT decrement charges or record spend', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({ repoRoot: fx.root });
+
+    const chargesBefore = await rt.ctx.charges.read();
+    const spendBefore = await rt.ctx.dailySpend.read();
+
+    const sink = new MemorySink();
+    // verifyMcp defaults to ON; inject a throwing preflight to drive the
+    // bus-not-registered abort deterministically, without a real `claude`
+    // binary on PATH. This is the exact shape verifyMantaBusRegistered throws.
+    await expect(
+      runCastCommand(rt, {
+        mode: 'recon-swarm',
+        task: 't',
+        cloneCount: 1,
+        cycleIntervalMs: 50,
+        runner: runFakeCloneScript({ scriptPath: fixturePath }),
+        reporter: createReporter({ sink }),
+        tickBudgetMs: 5_000,
+        castId: 'cast-b8',
+        budgetUsdPerClone: 5,
+        budgetUsdPerCast: 15,
+        preflight: () =>
+          Promise.reject(new CliError('manta-bus not registered', { kind: 'spawn_failed' })),
+      }),
+    ).rejects.toMatchObject({ name: 'CliError', kind: 'spawn_failed' });
+
+    const chargesAfter = await rt.ctx.charges.read();
+    const spendAfter = await rt.ctx.dailySpend.read();
+
+    // The charge was NOT debited and no daily spend was recorded: the preflight
+    // aborted before runPreSpawnGate's commit step ever ran.
+    expect(chargesAfter.current_charges).toBe(chargesBefore.current_charges);
+    expect(spendAfter.spent_usd).toBe(spendBefore.spent_usd);
+    // And `gate.committed` (the event emitted at the commit point) never fired.
+    const events = sink.lines.map((l) => l.event);
+    expect(events).not.toContain('gate.committed');
+  });
+
+  it('preflight runs before the gate: a dry-run still skips it (no bus needed for a cost preview)', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({ repoRoot: fx.root });
+
+    let preflightCalls = 0;
+    const result = await runCastCommand(rt, {
+      mode: 'recon-swarm',
+      task: 't',
+      cloneCount: 1,
+      cycleIntervalMs: 50,
+      runner: runFakeCloneScript({ scriptPath: fixturePath }),
+      reporter: createReporter({ sink: new MemorySink() }),
+      tickBudgetMs: 5_000,
+      castId: 'cast-b8-dry',
+      budgetUsdPerClone: 5,
+      budgetUsdPerCast: 15,
+      dryRun: true,
+      preflight: () => {
+        preflightCalls += 1;
+        return Promise.reject(new CliError('should not run on dry-run', { kind: 'spawn_failed' }));
+      },
+    });
+    // Dry-run returns cleanly WITHOUT invoking the preflight — a cost preview
+    // must not require a live bus (and must not be blocked by a throwing one).
+    expect(result.exitCode).toBe(0);
+    expect(preflightCalls).toBe(0);
   });
 });
 
