@@ -3,7 +3,21 @@
   "compilerOptions": {
     "composite": false,
     "incremental": false,
-    "declarationMap": false
+    "declarationMap": false,
+    // tsup's DTS pass uses THIS config. Unlike the `tsc -b` typecheck (which
+    // resolves @manta/* against the siblings' emitted dist/index.d.ts via the
+    // base config's paths), the DTS rollup must stay independent of sibling
+    // build order — `pnpm -r build` no longer topologically orders us after the
+    // siblings now that they are not declared deps. So resolve @manta/* against
+    // sibling SOURCE directly. rootDir is widened to the packages root so those
+    // sibling .ts files are not flagged as outside rootDir during the pass.
+    "rootDir": "..",
+    "paths": {
+      "@manta/bus": ["../manta-bus/src/index.ts"],
+      "@manta/orchestrator": ["../manta-orchestrator/src/index.ts"],
+      "@manta/skill-validator": ["../manta-skill-validator/src/index.ts"],
+      "@manta/snapshot": ["../manta-snapshot/src/index.ts"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["dist", "node_modules", "tests"]

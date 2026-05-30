@@ -32,7 +32,9 @@
     }
   },
   "bin": {
-    "manta": "./dist/bin/manta.js"
+    "manta": "./dist/bin/manta.js",
+    "manta-bus": "./dist/bin/server.cjs",
+    "manta-validate-skills": "./dist/bin/manta-validate-skills.js"
   },
   "files": ["dist"],
   "scripts": {
@@ -45,12 +47,11 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "@manta/bus": "workspace:*",
-    "@manta/orchestrator": "workspace:*",
-    "@manta/skill-validator": "workspace:*",
-    "@manta/snapshot": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.0.0",
     "commander": "^12.0.0",
     "execa": "^8.0.0",
+    "gray-matter": "^4.0.3",
+    "nanoid": "^5.0.0",
     "proper-lockfile": "^4.1.2",
     "semver": "^7.6.3",
     "tar": "^7.4.3",
