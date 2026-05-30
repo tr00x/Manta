@@ -24,6 +24,21 @@
 
 ## Open bugs
 
+### #65 — `budget_abort` (tick-budget exhausted) stops the orchestrator WITHOUT killing in-flight clone processes → orphan-alive clones keep running, burning tokens, never finalized
+
+**Discovered:** 2026-05-30, by curator during RB#3 forking cast `cast-1780171713628`. Clone B finished gracefully (committed, DEAD); clone A was slower and the cast hit its 25-min tick-budget (`cast.budget_abort cycles=300`, `cast.settlement outcome=fail`, `cast.done`). But clone A's `claude` process kept running AFTER `cast.done` — still actively writing its worktree (fresh mtimes, building the plugin scaffold) with no orchestrator watching. Registry showed `A: WORKING` with a growing heartbeat age and the orchestrator gone. Orphaned-alive: nobody would finalize it, collect its work, or stop it.
+**Severity:** Medium-High — wasted spend + misleading registry (`WORKING` for a clone no orchestrator owns) + the clone's work is stranded (uncommitted, never harvested unless the curator manually rescues it, as happened here — clone A's rescued scaffold turned out to be the WINNING design). On large/expensive casts this silently burns real money after the cast is declared over.
+
+**Reproducer:** run a forking cast whose clones can't all finish within `--tick-budget-ms` (default 1_500_000 = 25 min); a slow clone gets `budget_abort`ed at the orchestrator level but its `claude` child is not signalled.
+
+**Root cause (suspected):** the budget-abort path tears down the orchestrator loop / settles the cast but does not SIGTERM the spawned clone child PIDs (or their process groups). Graceful-death is clone-driven, so a clone that hasn't reached its shutdown ritual is simply abandoned. No "abort → kill all live clone PIDs of this cast → mark DEAD" step.
+
+**Workaround (curator):** after a `budget_abort` / `outcome=fail` forking cast, check `manta status` for any clone still `WORKING` with a climbing heartbeat; rescue its worktree to `.manta/rescue/`, `manta kill <id>`, TERM its `parent_pid` tree before relying on the result.
+
+**Fix:** Open. `cast`/orchestrator budget-abort and `manta abort` must enumerate the cast's live clone PIDs and SIGTERM (then SIGKILL after a grace window) AND mark them DEAD before declaring `cast.done`. Tie into bug #64's worktree handling so an aborted clone's worktree is left intact for harvest. Add a test: a clone exceeding tick-budget is signalled + registry-finalized, not left WORKING.
+
+**Lessons:** "cast complete" must mean "no clone of this cast is still running." Budget is a hard ceiling on the orchestrator AND its children. Surfaced the first time a forking cast's clones finished at very different speeds (clone B committed a 77k-line node_modules tree, eating the budget clone A needed) — the asymmetry is normal; the abort path must handle it.
+
 ### #64 — concurrent casts collide on clone-letter / worktree allocation: a new cast launched while another is live reuses a still-occupied letter (A/B/…) and force-checks-out its own branch into the live clone's worktree, silently killing the in-flight clone's registry slot
 
 **Discovered:** 2026-05-30, by curator running a deliberate multi-front parallel push (user: "добивай весь проект с разных сторон"). Launched `recon-swarm --clones 2` (took letters A, B). While it was live, launched `bug-hunt --clones 1` → roster allocated it letter **B**, colliding with the live recon clone B. The bug-hunt clone's worktree checkout (`manta/cast-1780169031321/B` into `.manta/worktrees/clone-B`) overwrote recon clone B's branch checkout; the registry entry for `B` was overwritten (recon-B → bug-hunt-B). Recon clone B's deliverable (`docs/audits/2026-05-30-manta-discoverability-gap.md`) survived ONLY because it was untracked and git-checkout preserves untracked files absent a conflict — pure luck, not design. A third cast (`documentation-chase`) correctly took the next free letter C and did NOT collide.

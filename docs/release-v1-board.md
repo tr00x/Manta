@@ -13,7 +13,7 @@ Updated: 2026-05-30 (curator session). HEAD `0c6abe1`.
 | A | **RB#1 transcript inheritance** | ✅ DONE (#56 Fixed, real-claude e2e green) | — | done |
 | B | **RB#2 publish path** Chunks 0-3 | ✅ MERGED (self-contained bundle + self-bootstrap) | — | done |
 | C | **RB#2 Chunk 4** install-from-tarball e2e | ⏸️ written (clone A, cast-1780119936859), ceremony PAUSED до RB#3 (install/layout может поменяться) | `packages/manta-e2e/tests/` | harvested, hold |
-| D | **RB#3 discoverability** (plugin/slash/skills delivery) | ✅ RECON DONE → DECISION MADE (plugin = v1). Impl pending (serial, post E/F). | `docs/audits/` (recon RO) | recon done |
+| D | **RB#3 discoverability** (plugin/slash/skills) | ✅ DONE + verified — Manta ships as Claude Code plugin (`109ecaa`,`d5612d7`). `/manta:*` (7 cmds), skills, `.mcp.json` auto-bus, `claude plugin validate` PASSED, gate 171/1462. Clone A won forking (B closed node_modules dirty). | repo-root plugin layout | done |
 | E | **Hardening** bug #63 | ✅ FIXED + cherry-picked (`34062c1`), gate green 171/1459. #60 escalated (out of fence→RB#4), N-QB12 was stale-clean | `cast.ts`, `merge-review-collector.ts` | done |
 | F | **Docs destaling** S-DOC7/9, S-OBS11 | ✅ cherry-picked (`40db9a6`): README status, Tier-0 note, isolation 18→25. Flagged `read_broadcasts` scope (→RB#4 security) | `README.md`, `docs/internals/`, spec | done |
 | RB#4a | **Concurrent-cast reliability** #64+#35 | ✅ FIXED + cherry-picked (`e84e55c`,`3ba3285`), gate 171/1462. #64 data-loss guard (structural cast_id-path = post-v1 follow-up); #35 serialized | `worktree.ts`, `merge-review-collector.ts` | done |
