@@ -20,6 +20,7 @@ import { runDaemonStatusCommand, runDaemonStopCommand } from '../commands/daemon
 import { runRetaskCommand } from '../commands/retask.js';
 import { runFeedbackCommand } from '../commands/feedback.js';
 import { runInstallCommand, InstallError } from '../commands/install.js';
+import { runBootstrap, formatBootstrapResult } from '../commands/bootstrap.js';
 import { runShareCommand, ShareError } from '../commands/share.js';
 import { runUninstallCommand, UninstallError } from '../commands/uninstall.js';
 import {
@@ -503,8 +504,12 @@ async function main(): Promise<void> {
     });
 
   program
-    .command('install <spec>')
-    .description('Install a Manta Library package (npm spec, git URL, or local .tgz)')
+    .command('install [spec]')
+    .description(
+      'Self-bootstrap Manta (register the bus MCP server from the installed package) ' +
+        'when run with no <spec>; with <spec>, install a Manta Library package ' +
+        '(npm spec, git URL, or local .tgz)',
+    )
     .option('--force', 'overwrite an existing same-version install', false)
     .option('--offline', 'refuse network calls; only local-tgz specs allowed', false)
     .option('--integrity <hash>', 'expected sha256-<base64> tarball hash; mismatch aborts with exit 13')
@@ -514,7 +519,7 @@ async function main(): Promise<void> {
     .option('--no-hooks', 'reserved; hooks distribution deferred to Phase 8 and cannot be re-enabled')
     .action(
       async (
-        spec: string,
+        spec: string | undefined,
         options: {
           force: boolean;
           offline: boolean;
@@ -527,6 +532,34 @@ async function main(): Promise<void> {
           hooks: boolean;
         },
       ) => {
+        // Bare `manta install` (no <spec>) self-bootstraps the bus MCP from the
+        // INSTALLED package — a different operation from installing a Library
+        // package. It must NOT construct a Runtime/registry and must not reach
+        // the --integrity/--no-hooks guards below (those are spec-only).
+        if (spec === undefined) {
+          try {
+            const result = await runBootstrap({
+              force: options.force,
+              dryRun: options.dryRun,
+              json: options.json,
+            });
+            if (options.json) {
+              process.stdout.write(JSON.stringify(result) + '\n');
+            } else {
+              process.stdout.write(formatBootstrapResult(result) + '\n');
+            }
+            process.exitCode = 0;
+          } catch (err) {
+            if (isCliError(err)) {
+              process.stderr.write(`[manta] install: ${err.kind}: ${err.message}\n`);
+              process.exitCode = err.exitCode;
+            } else {
+              throw err;
+            }
+          }
+          return;
+        }
+
         // --no-hooks=false / --hooks rejection is handled by
         // rejectHookOverrideEarly() before commander parses (commander treats
         // `--no-hooks=false` as an unknown option and would error out first).

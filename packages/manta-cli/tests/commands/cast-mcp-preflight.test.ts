@@ -73,4 +73,16 @@ describe('verifyMantaBusRegistered', () => {
       message: expect.stringContaining('claude CLI') as unknown as string,
     });
   });
+
+  it('T6 (M4): the fix string leads with `manta install`, not the monorepo $(pwd) path', async () => {
+    const err = (await verifyMantaBusRegistered({
+      runner: () => Promise.resolve(result({ stdout: 'memory: ok\n' })),
+    }).catch((e: unknown) => e)) as Error;
+    expect(err).toBeInstanceOf(Error);
+    const msg = err.message;
+    expect(msg).toContain('manta install');
+    // `manta install` is the leading, recommended fix; the from-source $(pwd)
+    // command is only a fallback that appears AFTER it.
+    expect(msg.indexOf('manta install')).toBeLessThan(msg.indexOf('$(pwd)'));
+  });
 });
