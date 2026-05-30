@@ -18,7 +18,7 @@ import { verifyMantaBusRegistered } from './mcp-preflight.js';
 import { loadScoringConfig, runMergeReview, Orchestrator, makeProbe, fsPostMortemWriter, ForensicTimelineWriter, type BusContext as MergeReviewBusContext } from '@manta/orchestrator';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { createMetricCollector } from './merge-review-collector.js';
+import { createMetricCollector, prepareWorktreeForGate } from './merge-review-collector.js';
 import { adjustWeightsFromProject } from './rubric-prepass.js';
 import { listWorktrees } from '../spawner/worktree.js';
 import { loadBudgetConfig } from '../config/budget-config.js';
@@ -1063,12 +1063,17 @@ async function runMergeAllPipeline(
     deadClones,
     async runQualityGate(worktreePath: string) {
       const errors: string[] = [];
+      // bug #63: build the worktree before gating so the merge-all scorer mirrors
+      // the canonical pre-merge `pnpm gate` (install + build, then `tsc -b` +
+      // test) instead of a build-naive `tsc --noEmit` that reds on every
+      // `@manta/*` build-time alias. Shared prepare = one source of truth.
+      await prepareWorktreeForGate(worktreePath);
       const diffRes = await execa('git', ['diff', '--stat', 'HEAD'], { cwd: worktreePath, reject: false });
       const hasDiff = diffRes.stdout.trim().length > 0;
-      const tscRes = await execa('npx', ['tsc', '--noEmit'], { cwd: worktreePath, reject: false });
+      const tscRes = await execa('pnpm', ['typecheck'], { cwd: worktreePath, reject: false });
       const tscOk = tscRes.exitCode === 0;
-      if (!tscOk) errors.push(`tsc: ${tscRes.stderr.slice(0, 200)}`);
-      const testRes = await execa('npx', ['vitest', 'run', '--reporter=dot'], { cwd: worktreePath, reject: false, timeout: 120_000 });
+      if (!tscOk) errors.push(`tsc: ${(tscRes.stderr || tscRes.stdout).slice(0, 200)}`);
+      const testRes = await execa('pnpm', ['test'], { cwd: worktreePath, reject: false, timeout: 300_000 });
       const testsOk = testRes.exitCode === 0;
       if (!testsOk) errors.push(`tests: exit ${testRes.exitCode}`);
       return { passed: tscOk && testsOk, hasDiff, tscOk, testsOk, errors };

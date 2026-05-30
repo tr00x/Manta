@@ -3,16 +3,54 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { MetricCollector, RawCandidateMetrics } from '@manta/orchestrator';
 
-const TEST_TIMEOUT_MS = 120_000;
-const TSC_TIMEOUT_MS = 30_000;
-const ESLINT_TIMEOUT_MS = 30_000;
+const INSTALL_TIMEOUT_MS = 300_000;
+const BUILD_TIMEOUT_MS = 300_000;
+const TEST_TIMEOUT_MS = 300_000;
+const TSC_TIMEOUT_MS = 120_000;
+const ESLINT_TIMEOUT_MS = 60_000;
 const GIT_TIMEOUT_MS = 10_000;
 
 type CollectedMetrics = Omit<RawCandidateMetrics, 'selfCertainty'>;
 
+/**
+ * bug #63 root-cause fix. The merge-scorer's quality gate must reproduce the
+ * canonical pre-merge `pnpm gate`, which assumes an INSTALLED and BUILT
+ * workspace. A freshly `git worktree add`ed clone tree has no `node_modules`
+ * or `dist/`, so the `@manta/*` build-time aliases resolve to nothing:
+ * `tsc` reds with TS2307 ("Cannot find module '@manta/bus'") and the test step
+ * trips the fresh-install heartbeat-hook path (bug #53). Both are false-REDs
+ * against good, committed work — they false-negatived RB2 Chunks 2/3/4 and
+ * forced a manual curator override on every cast (`no_candidates_passed_gate`).
+ *
+ * Install deps and build the workspace BEFORE measuring tsc/lint/test, so the
+ * gate scores real quality, not missing build artifacts. Errors here are
+ * intentionally swallowed (`reject: false`): a worktree that genuinely cannot
+ * install or build will surface as tsc/test RED downstream — the correct
+ * (true-RED) signal — rather than throwing the candidate out of scoring.
+ *
+ * Exported so the merge-all gate (`cast.ts` runQualityGate) shares the exact
+ * same build prerequisite — one source of truth for "prepare like the canonical
+ * gate".
+ */
+export async function prepareWorktreeForGate(worktreePath: string): Promise<void> {
+  await execa('pnpm', ['install', '--prefer-offline'], {
+    cwd: worktreePath,
+    timeout: INSTALL_TIMEOUT_MS,
+    reject: false,
+  });
+  await execa('pnpm', ['-r', '--filter', './packages/*', 'build'], {
+    cwd: worktreePath,
+    timeout: BUILD_TIMEOUT_MS,
+    reject: false,
+  });
+}
+
 async function runTests(worktreePath: string): Promise<boolean> {
   try {
-    await execa('pnpm', ['-r', 'test'], { cwd: worktreePath, timeout: TEST_TIMEOUT_MS });
+    // bug #63: canonical gate test step = root `pnpm test` (`vitest run
+    // --passWithNoTests`), mirroring `pnpm gate` exactly — not an ad-hoc
+    // per-package `pnpm -r test`.
+    await execa('pnpm', ['test'], { cwd: worktreePath, timeout: TEST_TIMEOUT_MS });
     return true;
   } catch {
     return false;
@@ -82,7 +120,11 @@ async function readComplexityDelta(worktreePath: string, baseBranch: string): Pr
 
 async function readTscErrors(worktreePath: string): Promise<number> {
   try {
-    await execa('npx', ['tsc', '--noEmit'], { cwd: worktreePath, timeout: TSC_TIMEOUT_MS });
+    // bug #63: canonical typecheck = `tsc -b` (builds + checks project
+    // references), NOT `tsc --noEmit`. `--noEmit` neither builds nor resolves
+    // sibling references, so a fresh worktree reds with TS2307 on every
+    // `@manta/*` alias. `pnpm typecheck` is the exact command `pnpm gate` runs.
+    await execa('pnpm', ['typecheck'], { cwd: worktreePath, timeout: TSC_TIMEOUT_MS });
     return 0;
   } catch (err: unknown) {
     const stderr = (err as { stderr?: string })?.stderr ?? '';
@@ -95,10 +137,18 @@ async function readTscErrors(worktreePath: string): Promise<number> {
 
 async function readEslintResults(worktreePath: string): Promise<{ warnings: number; errors: number }> {
   try {
-    const r = await execa('npx', ['eslint', '.', '--format', 'json'], {
-      cwd: worktreePath,
-      timeout: ESLINT_TIMEOUT_MS,
-    });
+    // bug #63: mirror the canonical lint scope `eslint 'packages/**/src/**/*.ts'`
+    // (run via `pnpm exec` to bind the workspace eslint), so the scorer's lint
+    // dimension matches what `pnpm gate` measures — not a broader, divergent
+    // `eslint .` that scores files the merge bar never gates on.
+    const r = await execa(
+      'pnpm',
+      ['exec', 'eslint', 'packages/**/src/**/*.ts', '--no-error-on-unmatched-pattern', '--format', 'json'],
+      {
+        cwd: worktreePath,
+        timeout: ESLINT_TIMEOUT_MS,
+      },
+    );
     const results = JSON.parse(r.stdout) as Array<{ warningCount: number; errorCount: number }>;
     let warnings = 0;
     let errors = 0;
@@ -127,6 +177,10 @@ async function readEslintResults(worktreePath: string): Promise<{ warnings: numb
 export function createMetricCollector(): MetricCollector {
   return {
     async collect(cloneId: string, worktreePath: string, baseBranch: string): Promise<CollectedMetrics> {
+      // bug #63: prepare the worktree (install + build) BEFORE measuring any gate
+      // dimension. Without this, tsc/test score missing build artifacts, not real
+      // quality, and good committed work is false-negatived.
+      await prepareWorktreeForGate(worktreePath);
       const testsPassed = await runTests(worktreePath);
       const [coverageDelta, diffLinesChanged, complexityDelta, tscErrors, eslintResults] =
         await Promise.all([
