@@ -37,6 +37,10 @@ build/
 !/dist/bin/
 !/dist/bin/manta.cjs
 !/dist/bin/server.cjs
+# Vendored RUNTIME deps for the plugin (require()'d at runtime / by the touch-script,
+# not inlinable by tsup). Must be committed — plugins install by git clone, no npm install.
+!/dist/node_modules/
+!/dist/node_modules/**
 
 # Python
 __pycache__/
