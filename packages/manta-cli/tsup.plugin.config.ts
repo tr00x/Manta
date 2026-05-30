@@ -24,6 +24,10 @@ export default defineConfig({
   entry: {
     'bin/manta': 'src/bin/manta.ts',
     'bin/server': '../manta-bus/src/bin/server.ts',
+    // Tier 0 conditional statusLine — root settings.json points Claude Code at
+    // ${CLAUDE_PLUGIN_ROOT}/dist/bin/manta-statusline.cjs. Zero-dep (node
+    // builtins only), but bundled here so the committed plugin tree ships it.
+    'bin/manta-statusline': 'src/bin/manta-statusline.ts',
   },
   outDir: 'plugin-dist',
   // Inline EVERYTHING — the plugin runtime has no node_modules to fall back on.

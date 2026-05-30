@@ -39,7 +39,9 @@ const RUNTIME_MODULES = ['proper-lockfile', 'graceful-fs', 'retry', 'signal-exit
 
 // Both are CJS so they load without a package.json "type":"module" in the cache.
 // .mcp.json runs server.cjs; commands/*.md run manta.cjs — both via ${CLAUDE_PLUGIN_ROOT}.
-const artifacts = ['manta.cjs', 'server.cjs'];
+// manta-statusline.cjs is the Tier 0 conditional statusLine bin (root
+// settings.json → ${CLAUDE_PLUGIN_ROOT}/dist/bin/manta-statusline.cjs).
+const artifacts = ['manta.cjs', 'server.cjs', 'manta-statusline.cjs'];
 
 for (const f of artifacts) {
   if (!existsSync(join(srcBin, f))) {
