@@ -26,15 +26,19 @@ Without the bus registration (either `manta install` or the manual `claude mcp a
 
 ## Status
 
+Published as `manta@0.1.0` — internal work Phases 0–7 (see `CHANGELOG.md`). All 7 built-in modes operational; 25 MCP tools across 6 families on the bus.
+
 - [x] Phase 0 — `recon-swarm` foundation
-- [ ] Phase 1 — `recon-swarm` production-grade lockdown
-- [~] Phase 2a — `forking-realities` spawn surface (allowlist + per-clone tasks file + cast manifest); bus isolation (2b) + merge-review (2c) + observability (2d) pending. See `docs/user/forking-realities.md`.
-- [ ] Phase 3 — Charge system + budgets + cooldowns
-- [ ] Phase 4 — Wave-1 closeout (`refactor-wave`, `bug-hunt`)
-- [ ] Phase 5 — Daemon-mode runtime
-- [ ] Phase 6 — Wave-2 modes
-- [ ] Phase 7 — Manta Library + auto-cast triggers
-- [ ] Phase 8 — Aghanim's-locked modes (`council`, `phantom-lance`, `decoy`)
+- [x] Phase 1 — `recon-swarm` production-grade lockdown
+- [x] Phase 2 — `forking-realities` (spawn surface + bus isolation + merge-review + observability). See `docs/user/forking-realities.md`.
+- [x] Phase 3 — Charge system + budgets + cooldowns (`manta charges` / `manta cost` / `manta limit`)
+- [x] Phase 4 — Wave-1 closeout (`refactor-wave`, `bug-hunt`)
+- [x] Phase 5 — Daemon-mode runtime (`manta daemon` / `manta retask` / `manta feedback`)
+- [x] Phase 6 — Wave-2 modes (`pair-programming`, `test-storm`, `documentation-chase`)
+- [~] Phase 7 — Manta Library (`manta install`/`uninstall`/`library`, 7a) + Manta Share (`manta share`, 7b) shipped; auto-cast triggers (7c) — backend seam built, runtime wiring deferred
+- [ ] Phase 8 — Aghanim's-locked modes (`council`, `phantom-lance`, `decoy`) — deferred behind the 90-day prod gate
+
+**v1 release work (toward first npm publish):** transcript inheritance is live — clones boot via forked-transcript `claude --resume`, inheriting the caster's full context rather than running as fresh subagents (RB#1, bug #56 Fixed; acceptance gate `packages/manta-e2e/tests/transcript-inheritance.e2e.test.ts`). The self-contained publish path (single-artifact `tsup` bundle + `manta install` self-bootstrap) is merged (RB#2 Chunks 0–3).
 
 ## License
 

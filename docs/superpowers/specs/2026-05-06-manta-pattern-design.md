@@ -485,6 +485,8 @@ manta/
 
 Каждый tier — отдельный код-путь, не переизобретают друг друга. Единый источник истины — orchestrator's event log.
 
+> **Ship status (v1 / `manta@0.1.0`):** Tiers 1–4 are implemented as the `manta status` / `manta inspect <id>` / `manta tail <id>` / `manta replay <cast-id>` + `manta audit <clone-id>` CLI commands (all on the orchestrator event log). **Tier 0 (passive statusline) is NOT yet implemented in v1** — there is no always-on Claude Code statusline integration; liveness is observed via the on-demand tiers and `events.jsonl`. Tracked as S-OBS11; building it (or removing the row) is a tracked follow-up, not a v1 deliverable.
+
 ### 11.1 Дополнительные фичи
 
 1. **Manta Replay** — журнал каста, `/manta replay <cast-id>` пересмотр как реплея
