@@ -35,7 +35,7 @@ payload subdir). Acceptable for v1; a future optimization could carve out a payl
 | Artifact | Path | Purpose |
 |---|---|---|
 | Plugin manifest | `.claude-plugin/plugin.json` | name `manta`, version, description, author, repo, license, keywords. No `contributes`. |
-| Marketplace catalog | `.claude-plugin/marketplace.json` | single-plugin catalog; plugin `source` = `{ "source": "github", "repo": "manta-pattern/manta" }` (see "source field" below). |
+| Marketplace catalog | `.claude-plugin/marketplace.json` | single-plugin catalog; plugin `source` = `{ "source": "github", "repo": "tr00x/Manta" }` (see "source field" below). |
 | MCP server | `.mcp.json` | `manta-bus` stdio = `node ${CLAUDE_PLUGIN_ROOT}/dist/bin/server.cjs`. Auto-registers on enable — no `claude mcp add`. |
 | Slash commands | `commands/{cast,status,abort,cost,kill,promote,recover}.md` | thin Bash wrappers → `node ${CLAUDE_PLUGIN_ROOT}/dist/bin/manta.cjs <cmd>`. Auto-namespaced to `/manta:*`. The CLI stays the single code path. |
 | Skills | `skills/*/SKILL.md` | surfaced to the user's session AND resolvable by spawned clones (heals `priming.ts`'s previously-dead skill refs). |
@@ -67,7 +67,7 @@ Release step: `pnpm build && pnpm build:plugin`, then commit `dist/bin/`.
 plugin whose payload is its own repo root is the explicit github source:
 
 ```json
-{ "name": "manta", "source": { "source": "github", "repo": "manta-pattern/manta" }, "version": "0.1.0" }
+{ "name": "manta", "source": { "source": "github", "repo": "tr00x/Manta" }, "version": "0.1.0" }
 ```
 
 Relative-path sources (`"./plugin"`, `"./plugins/x"`) are also valid but require the payload to live in
@@ -76,7 +76,7 @@ that subdir. We use the github form because the payload is the repo root.
 ## Install (verified against current Claude Code docs)
 
 ```
-/plugin marketplace add manta-pattern/manta
+/plugin marketplace add tr00x/Manta
 /plugin install manta@manta
 /reload-plugins
 ```

@@ -11,7 +11,7 @@ npx manta@latest install      # installs the bin + registers the manta-bus MCP s
 manta cast recon-swarm --task "…"
 ```
 
-> The **Claude Code plugin** is the primary v1 distribution mechanism (`/plugin marketplace add manta-pattern/manta` → `/plugin install manta@manta` → `/manta:*` + skills + auto-bus). This npm CLI is the terminal / power-user path. See the repo-root `README.md` Install section.
+> The **Claude Code plugin** is the primary v1 distribution mechanism (`/plugin marketplace add tr00x/Manta` → `/plugin install manta@manta` → `/manta:*` + skills + auto-bus). This npm CLI is the terminal / power-user path. See the repo-root `README.md` Install section.
 >
 > **Precondition:** `manta cast` runs from **inside a Manta-enabled git checkout** — a repo/worktree that carries the `skills/` directory (e.g. a clone of the Manta repo). Casting from an arbitrary empty directory is Phase 8 (clones need the `manta-as-clone` skill on disk and a git repo for the worktree).
 

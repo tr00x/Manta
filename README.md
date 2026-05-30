@@ -13,7 +13,7 @@ commands, surfaces Manta's skills to your session (and to spawned clones), and a
 From inside Claude Code:
 
 ```
-/plugin marketplace add manta-pattern/manta
+/plugin marketplace add tr00x/Manta
 /plugin install manta@manta
 /reload-plugins
 ```

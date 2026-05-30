@@ -361,7 +361,7 @@ HP-бары, dispel, disable-cast — нет аналогов в коде.
 |---|---|
 | Inter-process bus | `mcp__claude-peers` |
 | Spawn | `claude` CLI с `--print`/headless mode |
-| Distribution | Claude Code **plugin** (primary v1 — `/plugin marketplace add manta-pattern/manta` → `/manta:*` + skills + auto-bus via `.mcp.json`) + npm CLI (`npx manta@latest install`, terminal/power-user path). Plugin pulled into v1 by RB#3 (2026-05-30), was previously slated Phase 8. |
+| Distribution | Claude Code **plugin** (primary v1 — `/plugin marketplace add tr00x/Manta` → `/manta:*` + skills + auto-bus via `.mcp.json`) + npm CLI (`npx manta@latest install`, terminal/power-user path). Plugin pulled into v1 by RB#3 (2026-05-30), was previously slated Phase 8. |
 | Skills | Skill tool, frontmatter-based |
 | Observability | hooks (Pre/PostToolUse, Stop) |
 | Status line | `statusline-setup` agent |
@@ -394,7 +394,7 @@ manta/
 └── docs/
 ```
 
-Распространяется двумя путями. **Основной v1-механизм — Claude Code plugin** (`/plugin marketplace add manta-pattern/manta` → `/plugin install manta@manta`): даёт `/manta:*` команды, surfaces skills юзеру и клонам, авто-регистрирует `manta-bus` MCP-сервер через `.mcp.json` (без `claude mcp add`). **npm CLI** (`npx manta@latest install`) — терминальный / power-user путь. Plugin-дистрибуция втянута в v1 решением RB#3 (2026-05-30); ранее планировалась как Phase 8 — см. `docs/internals/plugin-packaging.md`.
+Распространяется двумя путями. **Основной v1-механизм — Claude Code plugin** (`/plugin marketplace add tr00x/Manta` → `/plugin install manta@manta`): даёт `/manta:*` команды, surfaces skills юзеру и клонам, авто-регистрирует `manta-bus` MCP-сервер через `.mcp.json` (без `claude mcp add`). **npm CLI** (`npx manta@latest install`) — терминальный / power-user путь. Plugin-дистрибуция втянута в v1 решением RB#3 (2026-05-30); ранее планировалась как Phase 8 — см. `docs/internals/plugin-packaging.md`.
 
 ### Реальные блокеры самого Claude Code
 

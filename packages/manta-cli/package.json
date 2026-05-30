@@ -9,9 +9,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/manta-pattern/manta.git"
+    "url": "git+https://github.com/tr00x/Manta.git"
   },
-  "homepage": "https://github.com/manta-pattern/manta#readme",
+  "homepage": "https://github.com/tr00x/Manta#readme",
   "keywords": [
     "claude",
     "claude-code",
