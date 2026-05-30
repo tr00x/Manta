@@ -31,6 +31,12 @@ function flatten(): string[] {
 describe('merge-review-collector — bug #63 gate prerequisites', () => {
   beforeEach(() => {
     execaCalls.length = 0;
+    // Reset to the default green impl so a per-test override (e.g. the
+    // serialization test below) never leaks into sibling tests.
+    execaMock.mockImplementation(async (cmd: string, args: readonly string[] = []) => {
+      execaCalls.push({ cmd, args });
+      return { exitCode: 0, stdout: '[]', stderr: '' };
+    });
   });
 
   it('prepareWorktreeForGate installs deps then builds (install before build)', async () => {
@@ -90,5 +96,44 @@ describe('merge-review-collector — bug #63 gate prerequisites', () => {
 
     expect(cmds.some((c) => c.startsWith('pnpm -r test'))).toBe(false);
     expect(cmds.some((c) => c === 'pnpm test')).toBe(true);
+  });
+
+  // bug #35 re-exposed: the scorer gates all candidates concurrently, so the
+  // install step must be serialized across worktrees to avoid the shared-store race.
+  it('install uses --frozen-lockfile so the shared store/lockfile cannot be rewritten (bug #35)', async () => {
+    await prepareWorktreeForGate('/wt');
+    const installCmd = flatten().find((c) => c.startsWith('pnpm install'));
+    expect(installCmd, 'pnpm install must run').toBeDefined();
+    expect(installCmd, 'install must be frozen so a warm store is a near-noop').toContain(
+      '--frozen-lockfile',
+    );
+  });
+
+  it('serializes install across concurrent prepareWorktreeForGate calls — no two installs overlap (bug #35)', async () => {
+    let active = 0;
+    let maxActive = 0;
+    execaMock.mockImplementation(async (cmd: string, args: readonly string[] = []) => {
+      execaCalls.push({ cmd, args });
+      if (cmd === 'pnpm' && args[0] === 'install') {
+        active++;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((r) => setTimeout(r, 15));
+        active--;
+      }
+      return { exitCode: 0, stdout: '[]', stderr: '' };
+    });
+
+    // Three candidate gates fired concurrently (mirrors cast.ts Promise.all).
+    await Promise.all([
+      prepareWorktreeForGate('/wt1'),
+      prepareWorktreeForGate('/wt2'),
+      prepareWorktreeForGate('/wt3'),
+    ]);
+
+    expect(maxActive, 'concurrent pnpm install on the shared store is the bug #35 race').toBe(1);
+    expect(
+      execaCalls.filter((c) => c.cmd === 'pnpm' && c.args[0] === 'install'),
+      'all three candidates still installed',
+    ).toHaveLength(3);
   });
 });

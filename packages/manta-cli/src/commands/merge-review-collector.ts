@@ -32,16 +32,44 @@ type CollectedMetrics = Omit<RawCandidateMetrics, 'selfCertainty'>;
  * same build prerequisite — one source of truth for "prepare like the canonical
  * gate".
  */
+/**
+ * bug #35 re-exposed (by the bug #63 fix). The merge-scorer gates ALL candidates
+ * concurrently (`cast.ts` runs `collector.collect` for every clone via
+ * `Promise.all`), so without serialization `prepareWorktreeForGate` fires N
+ * concurrent `pnpm install`s against the shared content-addressable `.pnpm`
+ * store — the exact race `pnpm-workspace.yaml` documents (symlink rewrite →
+ * `ERR_MODULE_NOT_FOUND`). This process-wide promise-chain mutex serializes the
+ * install+build prepare across all candidates so no two run at once. The chain
+ * never breaks on a rejected run (each link swallows its own outcome) so one
+ * candidate's failure cannot deadlock the others.
+ */
+let prepareChain: Promise<unknown> = Promise.resolve();
+function runSerialized<T>(fn: () => Promise<T>): Promise<T> {
+  const run = prepareChain.then(fn, fn);
+  prepareChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 export async function prepareWorktreeForGate(worktreePath: string): Promise<void> {
-  await execa('pnpm', ['install', '--prefer-offline'], {
-    cwd: worktreePath,
-    timeout: INSTALL_TIMEOUT_MS,
-    reject: false,
-  });
-  await execa('pnpm', ['-r', '--filter', './packages/*', 'build'], {
-    cwd: worktreePath,
-    timeout: BUILD_TIMEOUT_MS,
-    reject: false,
+  await runSerialized(async () => {
+    // --frozen-lockfile: the worktree is checked out from a committed branch
+    // whose pnpm-lock.yaml is authoritative; a warm store makes this a near-noop
+    // and it can NEVER rewrite the tracked lockfile (which would dirty
+    // `git diff --stat HEAD` in the diff-size metric). --prefer-offline keeps it
+    // store-local.
+    await execa('pnpm', ['install', '--frozen-lockfile', '--prefer-offline'], {
+      cwd: worktreePath,
+      timeout: INSTALL_TIMEOUT_MS,
+      reject: false,
+    });
+    await execa('pnpm', ['-r', '--filter', './packages/*', 'build'], {
+      cwd: worktreePath,
+      timeout: BUILD_TIMEOUT_MS,
+      reject: false,
+    });
   });
 }
 
