@@ -1,5 +1,5 @@
 {
-  "name": "manta",
+  "name": "@tr00x/manta",
   "version": "0.1.0",
   "description": "Manta CLI — cast, status, kill, abort, recover (Phase 0 recon-swarm)",
   "license": "MIT",
