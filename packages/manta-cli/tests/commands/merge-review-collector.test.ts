@@ -28,6 +28,43 @@ function flatten(): string[] {
   return execaCalls.map((c) => `${c.cmd} ${c.args.join(' ')}`);
 }
 
+/**
+ * Install a faithful execa mock for the RED-path tests. It mirrors execa's real
+ * contract: a non-zero exitCode REJECTS unless the caller passed `reject:false`.
+ * This is what lets the RED tests prove the result interpretation — a green-only
+ * mock (the previous nayobka, bug #63) could never exercise the failure
+ * branches, so inverting `runTests`/`readTscErrors` left the suite green.
+ */
+function setExeca(
+  handler: (
+    cmd: string,
+    args: readonly string[],
+  ) => { exitCode: number; stdout?: string; stderr?: string },
+): void {
+  execaMock.mockImplementation(
+    async (
+      cmd: string,
+      args: readonly string[] = [],
+      opts?: { reject?: boolean },
+    ) => {
+      execaCalls.push({ cmd, args });
+      const r = handler(cmd, args);
+      const res = {
+        exitCode: r.exitCode,
+        stdout: r.stdout ?? '',
+        stderr: r.stderr ?? '',
+      };
+      if (res.exitCode !== 0 && opts?.reject !== false) {
+        throw Object.assign(
+          new Error(`Command failed (${res.exitCode}): ${cmd} ${args.join(' ')}`),
+          res,
+        );
+      }
+      return res;
+    },
+  );
+}
+
 describe('merge-review-collector — bug #63 gate prerequisites', () => {
   beforeEach(() => {
     execaCalls.length = 0;
@@ -135,5 +172,85 @@ describe('merge-review-collector — bug #63 gate prerequisites', () => {
       execaCalls.filter((c) => c.cmd === 'pnpm' && c.args[0] === 'install'),
       'all three candidates still installed',
     ).toHaveLength(3);
+  });
+});
+
+// bug #63 was the FAKE gate: the green-only execa mock meant the scorer's RED
+// branches (non-zero typecheck → tscErrors; failing test → testsPassed=false;
+// rejected install) were never exercised — you could invert the result
+// interpretation and the suite stayed green. These tests pin the failure
+// semantics so a flipped interpretation turns red.
+describe('merge-review-collector — RED paths (the bug #63 nayobka)', () => {
+  beforeEach(() => {
+    execaCalls.length = 0;
+  });
+
+  it('counts `error TSxxxx` lines when `pnpm typecheck` fails (tscErrors >= 1)', async () => {
+    setExeca((cmd, args) => {
+      if (cmd === 'pnpm' && args[0] === 'typecheck') {
+        return {
+          exitCode: 2,
+          stdout:
+            'src/a.ts(1,1): error TS2304: Cannot find name x\n' +
+            'src/b.ts(2,2): error TS1005: ; expected',
+          stderr: '',
+        };
+      }
+      return { exitCode: 0 };
+    });
+
+    const metrics = await createMetricCollector().collect('A', '/wt', 'main');
+
+    // Inverting readTscErrors (treating non-zero as 0 errors) MUST turn this red.
+    expect(metrics.tscErrors).toBeGreaterThanOrEqual(1);
+    expect(metrics.tscErrors).toBe(2);
+  });
+
+  it('falls back to tscErrors=1 when typecheck fails with no `error TSxxxx` lines', async () => {
+    setExeca((cmd, args) => {
+      if (cmd === 'pnpm' && args[0] === 'typecheck') {
+        return { exitCode: 1, stdout: 'build pipeline crashed', stderr: 'boom' };
+      }
+      return { exitCode: 0 };
+    });
+
+    const metrics = await createMetricCollector().collect('A', '/wt', 'main');
+    expect(metrics.tscErrors).toBe(1);
+  });
+
+  it('marks testsPassed=false when `pnpm test` exits non-zero', async () => {
+    setExeca((cmd, args) => {
+      if (cmd === 'pnpm' && args[0] === 'test') {
+        return { exitCode: 1, stdout: '', stderr: '3 failing' };
+      }
+      return { exitCode: 0 };
+    });
+
+    const metrics = await createMetricCollector().collect('A', '/wt', 'main');
+
+    // Inverting runTests (returning true on a throw) MUST turn this red.
+    expect(metrics.testsPassed).toBe(false);
+  });
+
+  it('keeps testsPassed=true on the green path (guards against an always-false flip)', async () => {
+    setExeca(() => ({ exitCode: 0 }));
+    const metrics = await createMetricCollector().collect('A', '/wt', 'main');
+    expect(metrics.testsPassed).toBe(true);
+    expect(metrics.tscErrors).toBe(0);
+  });
+
+  it('prepareWorktreeForGate RESOLVES when the install exits non-zero (reject:false safety)', async () => {
+    setExeca((cmd, args) => {
+      if (cmd === 'pnpm' && args[0] === 'install') {
+        return { exitCode: 1, stderr: 'ERR_PNPM_LOCKFILE_OUT_OF_DATE' };
+      }
+      return { exitCode: 0 };
+    });
+
+    // install runs with `reject:false`, so a failing install must NOT throw —
+    // the candidate stays in scoring and surfaces as a true-RED tsc/test
+    // downstream. Removing `reject:false` (the faithful mock then throws on the
+    // non-zero exit) MUST turn this assertion red.
+    await expect(prepareWorktreeForGate('/wt-red')).resolves.toBeUndefined();
   });
 });
