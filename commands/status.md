@@ -1,35 +1,14 @@
 ---
 name: manta:status
-description: Print the orchestrator's snapshot — clones, locks, claims, thresholds.
-target: manta-cli
-aliases: []
+description: Print the orchestrator snapshot — live clones, their state, heartbeat age, locks, and claims.
+argument-hint: ""
+allowed-tools: Bash
 ---
 
-# /manta status
+Show the current Manta orchestrator status via the bundled binary.
 
-## Usage
-
-```
-/manta status
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/dist/bin/manta.cjs" status
 ```
 
-No arguments.
-
-## Arguments
-
-(none)
-
-## Behavior
-
-Calls `Orchestrator.getStatus()` and renders an ASCII table:
-
-```
-Clone | Mode         | State        | Heartbeat age | Locks                | Claims
-------+--------------+--------------+---------------+----------------------+----------------------
-A     | recon-swarm  | WORKING      | 4s            | src/foo.ts           | task-1
-B     | recon-swarm  | WINDING_DOWN | 12s           | -                    | -
-```
-
-The renderer in `@manta/cli` (`src/output/status-table.ts`) defines the canonical layout; the table above is illustrative.
-
-Exits 0 always. If no clones are registered, prints `No active clones.`
+Render the CLI's table back to the user as-is. If it prints `No active clones.`, tell the user there is no cast running. Do not poll in a loop — run it once per invocation.

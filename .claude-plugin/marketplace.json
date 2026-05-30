@@ -1,0 +1,22 @@
+{
+  "name": "manta",
+  "owner": {
+    "name": "Manta Pattern",
+    "email": "noreply@manta-pattern.dev"
+  },
+  "metadata": {
+    "description": "Manta — the self-cloning Claude Code pattern.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "manta",
+      "source": {
+        "source": "github",
+        "repo": "manta-pattern/manta"
+      },
+      "description": "Cast parallel self-clones that inherit your context, coordinate over a bus, and merge back. Adds /manta:* commands, the manta-bus MCP server, and Manta's skills.",
+      "version": "0.1.0"
+    }
+  ]
+}

@@ -29,6 +29,15 @@ build/
 *.log
 .turbo/
 
+# Claude Code plugin payload — committed distributable.
+# Plugins install by git clone into the plugin cache with NO build step, so the
+# bundle must be tracked. `pnpm build:plugin` assembles exactly these two files
+# from packages/manta-cli/dist; everything else under dist/ stays ignored.
+!/dist/
+!/dist/bin/
+!/dist/bin/manta.cjs
+!/dist/bin/server.cjs
+
 # Python
 __pycache__/
 *.py[cod]
@@ -67,6 +76,8 @@ junit.xml
 # TypeScript build artifacts
 *.tsbuildinfo
 packages/*/dist/
+# Plugin bundle intermediate (tsup.plugin.config.ts output; copied to /dist/bin by build:plugin)
+packages/*/plugin-dist/
 .tsbuild/
 pnpm-debug.log*
 last-gasp-report.md

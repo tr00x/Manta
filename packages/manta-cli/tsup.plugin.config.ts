@@ -1,0 +1,44 @@
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { defineConfig } from 'tsup';
+
+const here = dirname(fileURLToPath(import.meta.url));
+
+// Plugin payload build — DISTINCT from tsup.config.ts (the npm build).
+//
+// The npm `manta` package keeps third-party deps EXTERNAL: `npm i` resolves
+// zod/commander/@modelcontextprotocol/sdk/etc. into node_modules. A Claude Code
+// PLUGIN installs by git clone into the plugin cache with NO `npm install` step
+// (verified: docs/audits/2026-05-30-plugin-distribution-mechanics.md), so the
+// plugin bundle must be FULLY self-contained — every runtime dependency inlined.
+// Hence noExternal: everything. Output goes to a dedicated dir so it never
+// clobbers the npm `dist/` that Chunk-4's install-from-tarball e2e pins.
+const internalAlias: Record<string, string> = {
+  '@manta/bus': resolve(here, '../manta-bus/src/index.ts'),
+  '@manta/orchestrator': resolve(here, '../manta-orchestrator/src/index.ts'),
+  '@manta/skill-validator': resolve(here, '../manta-skill-validator/src/index.ts'),
+  '@manta/snapshot': resolve(here, '../manta-snapshot/src/index.ts'),
+};
+
+export default defineConfig({
+  entry: {
+    'bin/manta': 'src/bin/manta.ts',
+    'bin/server': '../manta-bus/src/bin/server.ts',
+  },
+  outDir: 'plugin-dist',
+  // Inline EVERYTHING — the plugin runtime has no node_modules to fall back on.
+  noExternal: [/.*/],
+  esbuildOptions(options) {
+    options.alias = { ...options.alias, ...internalAlias };
+  },
+  // CJS for both: server is invoked as server.cjs by .mcp.json, and a CJS manta
+  // bin avoids ESM/CJS interop hazards when third-party ESM-only deps are inlined.
+  format: ['cjs'],
+  clean: true,
+  sourcemap: false,
+  target: 'node20',
+  splitting: false,
+  shims: true,
+  tsconfig: 'tsconfig.build.json',
+  outExtension: () => ({ js: '.cjs' }),
+});

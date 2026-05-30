@@ -1,7 +1,7 @@
 # Manta Pattern — Design Spec
 
 **Date:** 2026-05-06
-**Status:** Reviewed (spec-document-reviewer: Approved, 1 iteration). Ready for plan phase. **Amended 2026-05-29:** Sec 9 reconcile — transcript inheritance механизм + cost-tiers (v1 release blocker #1; разрешает противоречие Sec 1↔Sec 9 по `/goal`).
+**Status:** Reviewed (spec-document-reviewer: Approved, 1 iteration). Ready for plan phase. **Amended 2026-05-29:** Sec 9 reconcile — transcript inheritance механизм + cost-tiers (v1 release blocker #1; разрешает противоречие Sec 1↔Sec 9 по `/goal`). **Amended 2026-05-30 (RB#3):** Sec 9 Distribution — Claude Code plugin pulled into v1 as the primary discoverability mechanism (was Phase 8); slash-commands + user/clone skills are architecturally impossible via npm-only. Plugin scaffold shipped (`.claude-plugin/`, `commands/`, `.mcp.json`, repo-root = plugin root); packaging internals in `docs/internals/plugin-packaging.md`.
 **Author:** Tim Hunt + Claude Code (Opus 4.7)
 **Quality bar:** Production-grade from day 1. No MVP, no demo, no mocks.
 
@@ -361,7 +361,7 @@ HP-бары, dispel, disable-cast — нет аналогов в коде.
 |---|---|
 | Inter-process bus | `mcp__claude-peers` |
 | Spawn | `claude` CLI с `--print`/headless mode |
-| Distribution | npm CLI (`npx manta@latest install`); Claude Code plugin-marketplace entry — Phase 8 |
+| Distribution | Claude Code **plugin** (primary v1 — `/plugin marketplace add manta-pattern/manta` → `/manta:*` + skills + auto-bus via `.mcp.json`) + npm CLI (`npx manta@latest install`, terminal/power-user path). Plugin pulled into v1 by RB#3 (2026-05-30), was previously slated Phase 8. |
 | Skills | Skill tool, frontmatter-based |
 | Observability | hooks (Pre/PostToolUse, Stop) |
 | Status line | `statusline-setup` agent |
@@ -376,7 +376,7 @@ HP-бары, dispel, disable-cast — нет аналогов в коде.
 3. **`manta-orchestrator`** — background daemon для lifecycle (heartbeats, dead clone detection, post-mortem trigger, cooldown/charge management)
 4. **`manta-snapshot`** — transcript + state serializer
 5. **Skill suite** (~10 скилов выше)
-6. **Slash commands** `/manta *`
+6. **Slash commands** `/manta:*` (plugin-namespaced; thin wrappers over the bundled bin)
 
 ### Структура проекта
 
@@ -394,7 +394,7 @@ manta/
 └── docs/
 ```
 
-Распространяется как **npm CLI** (`npx manta@latest install` ставит bin и регистрирует `manta-bus` MCP-сервер из installed path). Claude Code plugin-marketplace entry — Phase 8, не v1-механизм.
+Распространяется двумя путями. **Основной v1-механизм — Claude Code plugin** (`/plugin marketplace add manta-pattern/manta` → `/plugin install manta@manta`): даёт `/manta:*` команды, surfaces skills юзеру и клонам, авто-регистрирует `manta-bus` MCP-сервер через `.mcp.json` (без `claude mcp add`). **npm CLI** (`npx manta@latest install`) — терминальный / power-user путь. Plugin-дистрибуция втянута в v1 решением RB#3 (2026-05-30); ранее планировалась как Phase 8 — см. `docs/internals/plugin-packaging.md`.
 
 ### Реальные блокеры самого Claude Code
 
