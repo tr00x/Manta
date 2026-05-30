@@ -12,8 +12,8 @@
     {
       "name": "manta",
       "source": {
-        "source": "github",
-        "repo": "tr00x/Manta"
+        "source": "url",
+        "url": "https://github.com/tr00x/Manta.git"
       },
       "description": "Cast parallel self-clones that inherit your context, coordinate over a bus, and merge back. Adds /manta:* commands, the manta-bus MCP server, and Manta's skills.",
       "version": "0.1.0"

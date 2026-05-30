@@ -132,7 +132,7 @@ skills to your session and to spawned clones, and auto-registers the `manta-bus`
 inside Claude Code:
 
 ```
-/plugin marketplace add tr00x/Manta
+/plugin marketplace add https://github.com/tr00x/Manta.git
 /plugin install manta@manta
 /reload-plugins
 ```

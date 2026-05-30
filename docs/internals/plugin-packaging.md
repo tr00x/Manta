@@ -76,7 +76,7 @@ that subdir. We use the github form because the payload is the repo root.
 ## Install (verified against current Claude Code docs)
 
 ```
-/plugin marketplace add tr00x/Manta
+/plugin marketplace add https://github.com/tr00x/Manta.git
 /plugin install manta@manta
 /reload-plugins
 ```

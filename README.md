@@ -88,7 +88,7 @@ Manta ships two ways. **The Claude Code plugin is the primary path** — it ligh
 From inside Claude Code:
 
 ```
-/plugin marketplace add tr00x/Manta
+/plugin marketplace add https://github.com/tr00x/Manta.git
 /plugin install manta@manta
 ```
 
