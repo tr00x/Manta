@@ -179,7 +179,7 @@ Cast если хотя бы одно:
 Полная остановка работы:
 - Catastrophic incident (corrupted state / lost code / orphan zombie processes) → freeze + recovery
 - Drift > 30% от текущей задачи у мейна — зовём `manta status`, читаем CLAUDE.md, перечитываем задачу
-- Юзер сказал «стоп» — `/manta abort` мгновенно
+- Юзер сказал «стоп» — `manta abort` мгновенно (терминальный CLI; slash-команды `/manta` в v1 НЕ существует — см. RB#3 plugin-дистрибуция)
 
 ## Post-cast merge ceremony (HARD RULE — нарушал 2026-05-26, Phase 3 Chunk 2)
 

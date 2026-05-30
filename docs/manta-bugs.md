@@ -24,6 +24,21 @@
 
 ## Open bugs
 
+### #64 — concurrent casts collide on clone-letter / worktree allocation: a new cast launched while another is live reuses a still-occupied letter (A/B/…) and force-checks-out its own branch into the live clone's worktree, silently killing the in-flight clone's registry slot
+
+**Discovered:** 2026-05-30, by curator running a deliberate multi-front parallel push (user: "добивай весь проект с разных сторон"). Launched `recon-swarm --clones 2` (took letters A, B). While it was live, launched `bug-hunt --clones 1` → roster allocated it letter **B**, colliding with the live recon clone B. The bug-hunt clone's worktree checkout (`manta/cast-1780169031321/B` into `.manta/worktrees/clone-B`) overwrote recon clone B's branch checkout; the registry entry for `B` was overwritten (recon-B → bug-hunt-B). Recon clone B's deliverable (`docs/audits/2026-05-30-manta-discoverability-gap.md`) survived ONLY because it was untracked and git-checkout preserves untracked files absent a conflict — pure luck, not design. A third cast (`documentation-chase`) correctly took the next free letter C and did NOT collide.
+**Severity:** High — direct production blocker, not just a dogfood annoyance. An end user who runs two `manta cast`s concurrently (the explicit parallelism the product sells) gets registry corruption + a silently-killed clone + a shared/dirty worktree. The single shared `.manta/state/registry.json` keyed by letter has no cross-cast occupancy check at allocation time.
+
+**Reproducer:** `manta cast recon-swarm --clones 2` (registers A, B), then BEFORE it finishes `manta cast bug-hunt --clones 1` in the same repo → second cast's roster picks B (a live letter); `git -C .manta/worktrees/clone-B branch --show-current` now shows the bug-hunt branch, recon-B's registry entry is gone, and recon's orchestrator process keeps polling for a "B" that now belongs to another cast (zombie until tick-budget / TERM).
+
+**Root cause (suspected, to confirm in fix cast):** the roster/letter allocator (cast spawn path) chooses clone letters from a per-cast or naive next-free scan that does NOT treat letters held by OTHER live casts in the shared registry as occupied. Worktree dir name is derived purely from the letter (`.manta/worktrees/clone-<L>`), so a letter collision is also a worktree collision. There is no lock spanning "allocate letter + claim worktree + register" across concurrent cast processes.
+
+**Workaround (curator, until fixed):** run casts SERIALLY — do not launch a second cast until `manta status` shows the prior cast's clones DEAD/done. The "multi-front parallel" curator pattern is UNSAFE on this version. Deliverables from the collided recon were rescued to `.manta/rescue/` and the orphaned recon orchestrator was TERM'd after harvest.
+
+**Fix:** Open. Candidate: allocator must scan the FULL shared registry for letters held by ANY non-DEAD clone (across all cast_ids) and skip them; ideally hold a registry-level lock spanning letter-allocation + worktree-claim + register so two concurrent `manta cast` processes cannot race to the same letter. Worktree path should incorporate cast_id (`clone-<castid>-<L>`) so a letter reuse can never alias an occupied worktree dir. Add a concurrency test: two casts spawned in parallel must get disjoint letters AND disjoint worktrees.
+
+**Lessons:** the product's headline feature is parallelism, but the curator hit a parallelism-safety bug the FIRST time two casts overlapped — strong signal that concurrent-cast safety needs an explicit test matrix before v1 publish (promote alongside RB#3). Untracked-file survival saved a deliverable here, but that is luck; in-flight deliverables during a collision are NOT safe in general.
+
 ### #63 — merge-scorer `runQualityGate` diverges from canonical `pnpm gate` (no build, `tsc --noEmit` not `tsc -b`) → false `no_candidates_passed_gate` on every build-before-gate cast
 
 **Discovered:** 2026-05-30, by curator during RB2 Chunk 2 merge ceremony (cast-1780092273489, forking-realities). The auto merge-review disqualified BOTH clones on `test_gate` (`docs/merge-reviews/cast-1780092273489.md`) despite both branches carrying real, committed, independently-`pnpm gate`-GREEN work (A `747f663`, B `83c608e` — not base HEAD).
