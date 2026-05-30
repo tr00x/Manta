@@ -17,7 +17,29 @@ Updated: 2026-05-30 (curator session). HEAD `0c6abe1`.
 | E | **Hardening** bug #63 | ✅ FIXED + cherry-picked (`34062c1`), gate green 171/1459. #60 escalated (out of fence→RB#4), N-QB12 was stale-clean | `cast.ts`, `merge-review-collector.ts` | done |
 | F | **Docs destaling** S-DOC7/9, S-OBS11 | ✅ cherry-picked (`40db9a6`): README status, Tier-0 note, isolation 18→25. Flagged `read_broadcasts` scope (→RB#4 security) | `README.md`, `docs/internals/`, spec | done |
 | RB#4a | **Concurrent-cast reliability** #64+#35 | ✅ FIXED + cherry-picked (`e84e55c`,`3ba3285`), gate 171/1462. #64 data-loss guard (structural cast_id-path = post-v1 follow-up); #35 serialized | `worktree.ts`, `merge-review-collector.ts` | done |
-| RB#4b | **Reliability leftovers** #63 RED-path tests, #60 coercers (src/bin), read_broadcasts scope | 📋 scoped, lower priority | `merge-review-collector` tests, `src/bin/`, `manta-bus/src` | cast later |
+| RB#4b | **Reliability leftovers** (NOT publish blockers) | 📋 DEFERRED to fresh session (casts can't start here — bug #66) | `src/bin/`, collector tests, `manta-bus/src` | fresh-session cast |
+
+## RB#4b — precise scope (ready for a fresh-session cast; casts blocked here by bug #66 large-transcript startup)
+NONE of these block `npm publish` — core RB#1/2/3/4a are done+verified GREEN. Do them from a FRESH
+session (small transcript → clones cold-start fast) where `manta cast` works again.
+1. **#60 leftover coercers** — `packages/manta-cli/src/bin/manta.ts` still parses these safety-gating
+   numeric flags with bare `parseInt`/`parseFloat` (NaN silently disarms budget/size guards): `--clones`
+   (:153, parsed bare in action :259), `--cycle-interval-ms` (:155), `--tick-budget-ms` (:156),
+   `--budget-per-clone-usd` (:157), `--budget-per-cast-usd` (:159), `--daily-cap-usd` (:183 bare
+   `parseFloat` coercer), `--max-bytes` (:675 bare `parseInt`). Already-validated (good): heartbeat/startup-grace/
+   distill-threshold (:189/194/208 via `parsePositiveIntOption`). FIX: add `parsePositiveFloatOption`
+   (for $ amounts) to `option-parsers.ts`; apply validated coercers at the `.option()` level (move
+   coercion out of the action body); `--clones` = 1..5 bounded; `--max-files-changed` (:164, default '0')
+   needs a NON-negative variant (0 = read-only is VALID — don't reject 0). Tests per flag (NaN→reject, valid→parse).
+2. **#63 RED-path tests** — `merge-review-collector.test.ts` mocks execa to {exitCode:0} only; add ≥3
+   tests exercising a RED (typecheck non-zero→tscErrors≥1; test non-zero→testsPassed false; install
+   reject→prepareWorktreeForGate still resolves, no throw). Guards the symmetric false-POSITIVE risk.
+3. **read_broadcasts cast-scope** — audit `packages/manta-bus` read_broadcasts: do forking SIBLING clones
+   (same cast_id) read each other's broadcasts? If it breaks reality-isolation → scope-fix + test; if
+   intentional → document the reviewed rationale. Resolve the flag either way.
+4. **bug #66 (separate, Medium-High)** — clones reaped at 300s startup grace when parent transcript is
+   large; instrument boot path, make size-check O(1), or emit an early spawner "booting" heartbeat.
+   Debug from a small-transcript session.
 | G | **npm publish manta@0.1.0** | ⛔ BLOCKED on RB#3 + RB#4 + Chunk-4 | — | USER CONFIRM only |
 
 ## RB#4 — RELIABILITY (from /goal: надёжность для крупных проектов, клоны без пиздежа)
