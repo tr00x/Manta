@@ -23,6 +23,20 @@ claude mcp add -s user manta-bus -- node "$(pwd)/packages/manta-bus/dist/bin/ser
 
 (The `--` separator passes everything after it as the stdio command + args. Older Claude Code releases used `--command "<cmd>"`; if you're on `claude` < 2.x, use that form instead.)
 
+The `$(pwd)` form above is the **from-source** path — it points at this checkout's
+`packages/manta-bus/dist/bin/server.cjs`, so it only works inside a git clone (§1).
+
+**Installed from npm?** If you got Manta via `npm i -g manta` (or `npx manta`), do
+**not** type the `$(pwd)` command — just run `manta install` (no arguments):
+
+```
+manta install
+```
+
+It self-registers the bus MCP, resolving `server.cjs` from inside the installed
+package (no manual path, no `$(pwd)`). Re-running it is a safe no-op; pass
+`--force` to re-register.
+
 Verify:
 
 ```

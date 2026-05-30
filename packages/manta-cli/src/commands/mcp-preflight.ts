@@ -76,6 +76,9 @@ export async function verifyMantaBusRegistered(
       'manta-bus MCP server is not registered with Claude Code' +
         (detail ? ` (\`claude mcp get manta-bus\` said: ${detail})` : '') +
         '. Run:\n' +
+        '  manta install\n' +
+        '(self-bootstrap — registers the bus MCP from the installed package). ' +
+        'From a source checkout you can instead register it manually:\n' +
         '  claude mcp add -s user manta-bus -- node "$(pwd)/packages/manta-bus/dist/bin/server.cjs"\n' +
         'See docs/user/getting-started.md for full setup.',
       { kind: 'spawn_failed' },
