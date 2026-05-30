@@ -37,7 +37,11 @@ import { createDefaultNetworkRunner, createRegistryClient } from '../library/reg
 import { getMantaCliVersion } from '../library/cli-version.js';
 import { runClaudeCli } from '../spawner/clone-spawner.js';
 import { parseTasksFile } from '../spawner/tasks-file.js';
-import { parsePositiveIntOption } from './option-parsers.js';
+import {
+  parsePositiveIntOption,
+  parsePositiveFloatOption,
+  parseNonNegativeIntOption,
+} from './option-parsers.js';
 import { createReporter, StderrSink } from '../output/reporter.js';
 import { isCliError } from '../errors.js';
 import type { CommandResult } from '../commands/status.js';
@@ -152,18 +156,25 @@ async function main(): Promise<void> {
     .description('Spawn N clones of the given mode (Phase 2a: recon-swarm, forking-realities)')
     .option('-n, --clones <n>', 'number of clones (1..5)', '2')
     .option('-t, --task <task>', 'task description', 'unspecified')
-    .option('--cycle-interval-ms <ms>', 'orchestrator cycle interval', '5000')
-    .option('--tick-budget-ms <ms>', 'overall budget before abort', '1500000')
-    .option('--budget-per-clone-usd <amt>', 'dollar budget per clone', '5')
+    // Bug #60 class: timing/money flags gate safety behaviour, so a NaN from a
+    // bare parseInt/parseFloat silently disarms the guard. Validate at the CLI
+    // boundary with strict coercers. Defaults are numbers (not strings) because
+    // commander only runs the coercer on USER-supplied values, never the
+    // default — so the default must already be the post-coercion type.
+    .option('--cycle-interval-ms <ms>', 'orchestrator cycle interval', parsePositiveIntOption, 5000)
+    .option('--tick-budget-ms <ms>', 'overall budget before abort', parsePositiveIntOption, 1_500_000)
+    .option('--budget-per-clone-usd <amt>', 'dollar budget per clone', parsePositiveFloatOption, 5)
     .option(
       '--budget-per-cast-usd <amt>',
       'cumulative dollar cap for the whole cast',
-      '15',
+      parsePositiveFloatOption,
+      15,
     )
     .option(
       '--max-files-changed <n>',
       'per-clone hard cap on file writes (0 = read-only). Bug #6: must be >0 for casts that produce on-disk deliverables (e.g. research markdown).',
-      '0',
+      parseNonNegativeIntOption,
+      0,
     )
     .option(
       '--allowed-paths <csv>',
@@ -180,7 +191,7 @@ async function main(): Promise<void> {
       "path to a YAML/JSON file with per-clone task overlays. Combines with --task: clones present in the file use the file's entry; clones absent fall back to --task. See docs/user/forking-realities.md for the schema.",
     )
     .option('--dry-run', 'Show cost preview without spawning', false)
-    .option('--daily-cap-usd <amount>', 'Override daily budget cap (default: from config or $50)', parseFloat)
+    .option('--daily-cap-usd <amount>', 'Override daily budget cap (default: from config or $50)', parsePositiveFloatOption)
     .option('--force', 'Force cast even if daily cap would be exceeded', false)
     .option('--charge-check', 'Enable charge system check (use --no-charge-check to skip)', true)
     .option(
@@ -214,11 +225,13 @@ async function main(): Promise<void> {
           clones: string;
           task: string;
           tasks?: string;
-          cycleIntervalMs: string;
-          tickBudgetMs: string;
-          budgetPerCloneUsd: string;
-          budgetPerCastUsd: string;
-          maxFilesChanged: string;
+          // Coerced to number by parsePositiveIntOption/parsePositiveFloatOption/
+          // parseNonNegativeIntOption at the .option() boundary (bug #60 class).
+          cycleIntervalMs: number;
+          tickBudgetMs: number;
+          budgetPerCloneUsd: number;
+          budgetPerCastUsd: number;
+          maxFilesChanged: number;
           allowedPaths: string;
           forbiddenPaths: string;
           dryRun: boolean;
@@ -256,15 +269,19 @@ async function main(): Promise<void> {
             // into the runtime's invalid_input branch for unsupported values.
             mode: mode as unknown as Mode,
             task: options.task,
+            // --clones stays a raw parseInt: NaN flows into cast.ts's
+            // Number.isInteger(cloneCount) guard, which already rejects it with
+            // a 1..5 range error (not a money/timing guard, so out of bug #60's
+            // scope). The timing/money fields below are pre-coerced numbers.
             cloneCount: parseInt(options.clones, 10),
-            cycleIntervalMs: parseInt(options.cycleIntervalMs, 10),
-            tickBudgetMs: parseInt(options.tickBudgetMs, 10),
-            budgetUsdPerClone: parseFloat(options.budgetPerCloneUsd),
-            budgetUsdPerCast: parseFloat(options.budgetPerCastUsd),
+            cycleIntervalMs: options.cycleIntervalMs,
+            tickBudgetMs: options.tickBudgetMs,
+            budgetUsdPerClone: options.budgetPerCloneUsd,
+            budgetUsdPerCast: options.budgetPerCastUsd,
             scope: {
               allowedPaths: splitCsv(options.allowedPaths),
               forbiddenPaths: splitCsv(options.forbiddenPaths),
-              maxFilesChanged: parseInt(options.maxFilesChanged, 10),
+              maxFilesChanged: options.maxFilesChanged,
             },
             // Conditional spread: under exactOptionalPropertyTypes, `undefined`
             // is not assignable to `cloneAssignments?: Record<...>`. Only emit
@@ -661,7 +678,13 @@ async function main(): Promise<void> {
     .command('share <castId>')
     .description('Build a publishable Manta package bundle from a finalised cast')
     .requiredOption('--name <@scope/name>', 'npm package name for the bundle (required)')
-    .requiredOption('--version <semver>', 'package version for the bundle (required)')
+    // B5: this flag is `--pkg-version`, NOT `--version`. commander's global
+    // `-V/--version` (set via program.version('0.1.0')) intercepts the
+    // space-form `--version 1.0.0` on subcommands — it prints 0.1.0 and exits
+    // 0, so the share action never runs and a publish silently "succeeds"
+    // doing nothing. A subcommand option cannot reuse `--version` without
+    // colliding, so it is renamed outright (no alias is possible).
+    .requiredOption('--pkg-version <semver>', 'package version for the bundle (required)')
     .option('--clone <id>', 'winning clone to bundle (overrides merge-review)')
     .option('--out <dir>', 'output directory for the .tar.gz', '.')
     .option('--description <text>', 'package description (default: from post-mortem)')
@@ -672,13 +695,14 @@ async function main(): Promise<void> {
     .option('--accept-warnings', 'proceed despite non-fatal sanitization warnings')
     .option('--non-interactive', 'CI/trigger mode: no $EDITOR, any warning is fatal, no publish')
     .option('--publish', 'publish the bundle to npm behind MVTS-7 gates (interactive only)')
-    .option('--max-bytes <n>', 'refuse publish if the tarball exceeds this many bytes (default 5 MB)', (v: string) => parseInt(v, 10))
+    .option('--max-bytes <n>', 'refuse publish if the tarball exceeds this many bytes (default 5 MB)', parsePositiveIntOption)
     .action(
       async (
         castId: string,
         options: {
           name: string;
-          version: string;
+          // commander camel-cases `--pkg-version` → `pkgVersion` (B5).
+          pkgVersion: string;
           clone?: string;
           out: string;
           description?: string;
@@ -697,7 +721,7 @@ async function main(): Promise<void> {
           const result = await runShareCommand(rt, {
             castId,
             name: options.name,
-            version: options.version,
+            version: options.pkgVersion,
             ...(options.clone !== undefined ? { clone: options.clone } : {}),
             outDir: options.out,
             ...(options.description !== undefined ? { description: options.description } : {}),

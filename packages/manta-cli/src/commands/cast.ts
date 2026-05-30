@@ -262,6 +262,14 @@ export interface RunCastOptions {
   reporter: Reporter;
   /** Skip the `claude mcp list` pre-flight. Tests with fake runners pass false. */
   verifyMcp?: boolean;
+  /**
+   * MCP pre-flight to run before the charge-committing pre-spawn gate (B8).
+   * Defaults to {@link verifyMantaBusRegistered}. Injectable so tests can drive
+   * the throw path (bus-not-registered) deterministically without a real
+   * `claude` binary on PATH. Only consulted when `verifyMcp !== false` and not
+   * a dry-run.
+   */
+  preflight?: () => Promise<void>;
   /** Daily cap override (CLI: --daily-cap-usd). If undefined, reads from BudgetConfig. */
   dailyCapUsdOverride?: number;
   /** Skip charge system check (CLI: --no-charge-check). Default false. */
@@ -483,6 +491,21 @@ export async function runCastCommand(
     validateDisjointPartitions(assignments);
   }
 
+  // B8: the MCP pre-flight runs BEFORE the pre-spawn gate, which is where the
+  // charge is debited and the daily spend is recorded (runPreSpawnGate step 7,
+  // `gate.committed`). Pre-fix the preflight ran AFTER that commit, so a user
+  // whose bus is not registered (e.g. plugin users hit by B1) drained charges
+  // to zero just retrying a cast that could never spawn. Same philosophy as
+  // bug #31: every precondition that can abort the cast must run before any
+  // state-committing call. Skipped on --dry-run (a cost preview needs no live
+  // bus) and when verifyMcp is explicitly false (fake-runner tests). The
+  // preflight is injectable so a test can drive the throw path without a real
+  // `claude` binary on PATH.
+  if (opts.verifyMcp !== false && !(opts.dryRun ?? false)) {
+    const preflight = opts.preflight ?? (() => verifyMantaBusRegistered());
+    await preflight();
+  }
+
   // Phase 3: Pre-spawn gate (charge + daily budget + dry-run)
   const budgetConfig = await loadBudgetConfig(rt.repoRoot);
   const gateResult = await runPreSpawnGate({
@@ -515,12 +538,8 @@ export async function runCastCommand(
     };
   }
 
-  // MCP pre-flight unless explicitly skipped (tests with fake runners pass
-  // verifyMcp=false). Defaults to ON for production safety. (Partition check
-  // already ran above, before the pre-spawn gate — bug #31.)
-  if (opts.verifyMcp !== false) {
-    await verifyMantaBusRegistered();
-  }
+  // (MCP pre-flight already ran above, before runPreSpawnGate's charge commit
+  // — B8. Nothing to do here.)
 
   const handles: CloneHandle[] = [];
   const worktrees: WorktreeRecord[] = [];
