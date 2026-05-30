@@ -16,7 +16,8 @@ Updated: 2026-05-30 (curator session). HEAD `0c6abe1`.
 | D | **RB#3 discoverability** (plugin/slash/skills delivery) | ✅ RECON DONE → DECISION MADE (plugin = v1). Impl pending (serial, post E/F). | `docs/audits/` (recon RO) | recon done |
 | E | **Hardening** bug #63 | ✅ FIXED + cherry-picked (`34062c1`), gate green 171/1459. #60 escalated (out of fence→RB#4), N-QB12 was stale-clean | `cast.ts`, `merge-review-collector.ts` | done |
 | F | **Docs destaling** S-DOC7/9, S-OBS11 | ✅ cherry-picked (`40db9a6`): README status, Tier-0 note, isolation 18→25. Flagged `read_broadcasts` scope (→RB#4 security) | `README.md`, `docs/internals/`, spec | done |
-| RB#4 | **Reliability** (NEW, from /goal "надёжность крупных проектов") | 📋 scoped, cast next (serial) | `cast.ts`, `worktree.ts`, `merge-review-collector.ts`, `src/bin/` | next cast |
+| RB#4a | **Concurrent-cast reliability** #64+#35 | ✅ FIXED + cherry-picked (`e84e55c`,`3ba3285`), gate 171/1462. #64 data-loss guard (structural cast_id-path = post-v1 follow-up); #35 serialized | `worktree.ts`, `merge-review-collector.ts` | done |
+| RB#4b | **Reliability leftovers** #63 RED-path tests, #60 coercers (src/bin), read_broadcasts scope | 📋 scoped, lower priority | `merge-review-collector` tests, `src/bin/`, `manta-bus/src` | cast later |
 | G | **npm publish manta@0.1.0** | ⛔ BLOCKED on RB#3 + RB#4 + Chunk-4 | — | USER CONFIRM only |
 
 ## RB#4 — RELIABILITY (from /goal: надёжность для крупных проектов, клоны без пиздежа)
