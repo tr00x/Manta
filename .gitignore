@@ -81,3 +81,14 @@ packages/*/plugin-dist/
 .tsbuild/
 pnpm-debug.log*
 last-gasp-report.md
+
+# Internal cast machinery + per-cast process records — generated, not for public distribution
+.manta/*.yaml
+.manta/*.txt
+.manta/clones/
+.manta/rescue/
+docs/audits/
+docs/merge-reviews/
+docs/post-mortems/
+docs/zk/
+graphify-out/
