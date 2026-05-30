@@ -26,16 +26,19 @@ export type Thresholds = z.infer<typeof ThresholdsSchema>;
 //    120–180s without any manta.* call. Two consecutive casts died at 92s while
 //    actively writing replay.test.ts. 300s accommodates the realistic implementation
 //    window while still catching genuinely stuck clones within 5 minutes.
-//  - startupGraceMs (300s): aligned with heartbeatTimeoutMs. Cold-start claude
-//    --print + priming + skill load + snapshot read + initial plan parsing can
-//    exceed 90s for implementation tasks with large contracts (1300+ line plans).
+//  - startupGraceMs (600s): measured from process LAUNCH (the spawner's "booting"
+//    heartbeat), not registration — see bug #66. Cold-start `claude --print` +
+//    `--resume` transcript replay + priming + skill load + snapshot read can
+//    exceed several minutes when the parent transcript is large (the failure
+//    scaled with session length). 600s gives a real margin for warm-context boot
+//    while still reaping genuinely-dead clones within 10 minutes.
 //  - staleLockMs (15s): Sec 4 — locks renew every 5s; 15s = 3 missed renews. Locks are
 //    held inside tight critical sections, not across reads/edits, so 15s is appropriate.
 //  - cycleIntervalMs (5s): catches dead clones within one heartbeat window without thrashing.
 //  - parentPidCheckEnabled: spec Sec 9 blocker #5 — must be on by default
 export const defaultThresholds: Thresholds = {
   heartbeatTimeoutMs: 300_000,
-  startupGraceMs: 300_000,
+  startupGraceMs: 600_000,
   staleLockMs: 15_000,
   parentPidCheckEnabled: true,
   cycleIntervalMs: 5_000,

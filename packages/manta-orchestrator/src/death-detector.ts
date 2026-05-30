@@ -25,10 +25,17 @@ export async function findDeadClones(
     const reasons: string[] = [];
 
     if (r.state === 'STARTING') {
-      const sinceRegistered = now - r.registered_at;
-      if (sinceRegistered > options.thresholds.startupGraceMs) {
+      // bug #66: measure the startup grace from the last heartbeat, not from
+      // registration. The spawner emits a "booting" heartbeat at process LAUNCH
+      // (clone-spawner.ts, right after runner.run), so last_heartbeat_at marks
+      // when the child actually started. Measuring from registered_at charged the
+      // clone for pre-launch prep + the entire cold-start window and reaped it
+      // before it could call the bus — a failure that scaled with parent
+      // transcript size and killed casts late in a long session.
+      const sinceLaunch = now - r.last_heartbeat_at;
+      if (sinceLaunch > options.thresholds.startupGraceMs) {
         reasons.push(
-          `startup grace ${sinceRegistered}ms > ${options.thresholds.startupGraceMs}ms (no first heartbeat)`,
+          `startup grace ${sinceLaunch}ms > ${options.thresholds.startupGraceMs}ms (no first heartbeat)`,
         );
       }
     } else if (r.state === 'IDLE' || r.state === 'WAITING_FOR_TASK') {

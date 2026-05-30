@@ -14,7 +14,17 @@ export interface ClaudeMcpResult {
   timedOut?: boolean;
 }
 
-export type ClaudeMcpRunner = () => Promise<ClaudeMcpResult>;
+export type ClaudeMcpRunner = (serverName: string) => Promise<ClaudeMcpResult>;
+
+/**
+ * Candidate names the bus may be registered under, in probe order:
+ *  - `manta-bus`             — `manta install` / manual `claude mcp add` (user scope)
+ *  - `plugin:manta:manta-bus`— the Claude Code PLUGIN registers it namespaced
+ *    (`plugin:<marketplace>:<server>`). bug B1: preflight only probed the bare
+ *    name, so EVERY plugin user's cast aborted `spawn_failed` even though the
+ *    bus was registered and working under the namespaced name.
+ */
+export const MANTA_BUS_CANDIDATE_NAMES = ['manta-bus', 'plugin:manta:manta-bus'] as const;
 
 export interface VerifyMantaBusRegisteredOptions {
   /**
@@ -34,8 +44,8 @@ const PREFLIGHT_TIMEOUT_MS = 15_000;
  * only manta-bus mattered (bug #57). `claude mcp get manta-bus` health-checks
  * solely the server we care about: ~1s locally, independent of the rest.
  */
-const defaultRunner: ClaudeMcpRunner = () =>
-  execa('claude', ['mcp', 'get', 'manta-bus'], {
+const defaultRunner: ClaudeMcpRunner = (serverName: string) =>
+  execa('claude', ['mcp', 'get', serverName], {
     reject: false,
     timeout: PREFLIGHT_TIMEOUT_MS,
   });
@@ -51,37 +61,46 @@ export async function verifyMantaBusRegistered(
   opts: VerifyMantaBusRegisteredOptions = {},
 ): Promise<void> {
   const runner = opts.runner ?? defaultRunner;
-  let result: ClaudeMcpResult;
-  try {
-    result = await runner();
-  } catch (err) {
-    throw new CliError(
-      'cannot run `claude mcp get manta-bus` — is the claude CLI on PATH?',
-      { kind: 'spawn_failed', cause: err },
-    );
+  // Probe each candidate name with the fast per-server `get` (NOT `list`, which
+  // health-checks every server serially — bug #57). The bus is registered if ANY
+  // candidate resolves cleanly. bug B1: the plugin registers `plugin:manta:manta-bus`.
+  let lastDetail = '';
+  let timedOut = false;
+  for (const name of MANTA_BUS_CANDIDATE_NAMES) {
+    let result: ClaudeMcpResult;
+    try {
+      result = await runner(name);
+    } catch (err) {
+      // A spawn failure (claude not on PATH) is fatal regardless of name.
+      throw new CliError(
+        'cannot run `claude mcp get` — is the claude CLI on PATH?',
+        { kind: 'spawn_failed', cause: err },
+      );
+    }
+    if (result.timedOut) {
+      timedOut = true;
+      continue;
+    }
+    if (result.exitCode === 0 && result.stdout.includes('manta-bus')) {
+      return; // registered (under this name) — preflight passes.
+    }
+    lastDetail = (result.stderr || result.stdout || '').trim();
   }
-  if (result.timedOut) {
+  if (timedOut) {
     throw new CliError(
-      `\`claude mcp get manta-bus\` timed out after ${PREFLIGHT_TIMEOUT_MS}ms — ` +
+      `\`claude mcp get\` timed out after ${PREFLIGHT_TIMEOUT_MS}ms — ` +
         'the claude CLI may be hung. Run `claude mcp get manta-bus` manually to diagnose.',
       { kind: 'spawn_failed' },
     );
   }
-  // `claude mcp get <name>` exits non-zero ("No MCP server found …") when the
-  // server isn't registered — by far the dominant failure here. Surface the
-  // raw output for diagnosis alongside the registration fix.
-  if (result.exitCode !== 0 || !result.stdout.includes('manta-bus')) {
-    const detail = (result.stderr || result.stdout || '').trim();
-    throw new CliError(
-      'manta-bus MCP server is not registered with Claude Code' +
-        (detail ? ` (\`claude mcp get manta-bus\` said: ${detail})` : '') +
-        '. Run:\n' +
-        '  manta install\n' +
-        '(self-bootstrap — registers the bus MCP from the installed package). ' +
-        'From a source checkout you can instead register it manually:\n' +
-        '  claude mcp add -s user manta-bus -- node "$(pwd)/packages/manta-bus/dist/bin/server.cjs"\n' +
-        'See docs/user/getting-started.md for full setup.',
-      { kind: 'spawn_failed' },
-    );
-  }
+  throw new CliError(
+    'manta-bus MCP server is not registered with Claude Code' +
+      (lastDetail ? ` (\`claude mcp get\` said: ${lastDetail})` : '') +
+      '. If you installed the Manta plugin, it registers the bus automatically — ' +
+      'reload Claude Code. Otherwise run:\n' +
+      '  manta install\n' +
+      '(self-bootstrap — registers the bus MCP from the installed package).\n' +
+      'See docs/user/getting-started.md for full setup.',
+    { kind: 'spawn_failed' },
+  );
 }

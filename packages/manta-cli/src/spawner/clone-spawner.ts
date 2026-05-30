@@ -38,6 +38,12 @@ export interface CloneRunnerInput {
  */
 export interface RegistryWriter {
   register(input: RegisterInput): Promise<CloneRecord>;
+  /**
+   * bug #66: refresh a clone's last_heartbeat_at without changing state. The
+   * spawner calls this as a "booting" heartbeat at process launch so the
+   * STARTING grace is measured from launch, not pre-registration.
+   */
+  touch(cloneId: string): Promise<void>;
 }
 
 /**
@@ -170,6 +176,21 @@ export async function spawnClone(opts: SpawnCloneOptions): Promise<CloneHandle> 
     appendSystemPrompt: buildPrimingText(opts.snapshot),
     prompt: buildInitialPrompt(opts.snapshot),
   });
+
+  // bug #66: the clone is pre-registered STARTING (with registered_at = now)
+  // BEFORE this point; cold-start (`claude --print` boot + `--resume` transcript
+  // replay + MCP handshake) can exceed the startup grace when it's measured from
+  // registration — the clone is reaped before it can possibly make its first bus
+  // call, and the failure scales with parent-transcript size. Emit a "booting"
+  // heartbeat the instant the child process is launched so the death-detector's
+  // STARTING grace is measured from LAUNCH (after all pre-launch prep), not from
+  // pre-registration. Best-effort: if it fails, the clone's own first MCP call
+  // still refreshes the heartbeat — we only lose the launch-time grace reset.
+  try {
+    await opts.registry.touch(cloneId);
+  } catch {
+    // non-fatal — see comment above.
+  }
 
   // I-1 (Chunk-1 review): with `reject: false`, `claude --print` (or any
   // runner) that fails to *start* (ENOENT, missing binary, permission)

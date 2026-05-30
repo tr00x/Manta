@@ -4,7 +4,7 @@ import { defaultThresholds, mergeThresholds, ThresholdsSchema } from '../src/thr
 describe('thresholds', () => {
   it('defaults match Sec 6.2 / Sec 6.3 / Sec 9 blocker #5 + Phase 2d dogfood', () => {
     expect(defaultThresholds.heartbeatTimeoutMs).toBe(300_000);
-    expect(defaultThresholds.startupGraceMs).toBe(300_000);
+    expect(defaultThresholds.startupGraceMs).toBe(600_000); // bug #66: measured from launch, raised for warm-context cold-start
     expect(defaultThresholds.staleLockMs).toBe(15_000);
     expect(defaultThresholds.parentPidCheckEnabled).toBe(true);
     expect(defaultThresholds.cycleIntervalMs).toBe(5_000);

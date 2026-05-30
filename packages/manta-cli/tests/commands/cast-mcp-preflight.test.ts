@@ -74,15 +74,29 @@ describe('verifyMantaBusRegistered', () => {
     });
   });
 
-  it('T6 (M4): the fix string leads with `manta install`, not the monorepo $(pwd) path', async () => {
+  it('T6 (M4/B7): the fix string recommends `manta install` + plugin reload, and does NOT point at the nonexistent $(pwd) monorepo path', async () => {
     const err = (await verifyMantaBusRegistered({
       runner: () => Promise.resolve(result({ stdout: 'memory: ok\n' })),
     }).catch((e: unknown) => e)) as Error;
     expect(err).toBeInstanceOf(Error);
     const msg = err.message;
     expect(msg).toContain('manta install');
-    // `manta install` is the leading, recommended fix; the from-source $(pwd)
-    // command is only a fallback that appears AFTER it.
-    expect(msg.indexOf('manta install')).toBeLessThan(msg.indexOf('$(pwd)'));
+    // B7: the from-source `$(pwd)/packages/manta-bus/dist/bin/server.cjs` path does
+    // NOT exist in the published artifact — it must not appear in the user-facing fix.
+    expect(msg).not.toContain('$(pwd)');
+    // B1: plugin users get the bus automatically; the message must mention the plugin path.
+    expect(msg.toLowerCase()).toContain('plugin');
+  });
+
+  it('T7 (B1): passes when the bus is registered under the plugin-namespaced name', async () => {
+    // The bare `manta-bus` get fails (not found), but `plugin:manta:manta-bus` resolves.
+    await expect(
+      verifyMantaBusRegistered({
+        runner: (name: string) =>
+          name === 'plugin:manta:manta-bus'
+            ? Promise.resolve(result({ exitCode: 0, stdout: 'plugin:manta:manta-bus: connected\n' }))
+            : Promise.resolve(result({ exitCode: 1, stdout: '', stderr: 'No MCP server found' })),
+      }),
+    ).resolves.toBeUndefined();
   });
 });

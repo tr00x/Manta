@@ -3,6 +3,7 @@ import type { CloneRecord, RegisterInput } from '@manta/bus';
 export interface RegistryFake {
   records: CloneRecord[];
   register(input: RegisterInput): Promise<CloneRecord>;
+  touch(cloneId: string): Promise<void>;
   markDead(cloneId: string, reason: string): Promise<CloneRecord>;
   get(cloneId: string): Promise<CloneRecord>;
 }
@@ -35,6 +36,12 @@ export function makeRegistryFake(opts: RegistryFakeOptions = {}): RegistryFake {
       now += 1;
       records.push(rec);
       return rec;
+    },
+    async touch(cloneId) {
+      // bug #66: booting heartbeat — refresh last_heartbeat_at without changing state.
+      const rec = records.find((r) => r.clone_id === cloneId);
+      if (!rec || rec.state === 'DEAD') return;
+      rec.last_heartbeat_at = now++;
     },
     async markDead(cloneId, reason) {
       if (opts.onMarkDead) await opts.onMarkDead(cloneId);
