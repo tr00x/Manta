@@ -12,13 +12,13 @@ describe('Phase-0 pre-flight (cheap, always runs)', () => {
     expect(r.exitCode, r.stderr || r.stdout).toBe(0);
   });
 
-  it('skill-validator finds 14 skills and 7 commands, zero errors', async () => {
+  it('skill-validator finds 14 skills and 8 commands, zero errors', async () => {
     const result = await validateAll(repoRoot);
     expect(result.errorCount).toBe(0);
     const skills = result.reports.filter((r) => r.path.startsWith('skills/'));
     const commands = result.reports.filter((r) => r.path.startsWith('commands/'));
     expect(skills).toHaveLength(14);
-    expect(commands).toHaveLength(7);
+    expect(commands).toHaveLength(8);
   });
 
   it('manta CLI is built and `manta status` runs cleanly on an empty tmp repo', { timeout: 5 * 60 * 1000 }, async () => {

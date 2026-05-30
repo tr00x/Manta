@@ -14,6 +14,7 @@ import { runReplayCommand } from '../commands/replay.js';
 import { runAuditCommand } from '../commands/audit.js';
 import { runCostCommand } from '../commands/cost.js';
 import { runChargesCommand } from '../commands/charges.js';
+import { runDoctorCommand } from '../commands/doctor.js';
 import { runRefreshCommand } from '../commands/refresh.js';
 import { runLimitCommand } from '../commands/limit.js';
 import { runDaemonStatusCommand, runDaemonStopCommand } from '../commands/daemon.js';
@@ -444,6 +445,19 @@ async function main(): Promise<void> {
     .description('Show charge system state — current charges, cooldown, mode availability')
     .action(async () => {
       await runWithRuntime((rt) => runChargesCommand(rt, { reporter }));
+    });
+
+  program
+    .command('doctor')
+    .description('Health-check your Manta environment — node, claude, bus MCP, git, charges')
+    .action(async () => {
+      // doctor deliberately does NOT use runWithRuntime: it must run when the
+      // environment is broken (no git repo, no bus), which createRuntime refuses.
+      const r = await runDoctorCommand();
+      if (r.stdout.length > 0) {
+        process.stdout.write(r.stdout + '\n');
+      }
+      process.exitCode = r.exitCode;
     });
 
   program
