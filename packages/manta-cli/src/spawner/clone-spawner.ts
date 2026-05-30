@@ -15,6 +15,7 @@ import { CliError } from '../errors.js';
 import { buildInitialPrompt, buildPrimingText } from './priming.js';
 import { installHeartbeatHook } from './heartbeat-hook.js';
 import { installGitLockHook } from './git-lock-hook-installer.js';
+import { installScopeGuardHook } from './scope-guard-hook-installer.js';
 
 export interface CloneRunner {
   run(input: CloneRunnerInput): ExecaChildProcess;
@@ -156,6 +157,22 @@ export async function spawnClone(opts: SpawnCloneOptions): Promise<CloneHandle> 
   }
 
   await installHeartbeatHook(opts.worktree, opts.repoRoot, cloneId);
+
+  // SECURITY — clone hard-guardrails (audit-v1 H "clone has no hard
+  // guardrails"). Clones run `--permission-mode bypassPermissions`, so without
+  // this the allowedPaths/forbiddenPaths scope fence is enforced ONLY as soft
+  // priming text the model may ignore under task pressure — a clone could
+  // `git push`, `rm -rf` outside its worktree, or touch the parent repo's
+  // `.git`. Install an always-on PreToolUse scope/safety guard for EVERY clone
+  // (not just test-storm). The hook runs in the harness, not the model, making
+  // the scope fence and the dangerous-Bash blocklist a HARD invariant
+  // (claude-code-pitfalls.md §4). It is appended after the heartbeat hook, so
+  // both — plus the test-storm git-lock hook below — coexist on PreToolUse.
+  await installScopeGuardHook(opts.worktree, {
+    cloneId,
+    allowedPaths: opts.snapshot.taskContract.scope.allowedPaths,
+    forbiddenPaths: opts.snapshot.taskContract.scope.forbiddenPaths,
+  });
 
   if (opts.castMode === 'test-storm') {
     const locksPath = path.join(opts.repoRoot, '.manta', 'state', 'locks.json');
