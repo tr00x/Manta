@@ -1,0 +1,20 @@
+{
+  "name": "manta",
+  "version": "0.1.0",
+  "description": "Manta — self-cloning Claude Code pattern. Cast parallel clones (recon-swarm, forking-realities) that inherit your full context, coordinate over a bus, and disappear cleanly. Adds /manta:* commands, the manta-bus MCP server, and Manta's skills.",
+  "author": {
+    "name": "Manta Pattern"
+  },
+  "repository": "https://github.com/manta-pattern/manta",
+  "homepage": "https://github.com/manta-pattern/manta#readme",
+  "license": "MIT",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "ai-agents",
+    "self-cloning",
+    "parallel-agents",
+    "mcp",
+    "orchestration"
+  ]
+}

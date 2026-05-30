@@ -179,7 +179,7 @@ Cast если хотя бы одно:
 Полная остановка работы:
 - Catastrophic incident (corrupted state / lost code / orphan zombie processes) → freeze + recovery
 - Drift > 30% от текущей задачи у мейна — зовём `manta status`, читаем CLAUDE.md, перечитываем задачу
-- Юзер сказал «стоп» — `manta abort` мгновенно (терминальный CLI; slash-команды `/manta` в v1 НЕ существует — см. RB#3 plugin-дистрибуция)
+- Юзер сказал «стоп» — `/manta:abort` (plugin) или `manta abort` (CLI) мгновенно. Plugin-дистрибуция втянута в v1 (RB#3, 2026-05-30): `/manta:*` slash-команды теперь существуют через установленный плагин (`commands/*.md` → `${CLAUDE_PLUGIN_ROOT}/dist/bin/manta.cjs`). См. `docs/internals/plugin-packaging.md`.
 
 ## Post-cast merge ceremony (HARD RULE — нарушал 2026-05-26, Phase 3 Chunk 2)
 

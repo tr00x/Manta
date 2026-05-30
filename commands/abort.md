@@ -1,29 +1,14 @@
 ---
 name: manta:abort
-description: Mark every live clone DEAD and write a post-mortem each.
-target: manta-cli
-aliases: []
+description: Emergency stop — mark every live clone DEAD and write a post-mortem for each.
+argument-hint: '[--reason "why"]'
+allowed-tools: Bash
 ---
 
-# /manta abort
+Abort the running Manta cast via the bundled binary.
 
-## Usage
-
-```
-/manta abort [--reason "why"]
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/dist/bin/manta.cjs" abort $ARGUMENTS
 ```
 
-## Arguments
-
-| Arg | Type | Default | Notes |
-|---|---|---|---|
-| `--reason <text>` | string | "user-abort" | applied to every live clone |
-
-## Behavior
-
-1. Reads every clone in the registry.
-2. For each clone whose state ≠ DEAD: `markDead("abort: <reason>")`, emit `abort` event, run `runPostMortem`.
-3. Already-DEAD clones are skipped (their `death_reason` is preserved).
-4. Returns 0 with `Aborted N clone(s).`
-
-Worktrees persist after abort so the operator can inspect partial state.
+This is the kill switch the user reaches for when they say "stop". Report the CLI's `Aborted N clone(s).` line back. Worktrees persist after abort so partial state can be inspected; tell the user that.

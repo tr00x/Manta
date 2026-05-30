@@ -12,6 +12,7 @@
   "scripts": {
     "preinstall": "node scripts/check-node-version.mjs",
     "build": "pnpm -r --filter='./packages/*' build",
+    "build:plugin": "pnpm --filter manta exec tsup --config tsup.plugin.config.ts && node scripts/build-plugin.mjs",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage --passWithNoTests",

@@ -122,8 +122,24 @@ If `manta status` shows clones spawned but never moving past `STARTING`:
 ## 8. What's not in Phase 0
 
 - Modes other than `recon-swarm` (forking-realities, refactor-wave, bug-hunt, …) — Phase 2+.
-- The other 30+ slash commands (`/manta inspect`, `/manta tail`, `/manta promote`, …) — Phase 1+.
+- The other 30+ slash commands (`/manta:inspect`, `/manta:tail`, …) — Phase 1+.
 - Charges / cooldowns / fragility — Phase 3.
-- Claude Code plugin-marketplace entry — Phase 8. (The v1 distribution mechanism is the npm CLI: `npx manta@latest install`; this walkthrough is the from-source dev path.)
+
+## Quickstart via the Claude Code plugin (recommended)
+
+The plugin is the primary v1 distribution path — it lights up `/manta:*` commands, surfaces Manta's
+skills to your session and to spawned clones, and auto-registers the `manta-bus` MCP server. From
+inside Claude Code:
+
+```
+/plugin marketplace add manta-pattern/manta
+/plugin install manta@manta
+/reload-plugins
+```
+
+Then `/manta:cast recon-swarm --task "Map this codebase"`, watch with `/manta:status`, stop with
+`/manta:abort`. The exact `/plugin` strings match current Claude Code docs; if your build differs, run
+`/plugin` and follow the in-app flow, or test a local checkout with `claude --plugin-dir .`. Packaging
+internals: `docs/internals/plugin-packaging.md`. This walkthrough above is the from-source dev path.
 
 See `docs/superpowers/specs/2026-05-06-manta-pattern-design.md` for the full roadmap.

@@ -1,34 +1,14 @@
 ---
 name: manta:recover
-description: Run one orchestrator cycle to detect zombies, reap stale state, and write post-mortems for newly-dead clones.
-target: manta-cli
-aliases: []
+description: Run one orchestrator cycle — detect zombies, reap stale locks/claims, write missing post-mortems.
+argument-hint: ""
+allowed-tools: Bash
 ---
 
-# /manta recover
+Run a single Manta recovery cycle via the bundled binary.
 
-## Usage
-
-```
-/manta recover
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/dist/bin/manta.cjs" recover
 ```
 
-No arguments.
-
-## Arguments
-
-(none)
-
-## Behavior
-
-Calls `Orchestrator.runCycle()` exactly once. Prints a summary:
-
-```
-Recovery complete:
-  N dead clone(s) detected
-  M stale lock(s) reaped
-  K expired claim(s) reaped
-  P post-mortem(s) written
-```
-
-Use after a crash, after a forced kill, or whenever `/manta status` shows clones whose heartbeat age looks suspect. Returns 0 even when nothing was found.
+Use after a crash, a forced kill, or when `/manta:status` shows a clone whose heartbeat age looks stale. Report the recovery summary (dead clones detected, locks/claims reaped, post-mortems written). Returns 0 even when nothing was found.
