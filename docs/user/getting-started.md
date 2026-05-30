@@ -17,33 +17,39 @@ Expected: every workspace package emits a `dist/`. If any package fails: read it
 
 **This step is mandatory.** Real `claude --print` clones spawned by `manta cast` need to talk to `manta-bus` over MCP — without this registration every clone-side tool call fails at the transport layer and the cast times out silently.
 
+How you register depends on how you got Manta. Pick **one** of the three paths below — they are mutually exclusive.
+
+### a) Claude Code plugin (recommended) — nothing to type
+
+If you installed the plugin (see "Quickstart via the Claude Code plugin" at the bottom of this page), the `manta-bus` MCP server is **registered automatically** as part of the plugin. There is **no command to run** — skip straight to the Verify step. (The plugin registers it under the plugin-namespaced name `plugin:manta:manta-bus`; the cast pre-flight knows to look for that.)
+
+### b) Installed from npm — `manta install`
+
+If you got Manta via npm (`npm i -g manta`, or `npx manta`), run:
+
+```
+manta install
+```
+
+with **no arguments**. It self-registers the bus MCP, resolving `server.cjs` from inside the installed package — **no manual path**. Re-running it is a safe no-op; pass `--force` to re-register.
+
+### c) From source (this walkthrough) — explicit path
+
+**From-source only.** This form points at *this checkout's* freshly-built bus binary, so it works **only inside a git clone** that has completed §1's `pnpm -r build` (which is what produces `packages/manta-bus/dist/bin/server.cjs`). Do **not** use it after an npm/plugin install — the `packages/…` tree does not exist in those artifacts; use (a) or (b) instead.
+
 ```
 claude mcp add -s user manta-bus -- node "$(pwd)/packages/manta-bus/dist/bin/server.cjs"
 ```
 
 (The `--` separator passes everything after it as the stdio command + args. Older Claude Code releases used `--command "<cmd>"`; if you're on `claude` < 2.x, use that form instead.)
 
-The `$(pwd)` form above is the **from-source** path — it points at this checkout's
-`packages/manta-bus/dist/bin/server.cjs`, so it only works inside a git clone (§1).
-
-**Installed from npm?** If you got Manta via `npm i -g manta` (or `npx manta`), do
-**not** type the `$(pwd)` command — just run `manta install` (no arguments):
-
-```
-manta install
-```
-
-It self-registers the bus MCP, resolving `server.cjs` from inside the installed
-package (no manual path, no `$(pwd)`). Re-running it is a safe no-op; pass
-`--force` to re-register.
-
-Verify:
+### Verify (all paths)
 
 ```
 claude mcp list | grep manta-bus
 ```
 
-Expected: at least one line containing `manta-bus`.
+Expected: at least one line containing `manta-bus` (the plugin path shows `plugin:manta:manta-bus`).
 
 If you skip this, the CLI's pre-flight (`runCastCommand` calls `verifyMantaBusRegistered` before spawning) will fail with a friendly `spawn_failed` error pointing back at this step.
 
