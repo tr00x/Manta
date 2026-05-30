@@ -18,6 +18,18 @@ export async function runTailCommand(
   rt: Runtime,
   opts: RunTailOptions,
 ): Promise<CommandResult> {
+  // H3: a NaN/garbage --duration must not disarm the deadline. A non-finite
+  // (or non-positive) deadline makes `now() >= deadline` forever false, so the
+  // poll loop never terminates and tails forever (burning the session). The
+  // documented 10s user minimum is enforced at the CLI boundary (bin/manta.ts),
+  // which errors instead of silently clamping; this guard is the loop's own
+  // defence against an unfinite/zero deadline from any caller.
+  if (!Number.isFinite(opts.durationMs) || opts.durationMs <= 0) {
+    throw new CliError(
+      `tail duration must be a finite, positive number of ms (got ${opts.durationMs})`,
+      { kind: 'invalid_input' },
+    );
+  }
   const lines: string[] = [];
   const ctrl = new AbortController();
 
