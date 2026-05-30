@@ -48285,11 +48285,13 @@ var COMMAND_NAME = /^manta:[a-z][a-z0-9-]*$/;
 var SlashCommandFrontmatterSchema = external_exports.object({
   name: external_exports.string().regex(COMMAND_NAME, "command name must be `manta:<kebab>`"),
   description: external_exports.string().min(10).max(280),
-  target: external_exports.string().min(1),
-  aliases: external_exports.array(external_exports.string()).default([])
+  // `argument-hint` and `allowed-tools` are the Claude Code command fields.
+  // allowed-tools may be a comma-string ("Bash, Read") or a YAML array.
+  "argument-hint": external_exports.string().optional(),
+  "allowed-tools": external_exports.union([external_exports.string(), external_exports.array(external_exports.string())]).optional()
 }).strict();
 var REQUIRED_SKILL_SECTIONS = ["Purpose", "Allowed", "Forbidden", "Examples"];
-var REQUIRED_COMMAND_SECTIONS = ["Usage", "Arguments", "Behavior"];
+var REQUIRED_COMMAND_SECTIONS = [];
 
 // ../manta-skill-validator/src/parse.ts
 init_cjs_shims();

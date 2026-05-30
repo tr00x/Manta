@@ -22,14 +22,14 @@ const validCommand = [
   '---',
   'name: manta:cast',
   'description: spawn N clones for a given mode',
-  'target: manta-cli',
+  'argument-hint: <mode> --task "<description>"',
+  'allowed-tools: Bash',
   '---',
-  '## Usage',
-  'u',
-  '## Arguments',
-  'a',
-  '## Behavior',
-  'b',
+  'Run the Manta CLI `cast` subcommand via the bundled bin, then report the cast id.',
+  '',
+  '```bash',
+  'node "${CLAUDE_PLUGIN_ROOT}/dist/bin/manta.cjs" cast $ARGUMENTS',
+  '```',
 ].join('\n');
 
 describe('validateSkill', () => {

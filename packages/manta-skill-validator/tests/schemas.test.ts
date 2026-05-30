@@ -30,12 +30,13 @@ describe('schemas', () => {
   it('SlashCommandFrontmatterSchema enforces /manta-namespaced names', () => {
     const ok = SlashCommandFrontmatterSchema.safeParse({
       name: 'manta:cast',
-      description: 'Cast clones',
-      target: 'manta cli',
+      description: 'Cast clones for a mode',
+      'argument-hint': '<mode> --task "<desc>"',
+      'allowed-tools': 'Bash',
     });
     expect(ok.success).toBe(true);
     const bad = SlashCommandFrontmatterSchema.safeParse({
-      name: 'cast', description: 'd', target: 't',
+      name: 'cast', description: 'not manta-namespaced',
     });
     expect(bad.success).toBe(false);
   });
@@ -44,7 +45,7 @@ describe('schemas', () => {
     expect(REQUIRED_SKILL_SECTIONS).toEqual(['Purpose', 'Allowed', 'Forbidden', 'Examples']);
   });
 
-  it('REQUIRED_COMMAND_SECTIONS lists Usage / Arguments / Behavior', () => {
-    expect(REQUIRED_COMMAND_SECTIONS).toEqual(['Usage', 'Arguments', 'Behavior']);
+  it('REQUIRED_COMMAND_SECTIONS is empty — plugin command bodies are free-form prompts', () => {
+    expect(REQUIRED_COMMAND_SECTIONS).toEqual([]);
   });
 });
