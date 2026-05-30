@@ -62,6 +62,25 @@ describe('worktree', () => {
     expect(cloneAEntries[0]!.branch).toBe('manta/cast-2/A');
   });
 
+  it('addWorktree refuses to clobber an orphan worktree with uncommitted changes (bug #64)', async () => {
+    fx = await makeRepoFixture();
+    const wt1 = await addWorktree({ repoRoot: fx.root, name: 'clone-A', branch: 'manta/cast-1/A' });
+    // Simulate a CRASHED clone that left uncommitted work behind in its worktree
+    // (a graceful-death clone would have committed everything → clean tree).
+    await fs.writeFile(path.join(wt1.path, 'uncommitted-work.txt'), 'precious unsaved output');
+    // A later cast that reuses clone-letter A lands on the SAME dir. It must NOT
+    // `rm -rf` the unsaved work — it must refuse.
+    await expect(
+      addWorktree({ repoRoot: fx.root, name: 'clone-A', branch: 'manta/cast-2/A' }),
+    ).rejects.toThrow(/uncommitted changes|bug #64/i);
+    // The unsaved work survives the refusal.
+    const survived = await fs
+      .access(path.join(wt1.path, 'uncommitted-work.txt'))
+      .then(() => true)
+      .catch(() => false);
+    expect(survived).toBe(true);
+  });
+
   it('addWorktree rejects an unsafe name', async () => {
     fx = await makeRepoFixture();
     await expect(

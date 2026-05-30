@@ -21,6 +21,21 @@ export interface RemoveWorktreeOptions {
   branch: string;
 }
 
+/**
+ * bug #64 (data-loss guard): is the worktree at `wtPath` a git worktree with
+ * uncommitted changes? Used to refuse clobbering unsaved work on clone-letter
+ * reuse. A non-worktree leftover dir (or any git failure) is treated as
+ * not-dirty so the historical reclaim path still applies.
+ */
+async function worktreeHasUncommittedChanges(wtPath: string): Promise<boolean> {
+  try {
+    const r = await execa('git', ['status', '--porcelain'], { cwd: wtPath });
+    return r.stdout.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export async function addWorktree(opts: AddWorktreeOptions): Promise<WorktreeRecord> {
   if (!SAFE_NAME.test(opts.name)) {
     throw new Error(`unsafe worktree name: ${opts.name}`);
@@ -28,6 +43,22 @@ export async function addWorktree(opts: AddWorktreeOptions): Promise<WorktreeRec
   const wtPath = path.join(opts.repoRoot, '.manta', 'worktrees', opts.name);
 
   if (fs.existsSync(wtPath)) {
+    // bug #64: the worktree dir is keyed only by clone-letter, so a letter freed
+    // by a finished clone and reused by a later cast lands on the SAME dir. The
+    // allocator (allocateCloneIds) + Registry.register already guarantee no LIVE
+    // clone holds this letter, so an existing dir here is an ORPHAN from a prior
+    // clone. A graceful-death clone committed its work to its branch (clean tree
+    // → safe to reclaim); a CRASHED clone may have left UNCOMMITTED work. Refuse
+    // to `rm -rf` unsaved work — surface it for the operator instead of silently
+    // destroying it. (Full structural fix = cast-scoped worktree paths; tracked
+    // as a curator follow-up since it spans out-of-package call sites.)
+    if (await worktreeHasUncommittedChanges(wtPath)) {
+      throw new Error(
+        `refusing to reuse worktree ${wtPath}: it has uncommitted changes from a ` +
+          `previous clone (orphan). Inspect/commit or remove it manually, then retry — ` +
+          `letter reuse must never clobber unsaved work (bug #64).`,
+      );
+    }
     try {
       await execa('git', ['worktree', 'remove', '--force', wtPath], { cwd: opts.repoRoot });
     } catch {
