@@ -25,7 +25,7 @@ worth sharing — a new mode, skill, command, or template.
 manta share cast-1780023574334 \
   --clone B \
   --name @my-scope/my-mode \
-  --version 1.0.0 \
+  --pkg-version 1.0.0 \
   --author "Jane Dev" \
   --license MIT \
   --out ./dist
@@ -40,7 +40,7 @@ To publish to npm (interactive only — see the publish section):
 
 ```bash
 manta share cast-1780023574334 --clone B \
-  --name @my-scope/my-mode --version 1.0.0 \
+  --name @my-scope/my-mode --pkg-version 1.0.0 \
   --author "Jane Dev" --license MIT --publish
 ```
 
@@ -52,7 +52,7 @@ manta share cast-1780023574334 --clone B \
 |---|---|---|---|
 | `<castId>` | yes | — | Positional. The finalised cast to bundle. |
 | `--name <@scope/name>` | yes | — | npm package name. No default — the npm scope must be opt-in; the runner refuses to invent one. |
-| `--version <semver>` | yes | — | Package version. No auto-bump — the author decides. |
+| `--pkg-version <semver>` | yes | — | Package version. No auto-bump — the author decides. Named `--pkg-version` (not `--version`) so it does not collide with the global `-V`/`--version` flag. |
 | `--clone <id>` | no | merge-review winner | Winning clone to bundle. Overrides the merge-review verdict. |
 | `--out <dir>` | no | `.` | Output directory for the `.tar.gz`. |
 | `--description <text>` | no | first "Reason" line of the winner's post-mortem | Package description (truncated to 280 chars). |

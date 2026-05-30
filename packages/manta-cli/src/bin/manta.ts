@@ -678,7 +678,13 @@ async function main(): Promise<void> {
     .command('share <castId>')
     .description('Build a publishable Manta package bundle from a finalised cast')
     .requiredOption('--name <@scope/name>', 'npm package name for the bundle (required)')
-    .requiredOption('--version <semver>', 'package version for the bundle (required)')
+    // B5: this flag is `--pkg-version`, NOT `--version`. commander's global
+    // `-V/--version` (set via program.version('0.1.0')) intercepts the
+    // space-form `--version 1.0.0` on subcommands — it prints 0.1.0 and exits
+    // 0, so the share action never runs and a publish silently "succeeds"
+    // doing nothing. A subcommand option cannot reuse `--version` without
+    // colliding, so it is renamed outright (no alias is possible).
+    .requiredOption('--pkg-version <semver>', 'package version for the bundle (required)')
     .option('--clone <id>', 'winning clone to bundle (overrides merge-review)')
     .option('--out <dir>', 'output directory for the .tar.gz', '.')
     .option('--description <text>', 'package description (default: from post-mortem)')
@@ -695,7 +701,8 @@ async function main(): Promise<void> {
         castId: string,
         options: {
           name: string;
-          version: string;
+          // commander camel-cases `--pkg-version` → `pkgVersion` (B5).
+          pkgVersion: string;
           clone?: string;
           out: string;
           description?: string;
@@ -714,7 +721,7 @@ async function main(): Promise<void> {
           const result = await runShareCommand(rt, {
             castId,
             name: options.name,
-            version: options.version,
+            version: options.pkgVersion,
             ...(options.clone !== undefined ? { clone: options.clone } : {}),
             outDir: options.out,
             ...(options.description !== undefined ? { description: options.description } : {}),
