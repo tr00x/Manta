@@ -14,9 +14,18 @@ Updated: 2026-05-30 (curator session). HEAD `0c6abe1`.
 | B | **RB#2 publish path** Chunks 0-3 | ✅ MERGED (self-contained bundle + self-bootstrap) | — | done |
 | C | **RB#2 Chunk 4** install-from-tarball e2e | ⏸️ written (clone A, cast-1780119936859), ceremony PAUSED до RB#3 (install/layout может поменяться) | `packages/manta-e2e/tests/` | harvested, hold |
 | D | **RB#3 discoverability** (plugin/slash/skills delivery) | ✅ RECON DONE → DECISION MADE (plugin = v1). Impl pending (serial, post E/F). | `docs/audits/` (recon RO) | recon done |
-| E | **Hardening** bug #63/#60/#58/#59, N-QB12 | 🔄 launching | `packages/manta-cli/src/commands/cast.ts`, `packages/manta-bus/src/` | bug-hunt |
-| F | **Docs destaling** S-DOC7/9, S-OBS11 note | 🔄 launching | `docs/` (excl. `docs/audits/`), `README.md` | doc-chase |
-| G | **npm publish manta@0.1.0** | ⛔ BLOCKED on D+C+E+F | — | USER CONFIRM only |
+| E | **Hardening** bug #63 | ✅ FIXED + cherry-picked (`34062c1`), gate green 171/1459. #60 escalated (out of fence→RB#4), N-QB12 was stale-clean | `cast.ts`, `merge-review-collector.ts` | done |
+| F | **Docs destaling** S-DOC7/9, S-OBS11 | ✅ cherry-picked (`40db9a6`): README status, Tier-0 note, isolation 18→25. Flagged `read_broadcasts` scope (→RB#4 security) | `README.md`, `docs/internals/`, spec | done |
+| RB#4 | **Reliability** (NEW, from /goal "надёжность крупных проектов") | 📋 scoped, cast next (serial) | `cast.ts`, `worktree.ts`, `merge-review-collector.ts`, `src/bin/` | next cast |
+| G | **npm publish manta@0.1.0** | ⛔ BLOCKED on RB#3 + RB#4 + Chunk-4 | — | USER CONFIRM only |
+
+## RB#4 — RELIABILITY (from /goal: надёжность для крупных проектов, клоны без пиздежа)
+The headline feature is parallelism; first real parallel push hit 3 reliability bugs. ALL block "huge impact on large projects":
+- **bug #64** (HIGH) — concurrent casts collide on clone-letter/worktree. `allocateCloneIds` correctly skips live letters (bug #19), but `addWorktree` (worktree.ts:30-34) force-`rm -rf`s an existing worktree dir → a letter freed by a finished clone (orphan worktree not GC'd) OR a race between allocate→register lets a new cast reuse the dir. Fix: worktree path include cast_id (`clone-<castid>-<L>`) so letter reuse never aliases a dir; atomic allocate+register+worktree under a registry lock.
+- **bug #35 re-exposed** (HIGH) — concurrent `pnpm install` across worktrees on shared store (surfaced by #63 fix). Serialize `prepareWorktreeForGate` / store mutex / `--frozen-lockfile`.
+- **bug #63 RED-path test gap** (MED) — gate tests never exercise a failing dimension; symmetric false-positive unguarded. Add ≥2 RED-path tests.
+- **bug #60 leftover** (MED) — share/daily-cap `parseInt/parseFloat` coercers in `src/bin/` accept NaN (E found these out-of-fence). Validating coercer + NaN-reject test.
+- **read_broadcasts scope** (security FLAG from F) — `read_broadcasts` is cast_id-scoped → potential forking-realities sibling-broadcast visibility. Audit + document/fix.
 
 ## Конфликт-матрица (почему фронты не дерутся)
 - D recon = read-only, пишет только `docs/audits/` → не трогает код.
