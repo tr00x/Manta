@@ -35,9 +35,9 @@ payload subdir). Acceptable for v1; a future optimization could carve out a payl
 | Artifact | Path | Purpose |
 |---|---|---|
 | Plugin manifest | `.claude-plugin/plugin.json` | name `manta`, version, description, author, repo, license, keywords. No `contributes`. |
-| Marketplace catalog | `.claude-plugin/marketplace.json` | single-plugin catalog; plugin `source` = `{ "source": "github", "repo": "tr00x/Manta" }` (see "source field" below). |
+| Marketplace catalog | `.claude-plugin/marketplace.json` | single-plugin catalog; marketplace `name` = `manta-dev` (deliberately *not* `manta` — see "dogfood collision" below); plugin `name` = `manta`, `source` = `{ "source": "github", "repo": "tr00x/Manta" }` (see "source field" below). |
 | MCP server | `.mcp.json` | `manta-bus` stdio = `node ${CLAUDE_PLUGIN_ROOT}/dist/bin/server.cjs`. Auto-registers on enable — no `claude mcp add`. |
-| Slash commands | `commands/{cast,status,abort,cost,kill,promote,recover}.md` | thin Bash wrappers → `node ${CLAUDE_PLUGIN_ROOT}/dist/bin/manta.cjs <cmd>`. Auto-namespaced to `/manta:*`. The CLI stays the single code path. |
+| Slash commands | `commands/{cast,status,abort,cost,kill,promote,recover,help}.md` | thin Bash wrappers → `node ${CLAUDE_PLUGIN_ROOT}/dist/bin/manta.cjs <cmd>` (`help` is static text, no binary call). Auto-namespaced to `/manta:*`. The CLI stays the single code path. |
 | Skills | `skills/*/SKILL.md` | surfaced to the user's session AND resolvable by spawned clones (heals `priming.ts`'s previously-dead skill refs). |
 | Bundle | `dist/bin/{manta.cjs,server.cjs}` | committed self-contained bins (see "the bundle must be committed"). |
 
@@ -77,13 +77,55 @@ that subdir. We use the github form because the payload is the repo root.
 
 ```
 /plugin marketplace add https://github.com/tr00x/Manta.git
-/plugin install manta@manta
+/plugin install manta@manta-dev
 /reload-plugins
 ```
+
+The install spec is `<plugin>@<marketplace>`. CC keys the marketplace by the top-level `name` in
+`marketplace.json` (→ `manta-dev`) and the plugin by `plugins[].name` (→ `manta`), so the install
+reference is `manta@manta-dev`. Verified against the real install state:
+`~/.claude/plugins/known_marketplaces.json` keys marketplaces by name, and
+`~/.claude/plugins/installed_plugins.json` keys installs as `<plugin>@<marketplace>`.
 
 Local dev (no marketplace): `claude --plugin-dir .` from the repo root; `claude plugin validate .` to
 check the manifest. These argument strings are confirmed against code.claude.com/docs/en/discover-plugins;
 if a build differs, run `/plugin` and follow the in-app flow rather than guessing.
+
+## Dogfood collision — `/manta:*` vanish when cwd = the Manta repo
+
+**Symptom.** Start Claude Code with cwd inside this repo and the `/manta:*` slash commands disappear,
+even though the plugin shows enabled. Start it from any other directory and the commands are present.
+
+**Root cause (upstream CC, [#14929](https://github.com/anthropics/claude-code/issues/14929)).** When
+cwd is inside the repo, CC auto-discovers the repo's own `.claude-plugin/marketplace.json` as a
+*directory-source* marketplace. Two upstream behaviors then bite:
+
+1. **Name collision.** CC's plugin resolver keys on the bare plugin name, not the `name@marketplace`
+   qualifier. If the cwd marketplace shares a name with an already-registered remote marketplace, the
+   two fight (same class as obra/superpowers#355). This is why the marketplace is named **`manta-dev`**,
+   not `manta`: the installed remote marketplace is `manta`, so a differently-named local marketplace
+   can't name-collide with it. (The *plugin* stays `manta` so the install spec is stable.)
+2. **Directory-marketplace commands don't register (#14929).** Even with the name collision removed,
+   CC's directory-source code path surfaces *skills* and the MCP server but **silently drops slash
+   commands**. This is an upstream bug Manta cannot fix in its own code.
+
+**Net.** Renaming the marketplace to `manta-dev` removes the name collision (and is verified by
+`claude plugin validate .`), but cwd = repo *and* the installed `manta` plugin still cannot both
+surface `/manta:*` until #14929 ships upstream, because the directory-source path drops commands
+regardless of name.
+
+**Contributor workarounds (work today):**
+
+- **Sibling-dir + `--plugin-dir`** — loads the checkout via the *plugin-dir* source (not a directory
+  *marketplace*), which is the code path that DOES surface commands:
+  ```
+  cd /some/other/dir && claude --plugin-dir /path/to/Manta
+  ```
+- **Disable the installed copy** — in `~/.claude/settings.json` set
+  `"enabledPlugins": { "manta@manta-dev": false }`, then launch with `claude --plugin-dir .` from the
+  repo root. One source, no collision.
+- The bundled **`manta` CLI** (and `manta doctor`) works regardless of cwd — only the *slash command*
+  surface is affected.
 
 ## Known gap
 

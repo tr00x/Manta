@@ -139,13 +139,26 @@ inside Claude Code:
 
 ```
 /plugin marketplace add https://github.com/tr00x/Manta.git
-/plugin install manta@manta
+/plugin install manta@manta-dev
 /reload-plugins
 ```
+
+The marketplace is named `manta-dev` and the plugin inside it is `manta`, so the install spec
+(`<plugin>@<marketplace>`) is `manta@manta-dev`. After install, run `/manta:help` for a command tour
+or `manta doctor` from a terminal to verify your environment.
 
 Then `/manta:cast recon-swarm --task "Map this codebase"`, watch with `/manta:status`, stop with
 `/manta:abort`. The exact `/plugin` strings match current Claude Code docs; if your build differs, run
 `/plugin` and follow the in-app flow, or test a local checkout with `claude --plugin-dir .`. Packaging
 internals: `docs/internals/plugin-packaging.md`. This walkthrough above is the from-source dev path.
+
+> **`/manta:*` missing when cwd = the Manta repo?** Known Claude Code limitation
+> ([#14929](https://github.com/anthropics/claude-code/issues/14929)): with cwd inside this repo, CC
+> discovers the repo's own `.claude-plugin/marketplace.json` as a *directory* marketplace, whose slash
+> commands silently fail to register. The marketplace is named `manta-dev` (not `manta`) precisely so it
+> can't name-collide with the installed `manta` plugin — but the directory-source discovery bug is
+> upstream. Contributor workaround: launch from a sibling dir with
+> `claude --plugin-dir /path/to/Manta`, or set `"enabledPlugins": { "manta@manta-dev": false }` in
+> `~/.claude/settings.json` and use `claude --plugin-dir .`. The `manta` CLI works regardless of cwd.
 
 See `docs/superpowers/specs/2026-05-06-manta-pattern-design.md` for the full roadmap.

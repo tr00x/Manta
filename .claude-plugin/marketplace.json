@@ -1,11 +1,11 @@
 {
-  "name": "manta",
+  "name": "manta-dev",
   "owner": {
     "name": "Manta Pattern",
     "email": "tr00x@proton.me"
   },
   "metadata": {
-    "description": "Manta — the self-cloning Claude Code pattern.",
+    "description": "Manta — the self-cloning Claude Code pattern. Marketplace named `manta-dev` so it never collides with the installed `manta` plugin when cwd = this repo (CC bug #14929).",
     "version": "0.1.0"
   },
   "plugins": [

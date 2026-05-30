@@ -89,12 +89,14 @@ From inside Claude Code:
 
 ```
 /plugin marketplace add https://github.com/tr00x/Manta.git
-/plugin install manta@manta
+/plugin install manta@manta-dev
 ```
+
+The marketplace's name is `manta-dev` (declared in `.claude-plugin/marketplace.json`); the plugin inside it is `manta`. The install spec is `<plugin>@<marketplace>`, so it reads `manta@manta-dev`. Run `/manta:help` after install for a tour, or `manta doctor` from a terminal to health-check your setup.
 
 Then reload. You now have:
 
-- **`/manta:cast`, `/manta:status`, `/manta:abort`, `/manta:cost`** (plus `kill`, `promote`, `recover`) — slash commands that wrap the bundled `manta` binary.
+- **`/manta:cast`, `/manta:status`, `/manta:abort`, `/manta:cost`** (plus `kill`, `promote`, `recover`, `help`) — slash commands that wrap the bundled `manta` binary.
 - **Manta's skills** in your skill list (e.g. `manta-cast-decide` — "should I even cast this?"), and resolvable by spawned clones.
 - **The `manta-bus` MCP server**, registered automatically — no `claude mcp add`, no manual setup.
 
@@ -104,6 +106,15 @@ To test a local checkout without the marketplace:
 claude --plugin-dir /path/to/Manta     # loads /manta:* for that session
 claude plugin validate /path/to/Manta  # checks the manifest
 ```
+
+> **Working *inside* the Manta repo? `/manta:*` may disappear.** This is a known Claude Code limitation ([#14929](https://github.com/anthropics/claude-code/issues/14929)): when cwd = this repo, CC auto-discovers the repo's own `.claude-plugin/marketplace.json` as a *directory* marketplace, and directory-marketplace slash commands silently fail to register. Naming the marketplace `manta-dev` (done) keeps it from colliding with the installed `manta` plugin, but the directory-source command-discovery bug is upstream and not something Manta can fix in its own code. Guaranteed workarounds for contributors:
+> - **Load the checkout explicitly from a sibling directory** (uses the `--plugin-dir` code path, which *does* surface commands):
+>   ```
+>   cd /some/other/dir && claude --plugin-dir /path/to/Manta
+>   ```
+> - **Or disable the installed copy and load the checkout as a plugin-dir** — in `~/.claude/settings.json` set `"enabledPlugins": { "manta@manta-dev": false }`, then launch with `claude --plugin-dir .` from the repo.
+>
+> Bottom line: cwd = the repo *and* the globally-installed `manta` plugin can't both surface `/manta:*` until #14929 ships upstream. The CLI (`manta …` / the bundled binary) works regardless of cwd.
 
 ### npm CLI (terminal / power-user)
 
