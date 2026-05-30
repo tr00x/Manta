@@ -2,8 +2,11 @@
   "mcpServers": {
     "manta-bus": {
       "type": "stdio",
-      "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/bin/server.cjs"]
+      "command": "sh",
+      "args": [
+        "-c",
+        "exec node \"${CLAUDE_PLUGIN_ROOT:-.}/dist/bin/server.cjs\""
+      ]
     }
   }
 }

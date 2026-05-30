@@ -107,6 +107,8 @@ claude plugin validate /path/to/Manta  # checks the manifest
 
 ### npm CLI (terminal / power-user)
 
+> **Availability:** the npm package publishes as part of the release. Until `manta` is live on npm, `npx manta@latest` will fail with "could not determine executable" — use the **plugin path above** (it works today), or run from a source checkout (below). Once published:
+
 ```
 npx manta@latest install                 # registers the manta-bus MCP server
 manta cast recon-swarm --clones 2 --task "Map this codebase"
