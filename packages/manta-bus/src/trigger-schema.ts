@@ -53,7 +53,10 @@ export const TriggerSafetySchema = z
     hourly_cap: z.number().int().positive().default(3),
     // Per-fire usage ceiling as a token ESTIMATE (subscription usage proxy),
     // NOT dollars — renamed from `per_fire_budget_usd` in the 2026-05-31 repivot.
-    per_fire_token_cap: z.number().positive().default(3),
+    // Default is token-scale (500k): repivot audit #3 caught the old $3 dollar
+    // default carried over verbatim as "3 tokens", which would reject any
+    // realistic per_cast_token_estimate (150k–500k) via the refine() below.
+    per_fire_token_cap: z.number().positive().default(500_000),
     loop: z
       .object({
         max_cause_chain_depth: z.number().int().positive().max(8).default(3),

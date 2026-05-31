@@ -235,6 +235,37 @@ describe('cast command (recon-swarm)', () => {
     });
   });
 
+  it('rejects when the per-cast estimate exceeds --max-tokens-estimate (repivot audit #2)', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({ repoRoot: fx.root });
+    const chargesBefore = await rt.ctx.charges.read();
+    // 2 clones × 100k = 200k estimated; --max-tokens-estimate=150k is a true
+    // PER-CAST ceiling (not the daily-cap projection it used to be wired to),
+    // so the cast is refused at the input gate before any state commit.
+    await expect(
+      runCastCommand(rt, {
+        mode: 'recon-swarm',
+        task: 't',
+        cloneCount: 2,
+        cycleIntervalMs: 50,
+        runner: runFakeCloneScript({ scriptPath: fixturePath }),
+        reporter: createReporter({ sink: new MemorySink() }),
+        tickBudgetMs: 5_000,
+        castId: 'cast-percast-ceiling',
+        internalTokenEstimatePerClone: 100_000,
+        internalTokenEstimatePerCast: 1_500_000,
+        maxTokensEstimate: 150_000,
+        verifyMcp: false,
+      }),
+    ).rejects.toMatchObject({
+      kind: 'invalid_input',
+      message: expect.stringContaining('--max-tokens-estimate=150000') as unknown as string,
+    });
+    // The ceiling fires before the pre-spawn charge debit — charges untouched.
+    const chargesAfter = await rt.ctx.charges.read();
+    expect(chargesAfter.current_charges).toBe(chargesBefore.current_charges);
+  });
+
   // I-IMP-1 regression: when a mid-cast spawn step throws (clone N-of-M fails
   // to start), the catch block must terminate already-running children AND
   // peel back the worktrees they created. Otherwise a re-cast collides on

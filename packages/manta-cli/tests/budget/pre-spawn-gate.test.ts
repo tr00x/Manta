@@ -142,6 +142,35 @@ describe('runPreSpawnGate', () => {
     expect(state.current_charges).toBe(3);
   });
 
+  it('noChargeCheck=true → still records an audit cast_start so the rate cap stays armed (repivot audit #1)', async () => {
+    const opts = makeOpts({ noChargeCheck: true });
+    await runPreSpawnGate(opts);
+    const log = await opts.charges.readLog();
+    const castStarts = log.filter(
+      (e) => e.type === 'cast_start' && e.cast_id === opts.castId,
+    );
+    // The --max-casts-per-hour rate cap counts cast_start events; without the
+    // audit emit, --no-charge-check would silently disarm it.
+    expect(castStarts).toHaveLength(1);
+    expect(castStarts[0]!.delta).toBe(0);
+    expect(castStarts[0]!.cost).toBe(0);
+    // ...but the audit event mutates no charge balance.
+    const state = await opts.charges.read();
+    expect(state.current_charges).toBe(3);
+  });
+
+  it('charges enabled → exactly one cast_start (no double-count with the audit path)', async () => {
+    const opts = makeOpts();
+    await runPreSpawnGate(opts);
+    const log = await opts.charges.readLog();
+    const castStarts = log.filter(
+      (e) => e.type === 'cast_start' && e.cast_id === opts.castId,
+    );
+    expect(castStarts).toHaveLength(1);
+    // The charged path debits the real cost (recon-swarm = 1), not 0.
+    expect(castStarts[0]!.delta).toBeLessThan(0);
+  });
+
   it('passive recovery applies credits before charge check', async () => {
     const paths = busPaths(tmpDir);
     const chargeConfig: ChargeStoreConfig = {

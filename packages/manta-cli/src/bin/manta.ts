@@ -222,7 +222,7 @@ async function main(): Promise<void> {
     )
     .option(
       '--max-tokens-estimate <n>',
-      'optional per-cast token-estimate ceiling (usage proxy, NOT dollars). Overrides the daily token-cap projection for this cast.',
+      'optional per-cast usage ceiling (token-estimate proxy, NOT dollars). Rejects the cast if its cumulative per-clone estimate exceeds this.',
       parsePositiveIntOption,
     )
     .option(

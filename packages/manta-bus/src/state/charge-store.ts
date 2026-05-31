@@ -85,6 +85,33 @@ export class ChargeStore {
     return result;
   }
 
+  /**
+   * Append a `cast_start` audit event WITHOUT mutating charge state. The
+   * `--max-casts-per-hour` rate cap and the `cost` week-view both count
+   * `cast_start` events from the charge log; under `--no-charge-check`,
+   * `deductForCast` is skipped, so without this the subscription rate guard
+   * (the budget repivot's core control) would be silently disabled and the
+   * usage history would undercount. delta/cost are 0 (no debit); prev/next
+   * reflect the unchanged balance. Exactly one of deductForCast/this runs per
+   * cast, so the rate cap never double-counts.
+   */
+  async recordCastStartAudit(castId: string, mode: Mode): Promise<void> {
+    const current = await this.read();
+    const event: ChargeEvent = {
+      ts: this.clock.now(),
+      type: 'cast_start',
+      delta: 0,
+      cast_id: castId,
+      mode,
+      cost: 0,
+      prev_charges: current.current_charges,
+      next_charges: current.current_charges,
+      reason: 'audit (no-charge-check)',
+    };
+    ChargeEventSchema.parse(event);
+    await appendJsonLine(this.paths.chargesLog, event);
+  }
+
   async creditSuccess(castId: string, mode: Mode): Promise<ChargeState> {
     let prevCharges = 0;
     let nextCharges = 0;

@@ -7621,7 +7621,10 @@ var init_trigger_schema = __esm({
       hourly_cap: external_exports.number().int().positive().default(3),
       // Per-fire usage ceiling as a token ESTIMATE (subscription usage proxy),
       // NOT dollars — renamed from `per_fire_budget_usd` in the 2026-05-31 repivot.
-      per_fire_token_cap: external_exports.number().positive().default(3),
+      // Default is token-scale (500k): repivot audit #3 caught the old $3 dollar
+      // default carried over verbatim as "3 tokens", which would reject any
+      // realistic per_cast_token_estimate (150k–500k) via the refine() below.
+      per_fire_token_cap: external_exports.number().positive().default(5e5),
       loop: external_exports.object({
         max_cause_chain_depth: external_exports.number().int().positive().max(8).default(3),
         refuse_if_self_in_chain: external_exports.boolean().default(true),
@@ -10122,6 +10125,32 @@ var init_charge_store = __esm({
         );
         return result;
       }
+      /**
+       * Append a `cast_start` audit event WITHOUT mutating charge state. The
+       * `--max-casts-per-hour` rate cap and the `cost` week-view both count
+       * `cast_start` events from the charge log; under `--no-charge-check`,
+       * `deductForCast` is skipped, so without this the subscription rate guard
+       * (the budget repivot's core control) would be silently disabled and the
+       * usage history would undercount. delta/cost are 0 (no debit); prev/next
+       * reflect the unchanged balance. Exactly one of deductForCast/this runs per
+       * cast, so the rate cap never double-counts.
+       */
+      async recordCastStartAudit(castId, mode) {
+        const current = await this.read();
+        const event = {
+          ts: this.clock.now(),
+          type: "cast_start",
+          delta: 0,
+          cast_id: castId,
+          mode,
+          cost: 0,
+          prev_charges: current.current_charges,
+          next_charges: current.current_charges,
+          reason: "audit (no-charge-check)"
+        };
+        ChargeEventSchema.parse(event);
+        await appendJsonLine(this.paths.chargesLog, event);
+      }
       async creditSuccess(castId, mode) {
         let prevCharges = 0;
         let nextCharges = 0;
@@ -10377,6 +10406,7 @@ var init_daily_spend = __esm({
     "use strict";
     init_cjs_shims();
     init_atomic_fs();
+    init_schema();
     DailySpendLedger = class {
       constructor(paths, clock) {
         this.paths = paths;
@@ -10389,10 +10419,11 @@ var init_daily_spend = __esm({
           this.paths.dailySpend,
           () => this.defaultState()
         );
-        if (raw.date !== this.localDate()) {
+        const parsed = DailySpendStateSchema.safeParse(raw);
+        if (!parsed.success || parsed.data.date !== this.localDate()) {
           return this.defaultState();
         }
-        return raw;
+        return parsed.data;
       }
       async recordCastStart(entry) {
         const ts2 = this.clock.now();
@@ -43478,6 +43509,8 @@ async function runPreSpawnGate(opts) {
   if (!opts.noChargeCheck) {
     const afterState = await opts.charges.deductForCast(opts.castId, opts.mode);
     chargesAfterDeduct = afterState.current_charges;
+  } else {
+    await opts.charges.recordCastStartAudit(opts.castId, opts.mode);
   }
   const afterDailySpend = await opts.dailySpend.recordCastStart({
     cast_id: opts.castId,
@@ -44264,10 +44297,15 @@ async function runCastCommand(rt2, opts) {
     effective[id] = e;
     totalTokenEstimate += e.tokenEstimate;
   }
-  if (totalTokenEstimate > opts.internalTokenEstimatePerCast) {
+  const perCastCeiling = Math.min(
+    opts.internalTokenEstimatePerCast,
+    opts.maxTokensEstimate ?? Number.POSITIVE_INFINITY
+  );
+  if (totalTokenEstimate > perCastCeiling) {
     const detail = cloneIds.map((id) => `${id}=${effective[id].tokenEstimate}`).join(" + ");
+    const capSource = opts.maxTokensEstimate !== void 0 && opts.maxTokensEstimate < opts.internalTokenEstimatePerCast ? `--max-tokens-estimate=${opts.maxTokensEstimate}` : `the per-cast usage budget (${opts.internalTokenEstimatePerCast})`;
     throw new CliError(
-      `cumulative per-clone usage estimate (${detail} = ${totalTokenEstimate}) exceeds the per-cast usage budget (${opts.internalTokenEstimatePerCast}). Lower the per-clone overrides in --tasks, or spawn fewer clones.`,
+      `cumulative per-clone usage estimate (${detail} = ${totalTokenEstimate}) exceeds ${capSource}. Lower the per-clone overrides in --tasks, spawn fewer clones, or raise --max-tokens-estimate.`,
       { kind: "invalid_input" }
     );
   }
@@ -44303,7 +44341,7 @@ async function runCastCommand(rt2, opts) {
     mode: opts.mode,
     cloneCount: opts.cloneCount,
     castId: opts.castId,
-    dailyTokenCapOverride: opts.maxTokensEstimate ?? opts.dailyTokenCapOverride,
+    dailyTokenCapOverride: opts.dailyTokenCapOverride,
     force: opts.force ?? false,
     noChargeCheck: opts.noChargeCheck ?? false,
     dryRun: opts.dryRun ?? false,
@@ -52014,7 +52052,7 @@ async function main() {
     parsePositiveIntOption
   ).option(
     "--max-tokens-estimate <n>",
-    "optional per-cast token-estimate ceiling (usage proxy, NOT dollars). Overrides the daily token-cap projection for this cast.",
+    "optional per-cast usage ceiling (token-estimate proxy, NOT dollars). Rejects the cast if its cumulative per-clone estimate exceeds this.",
     parsePositiveIntOption
   ).option(
     "--max-files-changed <n>",

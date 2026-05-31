@@ -20285,7 +20285,10 @@ var TriggerSafetySchema = external_exports.object({
   hourly_cap: external_exports.number().int().positive().default(3),
   // Per-fire usage ceiling as a token ESTIMATE (subscription usage proxy),
   // NOT dollars — renamed from `per_fire_budget_usd` in the 2026-05-31 repivot.
-  per_fire_token_cap: external_exports.number().positive().default(3),
+  // Default is token-scale (500k): repivot audit #3 caught the old $3 dollar
+  // default carried over verbatim as "3 tokens", which would reject any
+  // realistic per_cast_token_estimate (150k–500k) via the refine() below.
+  per_fire_token_cap: external_exports.number().positive().default(5e5),
   loop: external_exports.object({
     max_cause_chain_depth: external_exports.number().int().positive().max(8).default(3),
     refuse_if_self_in_chain: external_exports.boolean().default(true),
@@ -21157,6 +21160,32 @@ var ChargeStore = class {
     );
     return result;
   }
+  /**
+   * Append a `cast_start` audit event WITHOUT mutating charge state. The
+   * `--max-casts-per-hour` rate cap and the `cost` week-view both count
+   * `cast_start` events from the charge log; under `--no-charge-check`,
+   * `deductForCast` is skipped, so without this the subscription rate guard
+   * (the budget repivot's core control) would be silently disabled and the
+   * usage history would undercount. delta/cost are 0 (no debit); prev/next
+   * reflect the unchanged balance. Exactly one of deductForCast/this runs per
+   * cast, so the rate cap never double-counts.
+   */
+  async recordCastStartAudit(castId, mode) {
+    const current = await this.read();
+    const event = {
+      ts: this.clock.now(),
+      type: "cast_start",
+      delta: 0,
+      cast_id: castId,
+      mode,
+      cost: 0,
+      prev_charges: current.current_charges,
+      next_charges: current.current_charges,
+      reason: "audit (no-charge-check)"
+    };
+    ChargeEventSchema.parse(event);
+    await appendJsonLine(this.paths.chargesLog, event);
+  }
   async creditSuccess(castId, mode) {
     let prevCharges = 0;
     let nextCharges = 0;
@@ -21417,10 +21446,11 @@ var DailySpendLedger = class {
       this.paths.dailySpend,
       () => this.defaultState()
     );
-    if (raw.date !== this.localDate()) {
+    const parsed = DailySpendStateSchema.safeParse(raw);
+    if (!parsed.success || parsed.data.date !== this.localDate()) {
       return this.defaultState();
     }
-    return raw;
+    return parsed.data;
   }
   async recordCastStart(entry) {
     const ts = this.clock.now();

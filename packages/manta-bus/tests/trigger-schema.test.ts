@@ -17,7 +17,7 @@ function validAction(overrides: Record<string, unknown> = {}) {
     clones: 2,
     task_template: 'hunt the bug in ${changed_files}',
     scope: validScope(),
-    budget: { per_clone_token_estimate: 1.5, per_cast_token_estimate: 3 },
+    budget: { per_clone_token_estimate: 150_000, per_cast_token_estimate: 300_000 },
     ...overrides,
   };
 }
@@ -28,7 +28,7 @@ function validTrigger(overrides: Record<string, unknown> = {}) {
     name: 'test-failure-bug-hunt',
     enabled: false,
     event: { source: 'git', type: 'post-commit' },
-    safety: { hourly_cap: 3, per_fire_token_cap: 3 },
+    safety: { hourly_cap: 3, per_fire_token_cap: 500_000 },
     action: validAction(),
     ...overrides,
   };
@@ -109,8 +109,8 @@ describe('TriggerDefSchema — refusal paths (bias toward no)', () => {
     expect(() =>
       TriggerDefSchema.parse(
         validTrigger({
-          safety: { hourly_cap: 3, per_fire_token_cap: 3 },
-          action: validAction({ budget: { per_clone_token_estimate: 1, per_cast_token_estimate: 4 } }),
+          safety: { hourly_cap: 3, per_fire_token_cap: 300_000 },
+          action: validAction({ budget: { per_clone_token_estimate: 150_000, per_cast_token_estimate: 400_000 } }),
         }),
       ),
     ).toThrow();
@@ -120,8 +120,8 @@ describe('TriggerDefSchema — refusal paths (bias toward no)', () => {
     expect(() =>
       TriggerDefSchema.parse(
         validTrigger({
-          safety: { hourly_cap: 3, per_fire_token_cap: 3 },
-          action: validAction({ budget: { per_clone_token_estimate: 1, per_cast_token_estimate: 3 } }),
+          safety: { hourly_cap: 3, per_fire_token_cap: 300_000 },
+          action: validAction({ budget: { per_clone_token_estimate: 150_000, per_cast_token_estimate: 300_000 } }),
         }),
       ),
     ).not.toThrow();

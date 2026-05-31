@@ -150,6 +150,12 @@ export async function runPreSpawnGate(
   if (!opts.noChargeCheck) {
     const afterState = await opts.charges.deductForCast(opts.castId, opts.mode);
     chargesAfterDeduct = afterState.current_charges;
+  } else {
+    // Repivot audit #1: `cast_start` drives the --max-casts-per-hour rate cap
+    // and the `cost` week-view. deductForCast (its only other writer) is skipped
+    // here, so emit an audit-only cast_start to keep the subscription rate guard
+    // armed and the usage history accurate even when charge accounting is off.
+    await opts.charges.recordCastStartAudit(opts.castId, opts.mode);
   }
 
   const afterDailySpend = await opts.dailySpend.recordCastStart({

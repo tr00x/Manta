@@ -279,8 +279,10 @@ export interface RunCastOptions {
    */
   maxCastsPerHour?: number;
   /**
-   * Optional token-estimate budget (CLI: `--max-tokens-estimate`). Overrides
-   * the per-cast token-estimate daily-cap projection for this cast only.
+   * Optional per-cast usage ceiling (CLI: `--max-tokens-estimate`). When set,
+   * it LOWERS the internal per-cast token-estimate budget: the cast is rejected
+   * if the cumulative per-clone estimate exceeds it. A true per-cast ceiling —
+   * it does NOT touch the daily-cap projection (repivot audit #2).
    */
   maxTokensEstimate?: number;
   /**
@@ -540,13 +542,26 @@ export async function runCastCommand(
     totalTokenEstimate += e.tokenEstimate;
   }
 
-  if (totalTokenEstimate > opts.internalTokenEstimatePerCast) {
+  // Per-cast usage ceiling. `--max-tokens-estimate` (when given) is a true
+  // per-cast ceiling that LOWERS the internal default — repivot audit #2: the
+  // flag is advertised as a per-cast ceiling, so it must gate the per-cast
+  // estimate here, NOT the daily-cap projection (which it used to be wired to,
+  // making name and behaviour disagree).
+  const perCastCeiling = Math.min(
+    opts.internalTokenEstimatePerCast,
+    opts.maxTokensEstimate ?? Number.POSITIVE_INFINITY,
+  );
+  if (totalTokenEstimate > perCastCeiling) {
     const detail = cloneIds
       .map((id) => `${id}=${effective[id]!.tokenEstimate}`)
       .join(' + ');
+    const capSource =
+      opts.maxTokensEstimate !== undefined && opts.maxTokensEstimate < opts.internalTokenEstimatePerCast
+        ? `--max-tokens-estimate=${opts.maxTokensEstimate}`
+        : `the per-cast usage budget (${opts.internalTokenEstimatePerCast})`;
     throw new CliError(
-      `cumulative per-clone usage estimate (${detail} = ${totalTokenEstimate}) exceeds the per-cast ` +
-        `usage budget (${opts.internalTokenEstimatePerCast}). Lower the per-clone overrides in --tasks, or spawn fewer clones.`,
+      `cumulative per-clone usage estimate (${detail} = ${totalTokenEstimate}) exceeds ${capSource}. ` +
+        `Lower the per-clone overrides in --tasks, spawn fewer clones, or raise --max-tokens-estimate.`,
       { kind: 'invalid_input' },
     );
   }
@@ -614,7 +629,7 @@ export async function runCastCommand(
     mode: opts.mode,
     cloneCount: opts.cloneCount,
     castId: opts.castId,
-    dailyTokenCapOverride: opts.maxTokensEstimate ?? opts.dailyTokenCapOverride,
+    dailyTokenCapOverride: opts.dailyTokenCapOverride,
     force: opts.force ?? false,
     noChargeCheck: opts.noChargeCheck ?? false,
     dryRun: opts.dryRun ?? false,

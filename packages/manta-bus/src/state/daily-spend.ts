@@ -1,6 +1,7 @@
 import { atomicMutateJson, atomicReadJson } from '../atomic-fs';
 import type { Clock } from '../clock';
 import type { DailySpendState, DailySpendEntry } from '../schema';
+import { DailySpendStateSchema } from '../schema';
 import type { BusPaths } from './paths';
 
 export class DailySpendLedger {
@@ -10,14 +11,21 @@ export class DailySpendLedger {
   ) {}
 
   async read(): Promise<DailySpendState> {
-    const raw = await atomicReadJson<DailySpendState>(
+    const raw = await atomicReadJson<unknown>(
       this.paths.dailySpend,
       () => this.defaultState(),
     );
-    if (raw.date !== this.localDate()) {
+    // Repivot audit #4b: validate the on-disk shape before trusting it. A
+    // daily-spend.json written by a PRE-repivot binary on the same calendar day
+    // as the upgrade carries `spent_usd` but no `tokens_estimated`; trusting it
+    // unchecked would make getRemaining compute `cap - undefined = NaN`, and a
+    // NaN comparison disarms the daily gate entirely (bug #60 class). A stale or
+    // malformed object fails the .strict() parse → reset to a clean default.
+    const parsed = DailySpendStateSchema.safeParse(raw);
+    if (!parsed.success || parsed.data.date !== this.localDate()) {
       return this.defaultState();
     }
-    return raw;
+    return parsed.data;
   }
 
   async recordCastStart(
