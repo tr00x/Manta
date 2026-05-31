@@ -33,6 +33,24 @@ export function renderStatusTable(status: OrchestratorStatus): string {
       `${pad(c.clone_id, 5)} | ${pad(c.mode, 12)} | ${pad(stateDisplay, 15)} | ${pad(ageStr, 13)} | ${pad(locks, 20)} | ${pad(claims, 20)}`,
     );
   }
+
+  // Action hint — the `Clone` column IS the id you pass to kill/inspect, which
+  // is not obvious from the table alone. Show live ids + the exact commands when
+  // any clone is still alive; otherwise point at `recover` to clear settled ones.
+  const live = status.clones.filter((c) => c.state !== 'DEAD');
+  lines.push('');
+  if (live.length > 0) {
+    const ids = live.map((c) => c.clone_id).join(', ');
+    lines.push(
+      `↑ "Clone" is the id. Stop one: \`manta kill <id>\` (e.g. \`manta kill ${live[0]!.clone_id}\`) · ` +
+        `stop all: \`manta abort\` · details: \`manta inspect <id>\`  [live: ${ids}]`,
+    );
+  } else {
+    lines.push(
+      'All clones settled (DEAD) — finished casts, safe to ignore. The next cast reuses these slots. ' +
+        '(Full reset of Manta in this repo: `manta cleanup`.)',
+    );
+  }
   return lines.join('\n');
 }
 

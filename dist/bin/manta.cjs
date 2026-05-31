@@ -988,8 +988,8 @@ var require_command = __commonJS({
     init_cjs_shims();
     var EventEmitter = require("events").EventEmitter;
     var childProcess2 = require("child_process");
-    var path38 = require("path");
-    var fs39 = require("fs");
+    var path39 = require("path");
+    var fs40 = require("fs");
     var process7 = require("process");
     var { Argument: Argument2, humanReadableArgName } = require_argument();
     var { CommanderError: CommanderError2 } = require_error();
@@ -1921,11 +1921,11 @@ Expecting one of '${allowedValues.join("', '")}'`);
         let launchWithNode = false;
         const sourceExt = [".js", ".ts", ".tsx", ".mjs", ".cjs"];
         function findFile(baseDir, baseName) {
-          const localBin = path38.resolve(baseDir, baseName);
-          if (fs39.existsSync(localBin)) return localBin;
-          if (sourceExt.includes(path38.extname(baseName))) return void 0;
+          const localBin = path39.resolve(baseDir, baseName);
+          if (fs40.existsSync(localBin)) return localBin;
+          if (sourceExt.includes(path39.extname(baseName))) return void 0;
           const foundExt = sourceExt.find(
-            (ext) => fs39.existsSync(`${localBin}${ext}`)
+            (ext) => fs40.existsSync(`${localBin}${ext}`)
           );
           if (foundExt) return `${localBin}${foundExt}`;
           return void 0;
@@ -1937,21 +1937,21 @@ Expecting one of '${allowedValues.join("', '")}'`);
         if (this._scriptPath) {
           let resolvedScriptPath;
           try {
-            resolvedScriptPath = fs39.realpathSync(this._scriptPath);
+            resolvedScriptPath = fs40.realpathSync(this._scriptPath);
           } catch (err) {
             resolvedScriptPath = this._scriptPath;
           }
-          executableDir = path38.resolve(
-            path38.dirname(resolvedScriptPath),
+          executableDir = path39.resolve(
+            path39.dirname(resolvedScriptPath),
             executableDir
           );
         }
         if (executableDir) {
           let localFile = findFile(executableDir, executableFile);
           if (!localFile && !subcommand._executableFile && this._scriptPath) {
-            const legacyName = path38.basename(
+            const legacyName = path39.basename(
               this._scriptPath,
-              path38.extname(this._scriptPath)
+              path39.extname(this._scriptPath)
             );
             if (legacyName !== this._name) {
               localFile = findFile(
@@ -1962,7 +1962,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
           }
           executableFile = localFile || executableFile;
         }
-        launchWithNode = sourceExt.includes(path38.extname(executableFile));
+        launchWithNode = sourceExt.includes(path39.extname(executableFile));
         let proc;
         if (process7.platform !== "win32") {
           if (launchWithNode) {
@@ -2802,7 +2802,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
        * @return {Command}
        */
       nameFromFilename(filename) {
-        this._name = path38.basename(filename, path38.extname(filename));
+        this._name = path39.basename(filename, path39.extname(filename));
         return this;
       }
       /**
@@ -2816,9 +2816,9 @@ Expecting one of '${allowedValues.join("', '")}'`);
        * @param {string} [path]
        * @return {(string|null|Command)}
        */
-      executableDir(path39) {
-        if (path39 === void 0) return this._executableDir;
-        this._executableDir = path39;
+      executableDir(path40) {
+        if (path40 === void 0) return this._executableDir;
+        this._executableDir = path40;
         return this;
       }
       /**
@@ -3089,10 +3089,10 @@ var init_errors = __esm({
     BusLockedError = class extends Error {
       path;
       ownerCloneId;
-      constructor(path38, ownerCloneId) {
-        super(`path ${path38} is currently locked by ${ownerCloneId}`);
+      constructor(path39, ownerCloneId) {
+        super(`path ${path39} is currently locked by ${ownerCloneId}`);
         this.name = "BusLockedError";
-        this.path = path38;
+        this.path = path39;
         this.ownerCloneId = ownerCloneId;
       }
     };
@@ -3521,8 +3521,8 @@ var init_parseUtil = __esm({
     init_errors2();
     init_en();
     makeIssue = (params) => {
-      const { data, path: path38, errorMaps, issueData } = params;
-      const fullPath = [...path38, ...issueData.path || []];
+      const { data, path: path39, errorMaps, issueData } = params;
+      const fullPath = [...path39, ...issueData.path || []];
       const fullIssue = {
         ...issueData,
         path: fullPath
@@ -3836,11 +3836,11 @@ var init_types = __esm({
     init_parseUtil();
     init_util();
     ParseInputLazyPath = class {
-      constructor(parent, value, path38, key) {
+      constructor(parent, value, path39, key) {
         this._cachedPath = [];
         this.parent = parent;
         this.data = value;
-        this._path = path38;
+        this._path = path39;
         this._key = key;
       }
       get path() {
@@ -7776,54 +7776,54 @@ var require_polyfills = __commonJS({
     }
     var chdir;
     module2.exports = patch;
-    function patch(fs39) {
+    function patch(fs40) {
       if (constants3.hasOwnProperty("O_SYMLINK") && process.version.match(/^v0\.6\.[0-2]|^v0\.5\./)) {
-        patchLchmod(fs39);
+        patchLchmod(fs40);
       }
-      if (!fs39.lutimes) {
-        patchLutimes(fs39);
+      if (!fs40.lutimes) {
+        patchLutimes(fs40);
       }
-      fs39.chown = chownFix(fs39.chown);
-      fs39.fchown = chownFix(fs39.fchown);
-      fs39.lchown = chownFix(fs39.lchown);
-      fs39.chmod = chmodFix(fs39.chmod);
-      fs39.fchmod = chmodFix(fs39.fchmod);
-      fs39.lchmod = chmodFix(fs39.lchmod);
-      fs39.chownSync = chownFixSync(fs39.chownSync);
-      fs39.fchownSync = chownFixSync(fs39.fchownSync);
-      fs39.lchownSync = chownFixSync(fs39.lchownSync);
-      fs39.chmodSync = chmodFixSync(fs39.chmodSync);
-      fs39.fchmodSync = chmodFixSync(fs39.fchmodSync);
-      fs39.lchmodSync = chmodFixSync(fs39.lchmodSync);
-      fs39.stat = statFix(fs39.stat);
-      fs39.fstat = statFix(fs39.fstat);
-      fs39.lstat = statFix(fs39.lstat);
-      fs39.statSync = statFixSync(fs39.statSync);
-      fs39.fstatSync = statFixSync(fs39.fstatSync);
-      fs39.lstatSync = statFixSync(fs39.lstatSync);
-      if (fs39.chmod && !fs39.lchmod) {
-        fs39.lchmod = function(path38, mode, cb) {
+      fs40.chown = chownFix(fs40.chown);
+      fs40.fchown = chownFix(fs40.fchown);
+      fs40.lchown = chownFix(fs40.lchown);
+      fs40.chmod = chmodFix(fs40.chmod);
+      fs40.fchmod = chmodFix(fs40.fchmod);
+      fs40.lchmod = chmodFix(fs40.lchmod);
+      fs40.chownSync = chownFixSync(fs40.chownSync);
+      fs40.fchownSync = chownFixSync(fs40.fchownSync);
+      fs40.lchownSync = chownFixSync(fs40.lchownSync);
+      fs40.chmodSync = chmodFixSync(fs40.chmodSync);
+      fs40.fchmodSync = chmodFixSync(fs40.fchmodSync);
+      fs40.lchmodSync = chmodFixSync(fs40.lchmodSync);
+      fs40.stat = statFix(fs40.stat);
+      fs40.fstat = statFix(fs40.fstat);
+      fs40.lstat = statFix(fs40.lstat);
+      fs40.statSync = statFixSync(fs40.statSync);
+      fs40.fstatSync = statFixSync(fs40.fstatSync);
+      fs40.lstatSync = statFixSync(fs40.lstatSync);
+      if (fs40.chmod && !fs40.lchmod) {
+        fs40.lchmod = function(path39, mode, cb) {
           if (cb) process.nextTick(cb);
         };
-        fs39.lchmodSync = function() {
+        fs40.lchmodSync = function() {
         };
       }
-      if (fs39.chown && !fs39.lchown) {
-        fs39.lchown = function(path38, uid, gid, cb) {
+      if (fs40.chown && !fs40.lchown) {
+        fs40.lchown = function(path39, uid, gid, cb) {
           if (cb) process.nextTick(cb);
         };
-        fs39.lchownSync = function() {
+        fs40.lchownSync = function() {
         };
       }
       if (platform === "win32") {
-        fs39.rename = typeof fs39.rename !== "function" ? fs39.rename : (function(fs$rename) {
+        fs40.rename = typeof fs40.rename !== "function" ? fs40.rename : (function(fs$rename) {
           function rename8(from, to2, cb) {
             var start = Date.now();
             var backoff = 0;
             fs$rename(from, to2, function CB(er2) {
               if (er2 && (er2.code === "EACCES" || er2.code === "EPERM" || er2.code === "EBUSY") && Date.now() - start < 6e4) {
                 setTimeout(function() {
-                  fs39.stat(to2, function(stater, st2) {
+                  fs40.stat(to2, function(stater, st2) {
                     if (stater && stater.code === "ENOENT")
                       fs$rename(from, to2, CB);
                     else
@@ -7839,9 +7839,9 @@ var require_polyfills = __commonJS({
           }
           if (Object.setPrototypeOf) Object.setPrototypeOf(rename8, fs$rename);
           return rename8;
-        })(fs39.rename);
+        })(fs40.rename);
       }
-      fs39.read = typeof fs39.read !== "function" ? fs39.read : (function(fs$read) {
+      fs40.read = typeof fs40.read !== "function" ? fs40.read : (function(fs$read) {
         function read(fd, buffer, offset, length, position, callback_) {
           var callback;
           if (callback_ && typeof callback_ === "function") {
@@ -7849,22 +7849,22 @@ var require_polyfills = __commonJS({
             callback = function(er2, _2, __) {
               if (er2 && er2.code === "EAGAIN" && eagCounter < 10) {
                 eagCounter++;
-                return fs$read.call(fs39, fd, buffer, offset, length, position, callback);
+                return fs$read.call(fs40, fd, buffer, offset, length, position, callback);
               }
               callback_.apply(this, arguments);
             };
           }
-          return fs$read.call(fs39, fd, buffer, offset, length, position, callback);
+          return fs$read.call(fs40, fd, buffer, offset, length, position, callback);
         }
         if (Object.setPrototypeOf) Object.setPrototypeOf(read, fs$read);
         return read;
-      })(fs39.read);
-      fs39.readSync = typeof fs39.readSync !== "function" ? fs39.readSync : /* @__PURE__ */ (function(fs$readSync) {
+      })(fs40.read);
+      fs40.readSync = typeof fs40.readSync !== "function" ? fs40.readSync : /* @__PURE__ */ (function(fs$readSync) {
         return function(fd, buffer, offset, length, position) {
           var eagCounter = 0;
           while (true) {
             try {
-              return fs$readSync.call(fs39, fd, buffer, offset, length, position);
+              return fs$readSync.call(fs40, fd, buffer, offset, length, position);
             } catch (er2) {
               if (er2.code === "EAGAIN" && eagCounter < 10) {
                 eagCounter++;
@@ -7874,11 +7874,11 @@ var require_polyfills = __commonJS({
             }
           }
         };
-      })(fs39.readSync);
-      function patchLchmod(fs40) {
-        fs40.lchmod = function(path38, mode, callback) {
-          fs40.open(
-            path38,
+      })(fs40.readSync);
+      function patchLchmod(fs41) {
+        fs41.lchmod = function(path39, mode, callback) {
+          fs41.open(
+            path39,
             constants3.O_WRONLY | constants3.O_SYMLINK,
             mode,
             function(err, fd) {
@@ -7886,80 +7886,80 @@ var require_polyfills = __commonJS({
                 if (callback) callback(err);
                 return;
               }
-              fs40.fchmod(fd, mode, function(err2) {
-                fs40.close(fd, function(err22) {
+              fs41.fchmod(fd, mode, function(err2) {
+                fs41.close(fd, function(err22) {
                   if (callback) callback(err2 || err22);
                 });
               });
             }
           );
         };
-        fs40.lchmodSync = function(path38, mode) {
-          var fd = fs40.openSync(path38, constants3.O_WRONLY | constants3.O_SYMLINK, mode);
+        fs41.lchmodSync = function(path39, mode) {
+          var fd = fs41.openSync(path39, constants3.O_WRONLY | constants3.O_SYMLINK, mode);
           var threw = true;
           var ret;
           try {
-            ret = fs40.fchmodSync(fd, mode);
+            ret = fs41.fchmodSync(fd, mode);
             threw = false;
           } finally {
             if (threw) {
               try {
-                fs40.closeSync(fd);
+                fs41.closeSync(fd);
               } catch (er2) {
               }
             } else {
-              fs40.closeSync(fd);
+              fs41.closeSync(fd);
             }
           }
           return ret;
         };
       }
-      function patchLutimes(fs40) {
-        if (constants3.hasOwnProperty("O_SYMLINK") && fs40.futimes) {
-          fs40.lutimes = function(path38, at2, mt2, cb) {
-            fs40.open(path38, constants3.O_SYMLINK, function(er2, fd) {
+      function patchLutimes(fs41) {
+        if (constants3.hasOwnProperty("O_SYMLINK") && fs41.futimes) {
+          fs41.lutimes = function(path39, at2, mt2, cb) {
+            fs41.open(path39, constants3.O_SYMLINK, function(er2, fd) {
               if (er2) {
                 if (cb) cb(er2);
                 return;
               }
-              fs40.futimes(fd, at2, mt2, function(er3) {
-                fs40.close(fd, function(er22) {
+              fs41.futimes(fd, at2, mt2, function(er3) {
+                fs41.close(fd, function(er22) {
                   if (cb) cb(er3 || er22);
                 });
               });
             });
           };
-          fs40.lutimesSync = function(path38, at2, mt2) {
-            var fd = fs40.openSync(path38, constants3.O_SYMLINK);
+          fs41.lutimesSync = function(path39, at2, mt2) {
+            var fd = fs41.openSync(path39, constants3.O_SYMLINK);
             var ret;
             var threw = true;
             try {
-              ret = fs40.futimesSync(fd, at2, mt2);
+              ret = fs41.futimesSync(fd, at2, mt2);
               threw = false;
             } finally {
               if (threw) {
                 try {
-                  fs40.closeSync(fd);
+                  fs41.closeSync(fd);
                 } catch (er2) {
                 }
               } else {
-                fs40.closeSync(fd);
+                fs41.closeSync(fd);
               }
             }
             return ret;
           };
-        } else if (fs40.futimes) {
-          fs40.lutimes = function(_a, _b, _c, cb) {
+        } else if (fs41.futimes) {
+          fs41.lutimes = function(_a, _b, _c, cb) {
             if (cb) process.nextTick(cb);
           };
-          fs40.lutimesSync = function() {
+          fs41.lutimesSync = function() {
           };
         }
       }
       function chmodFix(orig) {
         if (!orig) return orig;
         return function(target, mode, cb) {
-          return orig.call(fs39, target, mode, function(er2) {
+          return orig.call(fs40, target, mode, function(er2) {
             if (chownErOk(er2)) er2 = null;
             if (cb) cb.apply(this, arguments);
           });
@@ -7969,7 +7969,7 @@ var require_polyfills = __commonJS({
         if (!orig) return orig;
         return function(target, mode) {
           try {
-            return orig.call(fs39, target, mode);
+            return orig.call(fs40, target, mode);
           } catch (er2) {
             if (!chownErOk(er2)) throw er2;
           }
@@ -7978,7 +7978,7 @@ var require_polyfills = __commonJS({
       function chownFix(orig) {
         if (!orig) return orig;
         return function(target, uid, gid, cb) {
-          return orig.call(fs39, target, uid, gid, function(er2) {
+          return orig.call(fs40, target, uid, gid, function(er2) {
             if (chownErOk(er2)) er2 = null;
             if (cb) cb.apply(this, arguments);
           });
@@ -7988,7 +7988,7 @@ var require_polyfills = __commonJS({
         if (!orig) return orig;
         return function(target, uid, gid) {
           try {
-            return orig.call(fs39, target, uid, gid);
+            return orig.call(fs40, target, uid, gid);
           } catch (er2) {
             if (!chownErOk(er2)) throw er2;
           }
@@ -8008,13 +8008,13 @@ var require_polyfills = __commonJS({
             }
             if (cb) cb.apply(this, arguments);
           }
-          return options2 ? orig.call(fs39, target, options2, callback) : orig.call(fs39, target, callback);
+          return options2 ? orig.call(fs40, target, options2, callback) : orig.call(fs40, target, callback);
         };
       }
       function statFixSync(orig) {
         if (!orig) return orig;
         return function(target, options2) {
-          var stats = options2 ? orig.call(fs39, target, options2) : orig.call(fs39, target);
+          var stats = options2 ? orig.call(fs40, target, options2) : orig.call(fs40, target);
           if (stats) {
             if (stats.uid < 0) stats.uid += 4294967296;
             if (stats.gid < 0) stats.gid += 4294967296;
@@ -8045,16 +8045,16 @@ var require_legacy_streams = __commonJS({
     init_cjs_shims();
     var Stream = require("stream").Stream;
     module2.exports = legacy;
-    function legacy(fs39) {
+    function legacy(fs40) {
       return {
         ReadStream,
         WriteStream
       };
-      function ReadStream(path38, options2) {
-        if (!(this instanceof ReadStream)) return new ReadStream(path38, options2);
+      function ReadStream(path39, options2) {
+        if (!(this instanceof ReadStream)) return new ReadStream(path39, options2);
         Stream.call(this);
         var self = this;
-        this.path = path38;
+        this.path = path39;
         this.fd = null;
         this.readable = true;
         this.paused = false;
@@ -8088,7 +8088,7 @@ var require_legacy_streams = __commonJS({
           });
           return;
         }
-        fs39.open(this.path, this.flags, this.mode, function(err, fd) {
+        fs40.open(this.path, this.flags, this.mode, function(err, fd) {
           if (err) {
             self.emit("error", err);
             self.readable = false;
@@ -8099,10 +8099,10 @@ var require_legacy_streams = __commonJS({
           self._read();
         });
       }
-      function WriteStream(path38, options2) {
-        if (!(this instanceof WriteStream)) return new WriteStream(path38, options2);
+      function WriteStream(path39, options2) {
+        if (!(this instanceof WriteStream)) return new WriteStream(path39, options2);
         Stream.call(this);
-        this.path = path38;
+        this.path = path39;
         this.fd = null;
         this.writable = true;
         this.flags = "w";
@@ -8127,7 +8127,7 @@ var require_legacy_streams = __commonJS({
         this.busy = false;
         this._queue = [];
         if (this.fd === null) {
-          this._open = fs39.open;
+          this._open = fs40.open;
           this._queue.push([this._open, this.path, this.flags, this.mode, void 0]);
           this.flush();
         }
@@ -8165,7 +8165,7 @@ var require_graceful_fs = __commonJS({
   "../../node_modules/.pnpm/graceful-fs@4.2.11/node_modules/graceful-fs/graceful-fs.js"(exports2, module2) {
     "use strict";
     init_cjs_shims();
-    var fs39 = require("fs");
+    var fs40 = require("fs");
     var polyfills = require_polyfills();
     var legacy = require_legacy_streams();
     var clone2 = require_clone();
@@ -8197,12 +8197,12 @@ var require_graceful_fs = __commonJS({
         m2 = "GFS4: " + m2.split(/\n/).join("\nGFS4: ");
         console.error(m2);
       };
-    if (!fs39[gracefulQueue]) {
+    if (!fs40[gracefulQueue]) {
       queue = global[gracefulQueue] || [];
-      publishQueue(fs39, queue);
-      fs39.close = (function(fs$close) {
+      publishQueue(fs40, queue);
+      fs40.close = (function(fs$close) {
         function close(fd, cb) {
-          return fs$close.call(fs39, fd, function(err) {
+          return fs$close.call(fs40, fd, function(err) {
             if (!err) {
               resetQueue();
             }
@@ -8214,48 +8214,48 @@ var require_graceful_fs = __commonJS({
           value: fs$close
         });
         return close;
-      })(fs39.close);
-      fs39.closeSync = (function(fs$closeSync) {
+      })(fs40.close);
+      fs40.closeSync = (function(fs$closeSync) {
         function closeSync(fd) {
-          fs$closeSync.apply(fs39, arguments);
+          fs$closeSync.apply(fs40, arguments);
           resetQueue();
         }
         Object.defineProperty(closeSync, previousSymbol, {
           value: fs$closeSync
         });
         return closeSync;
-      })(fs39.closeSync);
+      })(fs40.closeSync);
       if (/\bgfs4\b/i.test(process.env.NODE_DEBUG || "")) {
         process.on("exit", function() {
-          debug(fs39[gracefulQueue]);
-          require("assert").equal(fs39[gracefulQueue].length, 0);
+          debug(fs40[gracefulQueue]);
+          require("assert").equal(fs40[gracefulQueue].length, 0);
         });
       }
     }
     var queue;
     if (!global[gracefulQueue]) {
-      publishQueue(global, fs39[gracefulQueue]);
+      publishQueue(global, fs40[gracefulQueue]);
     }
-    module2.exports = patch(clone2(fs39));
-    if (process.env.TEST_GRACEFUL_FS_GLOBAL_PATCH && !fs39.__patched) {
-      module2.exports = patch(fs39);
-      fs39.__patched = true;
+    module2.exports = patch(clone2(fs40));
+    if (process.env.TEST_GRACEFUL_FS_GLOBAL_PATCH && !fs40.__patched) {
+      module2.exports = patch(fs40);
+      fs40.__patched = true;
     }
-    function patch(fs40) {
-      polyfills(fs40);
-      fs40.gracefulify = patch;
-      fs40.createReadStream = createReadStream2;
-      fs40.createWriteStream = createWriteStream2;
-      var fs$readFile = fs40.readFile;
-      fs40.readFile = readFile22;
-      function readFile22(path38, options2, cb) {
+    function patch(fs41) {
+      polyfills(fs41);
+      fs41.gracefulify = patch;
+      fs41.createReadStream = createReadStream2;
+      fs41.createWriteStream = createWriteStream2;
+      var fs$readFile = fs41.readFile;
+      fs41.readFile = readFile22;
+      function readFile22(path39, options2, cb) {
         if (typeof options2 === "function")
           cb = options2, options2 = null;
-        return go$readFile(path38, options2, cb);
-        function go$readFile(path39, options3, cb2, startTime) {
-          return fs$readFile(path39, options3, function(err) {
+        return go$readFile(path39, options2, cb);
+        function go$readFile(path40, options3, cb2, startTime) {
+          return fs$readFile(path40, options3, function(err) {
             if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
-              enqueue([go$readFile, [path39, options3, cb2], err, startTime || Date.now(), Date.now()]);
+              enqueue([go$readFile, [path40, options3, cb2], err, startTime || Date.now(), Date.now()]);
             else {
               if (typeof cb2 === "function")
                 cb2.apply(this, arguments);
@@ -8263,16 +8263,16 @@ var require_graceful_fs = __commonJS({
           });
         }
       }
-      var fs$writeFile = fs40.writeFile;
-      fs40.writeFile = writeFile14;
-      function writeFile14(path38, data, options2, cb) {
+      var fs$writeFile = fs41.writeFile;
+      fs41.writeFile = writeFile14;
+      function writeFile14(path39, data, options2, cb) {
         if (typeof options2 === "function")
           cb = options2, options2 = null;
-        return go$writeFile(path38, data, options2, cb);
-        function go$writeFile(path39, data2, options3, cb2, startTime) {
-          return fs$writeFile(path39, data2, options3, function(err) {
+        return go$writeFile(path39, data, options2, cb);
+        function go$writeFile(path40, data2, options3, cb2, startTime) {
+          return fs$writeFile(path40, data2, options3, function(err) {
             if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
-              enqueue([go$writeFile, [path39, data2, options3, cb2], err, startTime || Date.now(), Date.now()]);
+              enqueue([go$writeFile, [path40, data2, options3, cb2], err, startTime || Date.now(), Date.now()]);
             else {
               if (typeof cb2 === "function")
                 cb2.apply(this, arguments);
@@ -8280,17 +8280,17 @@ var require_graceful_fs = __commonJS({
           });
         }
       }
-      var fs$appendFile = fs40.appendFile;
+      var fs$appendFile = fs41.appendFile;
       if (fs$appendFile)
-        fs40.appendFile = appendFile4;
-      function appendFile4(path38, data, options2, cb) {
+        fs41.appendFile = appendFile4;
+      function appendFile4(path39, data, options2, cb) {
         if (typeof options2 === "function")
           cb = options2, options2 = null;
-        return go$appendFile(path38, data, options2, cb);
-        function go$appendFile(path39, data2, options3, cb2, startTime) {
-          return fs$appendFile(path39, data2, options3, function(err) {
+        return go$appendFile(path39, data, options2, cb);
+        function go$appendFile(path40, data2, options3, cb2, startTime) {
+          return fs$appendFile(path40, data2, options3, function(err) {
             if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
-              enqueue([go$appendFile, [path39, data2, options3, cb2], err, startTime || Date.now(), Date.now()]);
+              enqueue([go$appendFile, [path40, data2, options3, cb2], err, startTime || Date.now(), Date.now()]);
             else {
               if (typeof cb2 === "function")
                 cb2.apply(this, arguments);
@@ -8298,9 +8298,9 @@ var require_graceful_fs = __commonJS({
           });
         }
       }
-      var fs$copyFile = fs40.copyFile;
+      var fs$copyFile = fs41.copyFile;
       if (fs$copyFile)
-        fs40.copyFile = copyFile4;
+        fs41.copyFile = copyFile4;
       function copyFile4(src, dest, flags, cb) {
         if (typeof flags === "function") {
           cb = flags;
@@ -8318,34 +8318,34 @@ var require_graceful_fs = __commonJS({
           });
         }
       }
-      var fs$readdir = fs40.readdir;
-      fs40.readdir = readdir10;
+      var fs$readdir = fs41.readdir;
+      fs41.readdir = readdir10;
       var noReaddirOptionVersions = /^v[0-5]\./;
-      function readdir10(path38, options2, cb) {
+      function readdir10(path39, options2, cb) {
         if (typeof options2 === "function")
           cb = options2, options2 = null;
-        var go$readdir = noReaddirOptionVersions.test(process.version) ? function go$readdir2(path39, options3, cb2, startTime) {
-          return fs$readdir(path39, fs$readdirCallback(
-            path39,
+        var go$readdir = noReaddirOptionVersions.test(process.version) ? function go$readdir2(path40, options3, cb2, startTime) {
+          return fs$readdir(path40, fs$readdirCallback(
+            path40,
             options3,
             cb2,
             startTime
           ));
-        } : function go$readdir2(path39, options3, cb2, startTime) {
-          return fs$readdir(path39, options3, fs$readdirCallback(
-            path39,
+        } : function go$readdir2(path40, options3, cb2, startTime) {
+          return fs$readdir(path40, options3, fs$readdirCallback(
+            path40,
             options3,
             cb2,
             startTime
           ));
         };
-        return go$readdir(path38, options2, cb);
-        function fs$readdirCallback(path39, options3, cb2, startTime) {
+        return go$readdir(path39, options2, cb);
+        function fs$readdirCallback(path40, options3, cb2, startTime) {
           return function(err, files) {
             if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
               enqueue([
                 go$readdir,
-                [path39, options3, cb2],
+                [path40, options3, cb2],
                 err,
                 startTime || Date.now(),
                 Date.now()
@@ -8360,21 +8360,21 @@ var require_graceful_fs = __commonJS({
         }
       }
       if (process.version.substr(0, 4) === "v0.8") {
-        var legStreams = legacy(fs40);
+        var legStreams = legacy(fs41);
         ReadStream = legStreams.ReadStream;
         WriteStream = legStreams.WriteStream;
       }
-      var fs$ReadStream = fs40.ReadStream;
+      var fs$ReadStream = fs41.ReadStream;
       if (fs$ReadStream) {
         ReadStream.prototype = Object.create(fs$ReadStream.prototype);
         ReadStream.prototype.open = ReadStream$open;
       }
-      var fs$WriteStream = fs40.WriteStream;
+      var fs$WriteStream = fs41.WriteStream;
       if (fs$WriteStream) {
         WriteStream.prototype = Object.create(fs$WriteStream.prototype);
         WriteStream.prototype.open = WriteStream$open;
       }
-      Object.defineProperty(fs40, "ReadStream", {
+      Object.defineProperty(fs41, "ReadStream", {
         get: function() {
           return ReadStream;
         },
@@ -8384,7 +8384,7 @@ var require_graceful_fs = __commonJS({
         enumerable: true,
         configurable: true
       });
-      Object.defineProperty(fs40, "WriteStream", {
+      Object.defineProperty(fs41, "WriteStream", {
         get: function() {
           return WriteStream;
         },
@@ -8395,7 +8395,7 @@ var require_graceful_fs = __commonJS({
         configurable: true
       });
       var FileReadStream = ReadStream;
-      Object.defineProperty(fs40, "FileReadStream", {
+      Object.defineProperty(fs41, "FileReadStream", {
         get: function() {
           return FileReadStream;
         },
@@ -8406,7 +8406,7 @@ var require_graceful_fs = __commonJS({
         configurable: true
       });
       var FileWriteStream = WriteStream;
-      Object.defineProperty(fs40, "FileWriteStream", {
+      Object.defineProperty(fs41, "FileWriteStream", {
         get: function() {
           return FileWriteStream;
         },
@@ -8416,7 +8416,7 @@ var require_graceful_fs = __commonJS({
         enumerable: true,
         configurable: true
       });
-      function ReadStream(path38, options2) {
+      function ReadStream(path39, options2) {
         if (this instanceof ReadStream)
           return fs$ReadStream.apply(this, arguments), this;
         else
@@ -8436,7 +8436,7 @@ var require_graceful_fs = __commonJS({
           }
         });
       }
-      function WriteStream(path38, options2) {
+      function WriteStream(path39, options2) {
         if (this instanceof WriteStream)
           return fs$WriteStream.apply(this, arguments), this;
         else
@@ -8454,22 +8454,22 @@ var require_graceful_fs = __commonJS({
           }
         });
       }
-      function createReadStream2(path38, options2) {
-        return new fs40.ReadStream(path38, options2);
+      function createReadStream2(path39, options2) {
+        return new fs41.ReadStream(path39, options2);
       }
-      function createWriteStream2(path38, options2) {
-        return new fs40.WriteStream(path38, options2);
+      function createWriteStream2(path39, options2) {
+        return new fs41.WriteStream(path39, options2);
       }
-      var fs$open = fs40.open;
-      fs40.open = open2;
-      function open2(path38, flags, mode, cb) {
+      var fs$open = fs41.open;
+      fs41.open = open2;
+      function open2(path39, flags, mode, cb) {
         if (typeof mode === "function")
           cb = mode, mode = null;
-        return go$open(path38, flags, mode, cb);
-        function go$open(path39, flags2, mode2, cb2, startTime) {
-          return fs$open(path39, flags2, mode2, function(err, fd) {
+        return go$open(path39, flags, mode, cb);
+        function go$open(path40, flags2, mode2, cb2, startTime) {
+          return fs$open(path40, flags2, mode2, function(err, fd) {
             if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
-              enqueue([go$open, [path39, flags2, mode2, cb2], err, startTime || Date.now(), Date.now()]);
+              enqueue([go$open, [path40, flags2, mode2, cb2], err, startTime || Date.now(), Date.now()]);
             else {
               if (typeof cb2 === "function")
                 cb2.apply(this, arguments);
@@ -8477,20 +8477,20 @@ var require_graceful_fs = __commonJS({
           });
         }
       }
-      return fs40;
+      return fs41;
     }
     function enqueue(elem) {
       debug("ENQUEUE", elem[0].name, elem[1]);
-      fs39[gracefulQueue].push(elem);
+      fs40[gracefulQueue].push(elem);
       retry();
     }
     var retryTimer;
     function resetQueue() {
       var now = Date.now();
-      for (var i = 0; i < fs39[gracefulQueue].length; ++i) {
-        if (fs39[gracefulQueue][i].length > 2) {
-          fs39[gracefulQueue][i][3] = now;
-          fs39[gracefulQueue][i][4] = now;
+      for (var i = 0; i < fs40[gracefulQueue].length; ++i) {
+        if (fs40[gracefulQueue][i].length > 2) {
+          fs40[gracefulQueue][i][3] = now;
+          fs40[gracefulQueue][i][4] = now;
         }
       }
       retry();
@@ -8498,9 +8498,9 @@ var require_graceful_fs = __commonJS({
     function retry() {
       clearTimeout(retryTimer);
       retryTimer = void 0;
-      if (fs39[gracefulQueue].length === 0)
+      if (fs40[gracefulQueue].length === 0)
         return;
-      var elem = fs39[gracefulQueue].shift();
+      var elem = fs40[gracefulQueue].shift();
       var fn2 = elem[0];
       var args = elem[1];
       var err = elem[2];
@@ -8522,7 +8522,7 @@ var require_graceful_fs = __commonJS({
           debug("RETRY", fn2.name, args);
           fn2.apply(null, args.concat([startTime]));
         } else {
-          fs39[gracefulQueue].push(elem);
+          fs40[gracefulQueue].push(elem);
         }
       }
       if (retryTimer === void 0) {
@@ -8968,10 +8968,10 @@ var require_mtime_precision = __commonJS({
     "use strict";
     init_cjs_shims();
     var cacheSymbol = /* @__PURE__ */ Symbol();
-    function probe(file, fs39, callback) {
-      const cachedPrecision = fs39[cacheSymbol];
+    function probe(file, fs40, callback) {
+      const cachedPrecision = fs40[cacheSymbol];
       if (cachedPrecision) {
-        return fs39.stat(file, (err, stat4) => {
+        return fs40.stat(file, (err, stat4) => {
           if (err) {
             return callback(err);
           }
@@ -8979,16 +8979,16 @@ var require_mtime_precision = __commonJS({
         });
       }
       const mtime = new Date(Math.ceil(Date.now() / 1e3) * 1e3 + 5);
-      fs39.utimes(file, mtime, mtime, (err) => {
+      fs40.utimes(file, mtime, mtime, (err) => {
         if (err) {
           return callback(err);
         }
-        fs39.stat(file, (err2, stat4) => {
+        fs40.stat(file, (err2, stat4) => {
           if (err2) {
             return callback(err2);
           }
           const precision = stat4.mtime.getTime() % 1e3 === 0 ? "s" : "ms";
-          Object.defineProperty(fs39, cacheSymbol, { value: precision });
+          Object.defineProperty(fs40, cacheSymbol, { value: precision });
           callback(null, stat4.mtime, precision);
         });
       });
@@ -9010,8 +9010,8 @@ var require_lockfile = __commonJS({
   "../../node_modules/.pnpm/proper-lockfile@4.1.2/node_modules/proper-lockfile/lib/lockfile.js"(exports2, module2) {
     "use strict";
     init_cjs_shims();
-    var path38 = require("path");
-    var fs39 = require_graceful_fs();
+    var path39 = require("path");
+    var fs40 = require_graceful_fs();
     var retry = require_retry2();
     var onExit2 = require_signal_exit();
     var mtimePrecision = require_mtime_precision();
@@ -9021,7 +9021,7 @@ var require_lockfile = __commonJS({
     }
     function resolveCanonicalPath(file, options2, callback) {
       if (!options2.realpath) {
-        return callback(null, path38.resolve(file));
+        return callback(null, path39.resolve(file));
       }
       options2.fs.realpath(file, callback);
     }
@@ -9142,7 +9142,7 @@ var require_lockfile = __commonJS({
         update: null,
         realpath: true,
         retries: 0,
-        fs: fs39,
+        fs: fs40,
         onCompromised: (err) => {
           throw err;
         },
@@ -9186,7 +9186,7 @@ var require_lockfile = __commonJS({
     }
     function unlock(file, options2, callback) {
       options2 = {
-        fs: fs39,
+        fs: fs40,
         realpath: true,
         ...options2
       };
@@ -9208,7 +9208,7 @@ var require_lockfile = __commonJS({
       options2 = {
         stale: 1e4,
         realpath: true,
-        fs: fs39,
+        fs: fs40,
         ...options2
       };
       options2.stale = Math.max(options2.stale || 0, 2e3);
@@ -9248,16 +9248,16 @@ var require_adapter = __commonJS({
   "../../node_modules/.pnpm/proper-lockfile@4.1.2/node_modules/proper-lockfile/lib/adapter.js"(exports2, module2) {
     "use strict";
     init_cjs_shims();
-    var fs39 = require_graceful_fs();
-    function createSyncFs(fs40) {
+    var fs40 = require_graceful_fs();
+    function createSyncFs(fs41) {
       const methods = ["mkdir", "realpath", "stat", "rmdir", "utimes"];
-      const newFs = { ...fs40 };
+      const newFs = { ...fs41 };
       methods.forEach((method) => {
         newFs[method] = (...args) => {
           const callback = args.pop();
           let ret;
           try {
-            ret = fs40[`${method}Sync`](...args);
+            ret = fs41[`${method}Sync`](...args);
           } catch (err) {
             return callback(err);
           }
@@ -9295,7 +9295,7 @@ var require_adapter = __commonJS({
     }
     function toSyncOptions(options2) {
       options2 = { ...options2 };
-      options2.fs = createSyncFs(options2.fs || fs39);
+      options2.fs = createSyncFs(options2.fs || fs40);
       if (typeof options2.retries === "number" && options2.retries > 0 || options2.retries && typeof options2.retries.retries === "number" && options2.retries.retries > 0) {
         throw Object.assign(new Error("Cannot use retries with the sync api"), { code: "ESYNC" });
       }
@@ -9711,10 +9711,10 @@ var init_locks = __esm({
           this.paths.locks,
           empty2,
           (current) => {
-            for (const [path38, lease] of Object.entries(current.leases)) {
+            for (const [path39, lease] of Object.entries(current.leases)) {
               if (now - lease.last_heartbeat_at > this.options.staleAfterMs) {
                 reaped.push(lease);
-                delete current.leases[path38];
+                delete current.leases[path39];
               }
             }
             return current;
@@ -11474,10 +11474,10 @@ function assignProp(target, prop, value) {
     configurable: true
   });
 }
-function getElementAtPath(obj, path38) {
-  if (!path38)
+function getElementAtPath(obj, path39) {
+  if (!path39)
     return obj;
-  return path38.reduce((acc, key) => acc?.[key], obj);
+  return path39.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -11726,11 +11726,11 @@ function aborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path38, issues) {
+function prefixIssues(path39, issues) {
   return issues.map((iss) => {
     var _a;
     (_a = iss).path ?? (_a.path = []);
-    iss.path.unshift(path38);
+    iss.path.unshift(path39);
     return iss;
   });
 }
@@ -20428,8 +20428,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path38) {
-      let input = path38;
+    function removeDotSegments(path39) {
+      let input = path39;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -20682,8 +20682,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path38, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path38 && path38 !== "/" ? path38 : void 0;
+        const [path39, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path39 && path39 !== "/" ? path39 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -24122,12 +24122,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f2;
     };
-    function addFormats(ajv, list, fs39, exportName) {
+    function addFormats(ajv, list, fs40, exportName) {
       var _a;
       var _b;
       (_a = (_b = ajv.opts.code).formats) !== null && _a !== void 0 ? _a : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f2 of list)
-        ajv.addFormat(f2, fs39[f2]);
+        ajv.addFormat(f2, fs40[f2]);
     }
     module2.exports = exports2 = formatsPlugin;
     Object.defineProperty(exports2, "__esModule", { value: true });
@@ -24336,7 +24336,328 @@ var init_memory = __esm({
   }
 });
 
+// ../manta-snapshot/src/version.ts
+var CURRENT_SCHEMA_VERSION;
+var init_version = __esm({
+  "../manta-snapshot/src/version.ts"() {
+    "use strict";
+    init_cjs_shims();
+    CURRENT_SCHEMA_VERSION = 1;
+  }
+});
+
+// ../manta-snapshot/src/capture.ts
+function captureState(input) {
+  const sessionMode = input.sessionMode ?? "batch";
+  return {
+    version: CURRENT_SCHEMA_VERSION,
+    castId: input.castId,
+    parentSessionId: input.parentSessionId,
+    resumeEnabled: input.resumeEnabled ?? false,
+    parentPid: input.parentPid,
+    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+    taskContract: {
+      ...input.taskContract,
+      sessionMode: input.taskContract.sessionMode ?? sessionMode
+    },
+    recentMessages: input.recentMessages,
+    activeTodos: input.activeTodos,
+    openFiles: input.openFiles,
+    parentWorktree: input.parentWorktree,
+    cloneWorktree: input.cloneWorktree,
+    mode: input.taskContract.mode,
+    budget: input.budget,
+    ttlSeconds: input.ttlSeconds,
+    siblingCloneIds: input.siblingCloneIds,
+    sessionMode,
+    ...input.sessionId != null ? { sessionId: input.sessionId } : {}
+  };
+}
+var init_capture = __esm({
+  "../manta-snapshot/src/capture.ts"() {
+    "use strict";
+    init_cjs_shims();
+    init_version();
+  }
+});
+
+// ../manta-snapshot/src/schema.ts
+var ModeSchema2, ScopeSchema2, SessionModeSchema, TaskContractSchema2, TodoSchema, MessageSchema, OpenFileSchema, BudgetSchema, SnapshotSchema;
+var init_schema2 = __esm({
+  "../manta-snapshot/src/schema.ts"() {
+    "use strict";
+    init_cjs_shims();
+    init_zod();
+    init_version();
+    ModeSchema2 = external_exports.enum([
+      "recon-swarm",
+      "forking-realities",
+      "pair-programming",
+      "test-storm",
+      "bug-hunt",
+      "refactor-wave",
+      "documentation-chase",
+      "phantom-lance",
+      "council",
+      "decoy"
+    ]);
+    ScopeSchema2 = external_exports.object({
+      allowedPaths: external_exports.array(external_exports.string().min(1)).min(1),
+      forbiddenPaths: external_exports.array(external_exports.string().min(1)),
+      maxFilesChanged: external_exports.number().int().nonnegative()
+    });
+    SessionModeSchema = external_exports.enum(["batch", "daemon"]);
+    TaskContractSchema2 = external_exports.object({
+      cloneId: external_exports.string().min(1),
+      mode: ModeSchema2,
+      task: external_exports.string().min(1),
+      scope: ScopeSchema2,
+      approachHint: external_exports.string().nullable(),
+      siblingClones: external_exports.array(external_exports.string().min(1)),
+      deadlineSeconds: external_exports.number().int().positive(),
+      sessionMode: SessionModeSchema.default("batch")
+    });
+    TodoSchema = external_exports.object({
+      id: external_exports.string().min(1),
+      subject: external_exports.string().min(1),
+      status: external_exports.enum(["pending", "in_progress", "completed"])
+    });
+    MessageSchema = external_exports.object({
+      role: external_exports.enum(["user", "assistant", "tool", "system"]),
+      content: external_exports.string(),
+      timestamp: external_exports.string().datetime()
+    });
+    OpenFileSchema = external_exports.object({
+      path: external_exports.string().min(1),
+      reason: external_exports.string().min(1)
+    });
+    BudgetSchema = external_exports.object({
+      tokensTotal: external_exports.number().int().nonnegative(),
+      tokensUsed: external_exports.number().int().nonnegative(),
+      tokensEstimatedTotal: external_exports.number().nonnegative(),
+      tokensEstimatedUsed: external_exports.number().nonnegative()
+    });
+    SnapshotSchema = external_exports.object({
+      version: external_exports.literal(CURRENT_SCHEMA_VERSION),
+      castId: external_exports.string().min(1),
+      // The REAL Claude Code session uuid of the parent (so a clone can resume
+      // the parent's transcript — RB1/bug #56), or `null` when no parent session
+      // is known. Historically this held the castId, which is the WRONG kind of
+      // value (a cast id, not a session id); that conflation was bug #56.
+      parentSessionId: external_exports.string().min(1).nullable(),
+      // Whether the clone should boot as a continuation of the parent's
+      // transcript. Defaults to false (today's empty-context behaviour). The
+      // refine below makes `resumeEnabled === true` imply a non-null
+      // parentSessionId — we never resume without a real session id.
+      resumeEnabled: external_exports.boolean().default(false),
+      parentPid: external_exports.number().int().positive(),
+      createdAt: external_exports.string().datetime(),
+      taskContract: TaskContractSchema2,
+      recentMessages: external_exports.array(MessageSchema),
+      activeTodos: external_exports.array(TodoSchema),
+      openFiles: external_exports.array(OpenFileSchema),
+      parentWorktree: external_exports.string().min(1),
+      cloneWorktree: external_exports.string().min(1),
+      mode: ModeSchema2,
+      budget: BudgetSchema,
+      ttlSeconds: external_exports.number().int().positive(),
+      siblingCloneIds: external_exports.array(external_exports.string().min(1)),
+      sessionMode: SessionModeSchema.default("batch"),
+      sessionId: external_exports.string().min(1).optional()
+    }).refine((s3) => s3.mode === s3.taskContract.mode, {
+      message: "snapshot.mode must equal snapshot.taskContract.mode",
+      path: ["mode"]
+    }).refine((s3) => !(s3.resumeEnabled && s3.parentSessionId === null), {
+      message: "resumeEnabled requires a non-null parentSessionId (never resume without a real session id)",
+      path: ["resumeEnabled"]
+    });
+  }
+});
+
+// ../manta-snapshot/src/errors.ts
+var SnapshotValidationError, SnapshotIOError;
+var init_errors5 = __esm({
+  "../manta-snapshot/src/errors.ts"() {
+    "use strict";
+    init_cjs_shims();
+    SnapshotValidationError = class extends Error {
+      name = "SnapshotValidationError";
+      issues;
+      constructor(message, issues, cause) {
+        super(message, cause !== void 0 ? { cause } : void 0);
+        this.issues = issues;
+      }
+    };
+    SnapshotIOError = class extends Error {
+      name = "SnapshotIOError";
+      constructor(message, cause) {
+        super(message, cause !== void 0 ? { cause } : void 0);
+      }
+    };
+  }
+});
+
+// ../manta-snapshot/src/serialize.ts
+async function serializeSnapshot(snapshot, destPath) {
+  const result = SnapshotSchema.safeParse(snapshot);
+  if (!result.success) {
+    throw new SnapshotValidationError(
+      "Snapshot failed validation before serialization",
+      result.error.issues
+    );
+  }
+  const dir = (0, import_node_path.dirname)(destPath);
+  try {
+    await (0, import_promises.mkdir)(dir, { recursive: true });
+  } catch (cause) {
+    throw new SnapshotIOError(`Cannot create snapshot directory: ${dir}`, cause);
+  }
+  const payload = JSON.stringify(result.data, null, 2);
+  try {
+    await (0, import_promises.writeFile)(destPath, payload, { encoding: "utf-8", flag: "w" });
+  } catch (cause) {
+    throw new SnapshotIOError(`Cannot write snapshot to: ${destPath}`, cause);
+  }
+}
+var import_promises, import_node_path;
+var init_serialize = __esm({
+  "../manta-snapshot/src/serialize.ts"() {
+    "use strict";
+    init_cjs_shims();
+    import_promises = require("fs/promises");
+    import_node_path = require("path");
+    init_schema2();
+    init_errors5();
+  }
+});
+
+// ../manta-snapshot/src/deserialize.ts
+var import_promises2;
+var init_deserialize = __esm({
+  "../manta-snapshot/src/deserialize.ts"() {
+    "use strict";
+    init_cjs_shims();
+    import_promises2 = require("fs/promises");
+    init_schema2();
+    init_errors5();
+    init_version();
+  }
+});
+
+// ../manta-snapshot/src/distill.ts
+var import_node_path2;
+var init_distill = __esm({
+  "../manta-snapshot/src/distill.ts"() {
+    "use strict";
+    init_cjs_shims();
+    import_node_path2 = require("path");
+  }
+});
+
+// ../manta-snapshot/src/sanitized-schema.ts
+var SanitizedSnapshotSchema;
+var init_sanitized_schema = __esm({
+  "../manta-snapshot/src/sanitized-schema.ts"() {
+    "use strict";
+    init_cjs_shims();
+    init_zod();
+    init_version();
+    init_schema2();
+    SanitizedSnapshotSchema = external_exports.object({
+      version: external_exports.literal(CURRENT_SCHEMA_VERSION),
+      castId: external_exports.string().min(1),
+      createdAt: external_exports.string().datetime(),
+      // taskContract is sanitized separately (Task 1.4); the snapshot sanitizer
+      // keeps it verbatim and the command swaps in the sanitized contract.
+      taskContract: TaskContractSchema2,
+      activeTodos: external_exports.array(TodoSchema),
+      openFiles: external_exports.array(OpenFileSchema),
+      parentWorktree: external_exports.literal("<worktree>"),
+      cloneWorktree: external_exports.string().regex(/^<worktree>\/clone-[^/]+$/),
+      mode: ModeSchema2,
+      ttlSeconds: external_exports.number().int().positive(),
+      siblingCloneIds: external_exports.array(external_exports.string().min(1)),
+      sessionMode: SessionModeSchema,
+      resumeEnabled: external_exports.boolean()
+    }).strict();
+  }
+});
+
+// ../manta-snapshot/src/index.ts
+var init_src = __esm({
+  "../manta-snapshot/src/index.ts"() {
+    "use strict";
+    init_cjs_shims();
+    init_capture();
+    init_serialize();
+    init_deserialize();
+    init_distill();
+    init_schema2();
+    init_errors5();
+    init_version();
+    init_sanitized_schema();
+  }
+});
+
+// ../manta-bus/src/tools/user-tools.ts
+var import_node_child_process, path7, fs9, CASTABLE_MODES, CastModeSchema, positiveInt, nonNegativeInt, CastInputSchema, CostInputSchema, InspectInputSchema, AbortInputSchema, KillInputSchema, USER_TOOL_NAMES;
+var init_user_tools = __esm({
+  "../manta-bus/src/tools/user-tools.ts"() {
+    "use strict";
+    init_cjs_shims();
+    import_node_child_process = require("child_process");
+    path7 = __toESM(require("path"));
+    fs9 = __toESM(require("fs"));
+    init_zod();
+    init_src();
+    init_parse3();
+    CASTABLE_MODES = ModeSchema2.options.filter(
+      (m2) => m2 !== "phantom-lance"
+    );
+    CastModeSchema = external_exports.enum(
+      CASTABLE_MODES
+    );
+    positiveInt = external_exports.number().int().positive();
+    nonNegativeInt = external_exports.number().int().nonnegative();
+    CastInputSchema = external_exports.object({
+      mode: CastModeSchema,
+      task: external_exports.string().min(1),
+      clones: positiveInt.optional(),
+      maxParallelClones: positiveInt.optional(),
+      maxCastsPerHour: positiveInt.optional(),
+      maxTokensEstimate: positiveInt.optional(),
+      allowedPaths: external_exports.array(external_exports.string().min(1)).optional(),
+      forbiddenPaths: external_exports.array(external_exports.string().min(1)).optional(),
+      maxFilesChanged: nonNegativeInt.optional(),
+      dryRun: external_exports.boolean().optional()
+    });
+    CostInputSchema = external_exports.object({
+      period: external_exports.enum(["today", "weekly"]).optional()
+    });
+    InspectInputSchema = external_exports.object({
+      cloneId: external_exports.string().min(1),
+      events: positiveInt.optional()
+    });
+    AbortInputSchema = external_exports.object({
+      reason: external_exports.string().min(1).optional()
+    });
+    KillInputSchema = external_exports.object({
+      cloneId: external_exports.string().min(1),
+      reason: external_exports.string().min(1).optional()
+    });
+    USER_TOOL_NAMES = [
+      "manta.cast",
+      "manta.status",
+      "manta.cost",
+      "manta.inspect",
+      "manta.abort",
+      "manta.kill"
+    ];
+  }
+});
+
 // ../manta-bus/src/server.ts
+var CALLER_FIELDS_BY_TOOL;
 var init_server3 = __esm({
   "../manta-bus/src/server.ts"() {
     "use strict";
@@ -24365,12 +24686,46 @@ var init_server3 = __esm({
     init_locks2();
     init_communication();
     init_memory();
+    init_user_tools();
     init_errors();
+    CALLER_FIELDS_BY_TOOL = {
+      "manta.register": ["clone_id"],
+      "manta.heartbeat": ["clone_id"],
+      "manta.suicide_intent": ["clone_id"],
+      "manta.report_death": ["clone_id"],
+      "manta.task_contract.write": null,
+      "manta.task_contract.read": ["requesting_clone_id", "clone_id"],
+      "manta.ack_contract": ["clone_id"],
+      "manta.contract_refresh": null,
+      "manta.claim_work": ["clone_id"],
+      "manta.release_work": ["clone_id"],
+      "manta.lock": ["clone_id"],
+      "manta.unlock": ["clone_id"],
+      "manta.renew_lock": ["clone_id"],
+      "manta.broadcast": ["clone_id"],
+      "manta.message": ["from_clone_id"],
+      "manta.drift_report": ["clone_id"],
+      "manta.read_broadcasts": ["clone_id"],
+      "manta.zk_write": ["clone_id"],
+      "manta.para_append": ["clone_id"],
+      "manta.retask": null,
+      "manta.pause": null,
+      "manta.resume": null,
+      "manta.request_task": ["clone_id"],
+      "manta.feedback": null,
+      "manta.enqueue_work": null,
+      // User/orchestrator tools are main-driven — there is no calling clone on the
+      // wire (the call comes from the human's orchestrator, not a registered
+      // clone), so auto-touch must be a no-op (same policy as retask/pause/
+      // feedback). Spread from USER_TOOL_NAMES so a newly added user tool cannot
+      // silently miss this map and accidentally auto-touch some clone.
+      ...Object.fromEntries(USER_TOOL_NAMES.map((n) => [n, null]))
+    };
   }
 });
 
 // ../manta-bus/src/index.ts
-var init_src = __esm({
+var init_src2 = __esm({
   "../manta-bus/src/index.ts"() {
     "use strict";
     init_cjs_shims();
@@ -24585,9 +24940,9 @@ var init_claim_reaper = __esm({
 
 // ../manta-orchestrator/src/post-mortem-writer.ts
 function assertContained2(root, candidate) {
-  const resolvedRoot = path7.resolve(root);
-  const resolvedCandidate = path7.resolve(candidate);
-  if (resolvedCandidate !== resolvedRoot && !resolvedCandidate.startsWith(resolvedRoot + path7.sep)) {
+  const resolvedRoot = path8.resolve(root);
+  const resolvedCandidate = path8.resolve(candidate);
+  if (resolvedCandidate !== resolvedRoot && !resolvedCandidate.startsWith(resolvedRoot + path8.sep)) {
     throw new Error(`post-mortem path escapes ${resolvedRoot}: ${resolvedCandidate}`);
   }
 }
@@ -24597,13 +24952,13 @@ function fsPostMortemWriter(opts) {
       if (!SAFE_FILENAME.test(doc.filename)) {
         throw new Error(`unsafe post-mortem filename: ${doc.filename}`);
       }
-      const dir = path7.resolve(opts.repoRoot, opts.postMortemDir);
-      await fs9.mkdir(dir, { recursive: true });
-      const file = path7.resolve(dir, doc.filename);
+      const dir = path8.resolve(opts.repoRoot, opts.postMortemDir);
+      await fs10.mkdir(dir, { recursive: true });
+      const file = path8.resolve(dir, doc.filename);
       assertContained2(dir, file);
       const tmp = `${file}.tmp.${process.pid}.${Date.now()}`;
-      await fs9.writeFile(tmp, doc.body, "utf8");
-      await fs9.rename(tmp, file);
+      await fs10.writeFile(tmp, doc.body, "utf8");
+      await fs10.rename(tmp, file);
       return { path: file };
     }
   };
@@ -24618,13 +24973,13 @@ function inMemoryPostMortemWriter() {
     }
   };
 }
-var fs9, path7, SAFE_FILENAME;
+var fs10, path8, SAFE_FILENAME;
 var init_post_mortem_writer = __esm({
   "../manta-orchestrator/src/post-mortem-writer.ts"() {
     "use strict";
     init_cjs_shims();
-    fs9 = __toESM(require("fs/promises"));
-    path7 = __toESM(require("path"));
+    fs10 = __toESM(require("fs/promises"));
+    path8 = __toESM(require("path"));
     SAFE_FILENAME = /^[A-Za-z0-9._-]+$/;
   }
 });
@@ -24850,7 +25205,7 @@ function isOrchestratorError(value) {
   return value instanceof OrchestratorError;
 }
 var OrchestratorError;
-var init_errors5 = __esm({
+var init_errors6 = __esm({
   "../manta-orchestrator/src/errors.ts"() {
     "use strict";
     init_cjs_shims();
@@ -24902,13 +25257,13 @@ var init_orchestrator = __esm({
   "../manta-orchestrator/src/orchestrator.ts"() {
     "use strict";
     init_cjs_shims();
-    init_src();
+    init_src2();
     init_death_detector();
     init_lock_reaper();
     init_claim_reaper();
     init_post_mortem();
     init_status();
-    init_errors5();
+    init_errors6();
     Orchestrator = class {
       constructor(opts) {
         this.opts = opts;
@@ -24980,9 +25335,9 @@ var init_orchestrator = __esm({
 
 // ../manta-orchestrator/src/scoring.ts
 async function loadScoringConfig(repoRoot) {
-  const configPath = (0, import_node_path.join)(repoRoot, ".manta", "config", "scoring.json");
+  const configPath = (0, import_node_path3.join)(repoRoot, ".manta", "config", "scoring.json");
   try {
-    const raw = await (0, import_promises.readFile)(configPath, "utf-8");
+    const raw = await (0, import_promises3.readFile)(configPath, "utf-8");
     return ScoringConfigSchema.parse(JSON.parse(raw));
   } catch (err) {
     if (err && typeof err === "object" && "code" in err && err.code === "ENOENT") {
@@ -25137,14 +25492,14 @@ function assertNoDominationInversion(ranked) {
   }
   return anomalies;
 }
-var import_promises, import_node_path, ScoringWeightsSchema, ScoringConfigSchema, DEFAULT_SCORING_CONFIG, AXIS_PRIORITY;
+var import_promises3, import_node_path3, ScoringWeightsSchema, ScoringConfigSchema, DEFAULT_SCORING_CONFIG, AXIS_PRIORITY;
 var init_scoring = __esm({
   "../manta-orchestrator/src/scoring.ts"() {
     "use strict";
     init_cjs_shims();
     init_zod();
-    import_promises = require("fs/promises");
-    import_node_path = require("path");
+    import_promises3 = require("fs/promises");
+    import_node_path3 = require("path");
     ScoringWeightsSchema = external_exports.object({
       coverage: external_exports.number().min(0).max(1),
       diff: external_exports.number().min(0).max(1),
@@ -25168,9 +25523,9 @@ var init_scoring = __esm({
 
 // ../manta-orchestrator/src/merge-review-writer.ts
 function assertContained3(root, candidate) {
-  const resolvedRoot = path8.resolve(root);
-  const resolvedCandidate = path8.resolve(candidate);
-  if (resolvedCandidate !== resolvedRoot && !resolvedCandidate.startsWith(resolvedRoot + path8.sep)) {
+  const resolvedRoot = path9.resolve(root);
+  const resolvedCandidate = path9.resolve(candidate);
+  if (resolvedCandidate !== resolvedRoot && !resolvedCandidate.startsWith(resolvedRoot + path9.sep)) {
     throw new Error(`merge-review path escapes ${resolvedRoot}: ${resolvedCandidate}`);
   }
 }
@@ -25180,13 +25535,13 @@ function fsMergeReviewWriter(opts) {
       if (!SAFE_FILENAME2.test(doc.filename)) {
         throw new Error(`unsafe merge-review filename: ${doc.filename}`);
       }
-      const dir = path8.resolve(opts.repoRoot, opts.mergeReviewDir);
-      await fs10.mkdir(dir, { recursive: true });
-      const file = path8.resolve(dir, doc.filename);
+      const dir = path9.resolve(opts.repoRoot, opts.mergeReviewDir);
+      await fs11.mkdir(dir, { recursive: true });
+      const file = path9.resolve(dir, doc.filename);
       assertContained3(dir, file);
       const tmp = `${file}.tmp.${process.pid}.${Date.now()}`;
-      await fs10.writeFile(tmp, doc.body, "utf8");
-      await fs10.rename(tmp, file);
+      await fs11.writeFile(tmp, doc.body, "utf8");
+      await fs11.rename(tmp, file);
       return { path: file };
     }
   };
@@ -25201,13 +25556,13 @@ function inMemoryMergeReviewWriter() {
     }
   };
 }
-var fs10, path8, SAFE_FILENAME2;
+var fs11, path9, SAFE_FILENAME2;
 var init_merge_review_writer = __esm({
   "../manta-orchestrator/src/merge-review-writer.ts"() {
     "use strict";
     init_cjs_shims();
-    fs10 = __toESM(require("fs/promises"));
-    path8 = __toESM(require("path"));
+    fs11 = __toESM(require("fs/promises"));
+    path9 = __toESM(require("path"));
     SAFE_FILENAME2 = /^[A-Za-z0-9._-]+$/;
   }
 });
@@ -25389,7 +25744,7 @@ var init_merge_review = __esm({
 async function readForensicTimeline(filePath, meta) {
   let raw;
   try {
-    raw = await fs11.readFile(filePath, "utf8");
+    raw = await fs12.readFile(filePath, "utf8");
   } catch (err) {
     if (err && typeof err === "object" && "code" in err && err.code === "ENOENT") {
       return null;
@@ -25420,13 +25775,13 @@ async function readForensicTimeline(filePath, meta) {
     snapshots
   };
 }
-var fs11, path9, ForensicTimelineWriter;
+var fs12, path10, ForensicTimelineWriter;
 var init_forensic_timeline = __esm({
   "../manta-orchestrator/src/forensic-timeline.ts"() {
     "use strict";
     init_cjs_shims();
-    fs11 = __toESM(require("fs/promises"));
-    path9 = __toESM(require("path"));
+    fs12 = __toESM(require("fs/promises"));
+    path10 = __toESM(require("path"));
     ForensicTimelineWriter = class {
       constructor(filePath, meta) {
         this.filePath = filePath;
@@ -25437,8 +25792,8 @@ var init_forensic_timeline = __esm({
       cycleNumber = 0;
       async appendSnapshot(snapshot) {
         const line = { ...snapshot, cycleNumber: this.cycleNumber++ };
-        await fs11.mkdir(path9.dirname(this.filePath), { recursive: true });
-        await fs11.appendFile(this.filePath, JSON.stringify(line) + "\n", "utf8");
+        await fs12.mkdir(path10.dirname(this.filePath), { recursive: true });
+        await fs12.appendFile(this.filePath, JSON.stringify(line) + "\n", "utf8");
       }
       async seal(finishedAt) {
         const sealLine = {
@@ -25446,7 +25801,7 @@ var init_forensic_timeline = __esm({
           finished_at: finishedAt,
           duration_ms: finishedAt - this.meta.started_at
         };
-        await fs11.appendFile(this.filePath, JSON.stringify(sealLine) + "\n", "utf8");
+        await fs12.appendFile(this.filePath, JSON.stringify(sealLine) + "\n", "utf8");
       }
       getFilePath() {
         return this.filePath;
@@ -25607,7 +25962,7 @@ var init_replay = __esm({
   "../manta-orchestrator/src/replay.ts"() {
     "use strict";
     init_cjs_shims();
-    init_src();
+    init_src2();
     SPAWN_TYPES = /* @__PURE__ */ new Set(["contract_write", "register"]);
     DEATH_TYPES = /* @__PURE__ */ new Set(["suicide_intent", "death", "post_mortem", "lock_reap", "claim_reap"]);
     REVIEW_TYPES = /* @__PURE__ */ new Set(["merge_review", "promote"]);
@@ -25829,9 +26184,9 @@ var init_merge_all = __esm({
 
 // ../manta-orchestrator/src/merge-all-writer.ts
 function assertContained4(root, candidate) {
-  const resolvedRoot = path10.resolve(root);
-  const resolvedCandidate = path10.resolve(candidate);
-  if (resolvedCandidate !== resolvedRoot && !resolvedCandidate.startsWith(resolvedRoot + path10.sep)) {
+  const resolvedRoot = path11.resolve(root);
+  const resolvedCandidate = path11.resolve(candidate);
+  if (resolvedCandidate !== resolvedRoot && !resolvedCandidate.startsWith(resolvedRoot + path11.sep)) {
     throw new Error(`merge-all path escapes ${resolvedRoot}: ${resolvedCandidate}`);
   }
 }
@@ -25841,13 +26196,13 @@ function fsMergeAllWriter(opts) {
       if (!SAFE_FILENAME3.test(doc.filename)) {
         throw new Error(`unsafe merge-all filename: ${doc.filename}`);
       }
-      const dir = path10.resolve(opts.repoRoot, opts.mergeAllDir);
-      await fs12.mkdir(dir, { recursive: true });
-      const file = path10.resolve(dir, doc.filename);
+      const dir = path11.resolve(opts.repoRoot, opts.mergeAllDir);
+      await fs13.mkdir(dir, { recursive: true });
+      const file = path11.resolve(dir, doc.filename);
       assertContained4(dir, file);
       const tmp = `${file}.tmp.${process.pid}.${Date.now()}`;
-      await fs12.writeFile(tmp, doc.body, "utf8");
-      await fs12.rename(tmp, file);
+      await fs13.writeFile(tmp, doc.body, "utf8");
+      await fs13.rename(tmp, file);
       return { path: file };
     }
   };
@@ -25922,13 +26277,13 @@ function renderMergeAllMarkdown(result) {
   }
   return lines.join("\n");
 }
-var fs12, path10, SAFE_FILENAME3;
+var fs13, path11, SAFE_FILENAME3;
 var init_merge_all_writer = __esm({
   "../manta-orchestrator/src/merge-all-writer.ts"() {
     "use strict";
     init_cjs_shims();
-    fs12 = __toESM(require("fs/promises"));
-    path10 = __toESM(require("path"));
+    fs13 = __toESM(require("fs/promises"));
+    path11 = __toESM(require("path"));
     SAFE_FILENAME3 = /^[A-Za-z0-9._-]+$/;
   }
 });
@@ -25983,7 +26338,7 @@ __export(src_exports, {
   runMergeReview: () => runMergeReview,
   runPostMortem: () => runPostMortem
 });
-var init_src2 = __esm({
+var init_src3 = __esm({
   "../manta-orchestrator/src/index.ts"() {
     "use strict";
     init_cjs_shims();
@@ -25994,7 +26349,7 @@ var init_src2 = __esm({
     init_claim_reaper();
     init_post_mortem_writer();
     init_post_mortem();
-    init_errors5();
+    init_errors6();
     init_status();
     init_orchestrator();
     init_scoring();
@@ -26016,8 +26371,8 @@ var require_windows = __commonJS({
     init_cjs_shims();
     module2.exports = isexe;
     isexe.sync = sync;
-    var fs39 = require("fs");
-    function checkPathExt(path38, options2) {
+    var fs40 = require("fs");
+    function checkPathExt(path39, options2) {
       var pathext = options2.pathExt !== void 0 ? options2.pathExt : process.env.PATHEXT;
       if (!pathext) {
         return true;
@@ -26028,25 +26383,25 @@ var require_windows = __commonJS({
       }
       for (var i = 0; i < pathext.length; i++) {
         var p2 = pathext[i].toLowerCase();
-        if (p2 && path38.substr(-p2.length).toLowerCase() === p2) {
+        if (p2 && path39.substr(-p2.length).toLowerCase() === p2) {
           return true;
         }
       }
       return false;
     }
-    function checkStat(stat4, path38, options2) {
+    function checkStat(stat4, path39, options2) {
       if (!stat4.isSymbolicLink() && !stat4.isFile()) {
         return false;
       }
-      return checkPathExt(path38, options2);
+      return checkPathExt(path39, options2);
     }
-    function isexe(path38, options2, cb) {
-      fs39.stat(path38, function(er2, stat4) {
-        cb(er2, er2 ? false : checkStat(stat4, path38, options2));
+    function isexe(path39, options2, cb) {
+      fs40.stat(path39, function(er2, stat4) {
+        cb(er2, er2 ? false : checkStat(stat4, path39, options2));
       });
     }
-    function sync(path38, options2) {
-      return checkStat(fs39.statSync(path38), path38, options2);
+    function sync(path39, options2) {
+      return checkStat(fs40.statSync(path39), path39, options2);
     }
   }
 });
@@ -26058,14 +26413,14 @@ var require_mode = __commonJS({
     init_cjs_shims();
     module2.exports = isexe;
     isexe.sync = sync;
-    var fs39 = require("fs");
-    function isexe(path38, options2, cb) {
-      fs39.stat(path38, function(er2, stat4) {
+    var fs40 = require("fs");
+    function isexe(path39, options2, cb) {
+      fs40.stat(path39, function(er2, stat4) {
         cb(er2, er2 ? false : checkStat(stat4, options2));
       });
     }
-    function sync(path38, options2) {
-      return checkStat(fs39.statSync(path38), options2);
+    function sync(path39, options2) {
+      return checkStat(fs40.statSync(path39), options2);
     }
     function checkStat(stat4, options2) {
       return stat4.isFile() && checkMode(stat4, options2);
@@ -26091,7 +26446,7 @@ var require_isexe = __commonJS({
   "../../node_modules/.pnpm/isexe@2.0.0/node_modules/isexe/index.js"(exports2, module2) {
     "use strict";
     init_cjs_shims();
-    var fs39 = require("fs");
+    var fs40 = require("fs");
     var core;
     if (process.platform === "win32" || global.TESTING_WINDOWS) {
       core = require_windows();
@@ -26100,7 +26455,7 @@ var require_isexe = __commonJS({
     }
     module2.exports = isexe;
     isexe.sync = sync;
-    function isexe(path38, options2, cb) {
+    function isexe(path39, options2, cb) {
       if (typeof options2 === "function") {
         cb = options2;
         options2 = {};
@@ -26110,7 +26465,7 @@ var require_isexe = __commonJS({
           throw new TypeError("callback not provided");
         }
         return new Promise(function(resolve13, reject) {
-          isexe(path38, options2 || {}, function(er2, is2) {
+          isexe(path39, options2 || {}, function(er2, is2) {
             if (er2) {
               reject(er2);
             } else {
@@ -26119,7 +26474,7 @@ var require_isexe = __commonJS({
           });
         });
       }
-      core(path38, options2 || {}, function(er2, is2) {
+      core(path39, options2 || {}, function(er2, is2) {
         if (er2) {
           if (er2.code === "EACCES" || options2 && options2.ignoreErrors) {
             er2 = null;
@@ -26129,9 +26484,9 @@ var require_isexe = __commonJS({
         cb(er2, is2);
       });
     }
-    function sync(path38, options2) {
+    function sync(path39, options2) {
       try {
-        return core.sync(path38, options2 || {});
+        return core.sync(path39, options2 || {});
       } catch (er2) {
         if (options2 && options2.ignoreErrors || er2.code === "EACCES") {
           return false;
@@ -26149,7 +26504,7 @@ var require_which = __commonJS({
     "use strict";
     init_cjs_shims();
     var isWindows = process.platform === "win32" || process.env.OSTYPE === "cygwin" || process.env.OSTYPE === "msys";
-    var path38 = require("path");
+    var path39 = require("path");
     var COLON = isWindows ? ";" : ":";
     var isexe = require_isexe();
     var getNotFoundError = (cmd) => Object.assign(new Error(`not found: ${cmd}`), { code: "ENOENT" });
@@ -26187,7 +26542,7 @@ var require_which = __commonJS({
           return opt.all && found.length ? resolve13(found) : reject(getNotFoundError(cmd));
         const ppRaw = pathEnv[i];
         const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw;
-        const pCmd = path38.join(pathPart, cmd);
+        const pCmd = path39.join(pathPart, cmd);
         const p2 = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd : pCmd;
         resolve13(subStep(p2, i, 0));
       });
@@ -26214,7 +26569,7 @@ var require_which = __commonJS({
       for (let i = 0; i < pathEnv.length; i++) {
         const ppRaw = pathEnv[i];
         const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw;
-        const pCmd = path38.join(pathPart, cmd);
+        const pCmd = path39.join(pathPart, cmd);
         const p2 = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd : pCmd;
         for (let j2 = 0; j2 < pathExt.length; j2++) {
           const cur = p2 + pathExt[j2];
@@ -26264,7 +26619,7 @@ var require_resolveCommand = __commonJS({
   "../../node_modules/.pnpm/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js"(exports2, module2) {
     "use strict";
     init_cjs_shims();
-    var path38 = require("path");
+    var path39 = require("path");
     var which = require_which();
     var getPathKey = require_path_key();
     function resolveCommandAttempt(parsed, withoutPathExt) {
@@ -26282,7 +26637,7 @@ var require_resolveCommand = __commonJS({
       try {
         resolved = which.sync(parsed.command, {
           path: env[getPathKey({ env })],
-          pathExt: withoutPathExt ? path38.delimiter : void 0
+          pathExt: withoutPathExt ? path39.delimiter : void 0
         });
       } catch (e) {
       } finally {
@@ -26291,7 +26646,7 @@ var require_resolveCommand = __commonJS({
         }
       }
       if (resolved) {
-        resolved = path38.resolve(hasCustomCwd ? parsed.options.cwd : "", resolved);
+        resolved = path39.resolve(hasCustomCwd ? parsed.options.cwd : "", resolved);
       }
       return resolved;
     }
@@ -26348,8 +26703,8 @@ var require_shebang_command = __commonJS({
       if (!match) {
         return null;
       }
-      const [path38, argument] = match[0].replace(/#! ?/, "").split(" ");
-      const binary = path38.split("/").pop();
+      const [path39, argument] = match[0].replace(/#! ?/, "").split(" ");
+      const binary = path39.split("/").pop();
       if (binary === "env") {
         return argument;
       }
@@ -26363,16 +26718,16 @@ var require_readShebang = __commonJS({
   "../../node_modules/.pnpm/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js"(exports2, module2) {
     "use strict";
     init_cjs_shims();
-    var fs39 = require("fs");
+    var fs40 = require("fs");
     var shebangCommand = require_shebang_command();
     function readShebang(command) {
       const size = 150;
       const buffer = Buffer.alloc(size);
       let fd;
       try {
-        fd = fs39.openSync(command, "r");
-        fs39.readSync(fd, buffer, 0, size, 0);
-        fs39.closeSync(fd);
+        fd = fs40.openSync(command, "r");
+        fs40.readSync(fd, buffer, 0, size, 0);
+        fs40.closeSync(fd);
       } catch (e) {
       }
       return shebangCommand(buffer.toString());
@@ -26386,7 +26741,7 @@ var require_parse = __commonJS({
   "../../node_modules/.pnpm/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js"(exports2, module2) {
     "use strict";
     init_cjs_shims();
-    var path38 = require("path");
+    var path39 = require("path");
     var resolveCommand = require_resolveCommand();
     var escape2 = require_escape();
     var readShebang = require_readShebang();
@@ -26411,7 +26766,7 @@ var require_parse = __commonJS({
       const needsShell = !isExecutableRegExp.test(commandFile);
       if (parsed.options.forceShell || needsShell) {
         const needsDoubleEscapeMetaChars = isCmdShimRegExp.test(commandFile);
-        parsed.command = path38.normalize(parsed.command);
+        parsed.command = path39.normalize(parsed.command);
         parsed.command = escape2.command(parsed.command);
         parsed.args = parsed.args.map((arg) => escape2.argument(arg, needsDoubleEscapeMetaChars));
         const shellCommand = [parsed.command].concat(parsed.args).join(" ");
@@ -26503,7 +26858,7 @@ var require_cross_spawn = __commonJS({
     var cp = require("child_process");
     var parse4 = require_parse();
     var enoent = require_enoent();
-    function spawn(command, args, options2) {
+    function spawn2(command, args, options2) {
       const parsed = parse4(command, args, options2);
       const spawned = cp.spawn(parsed.command, parsed.args, parsed.options);
       enoent.hookChildProcess(spawned, parsed);
@@ -26515,8 +26870,8 @@ var require_cross_spawn = __commonJS({
       result.error = result.error || enoent.verifyENOENTSync(result.status, parsed);
       return result;
     }
-    module2.exports = spawn;
-    module2.exports.spawn = spawn;
+    module2.exports = spawn2;
+    module2.exports.spawn = spawn2;
     module2.exports.sync = spawnSync;
     module2.exports._parse = parse4;
     module2.exports._enoent = enoent;
@@ -26561,13 +26916,13 @@ var init_path_key = __esm({
 });
 
 // ../../node_modules/.pnpm/npm-run-path@5.3.0/node_modules/npm-run-path/index.js
-var import_node_process, import_node_path2, import_node_url, npmRunPath, applyPreferLocal, applyExecPath, npmRunPathEnv;
+var import_node_process, import_node_path4, import_node_url, npmRunPath, applyPreferLocal, applyExecPath, npmRunPathEnv;
 var init_npm_run_path = __esm({
   "../../node_modules/.pnpm/npm-run-path@5.3.0/node_modules/npm-run-path/index.js"() {
     "use strict";
     init_cjs_shims();
     import_node_process = __toESM(require("process"), 1);
-    import_node_path2 = __toESM(require("path"), 1);
+    import_node_path4 = __toESM(require("path"), 1);
     import_node_url = require("url");
     init_path_key();
     npmRunPath = ({
@@ -26578,7 +26933,7 @@ var init_npm_run_path = __esm({
       addExecPath = true
     } = {}) => {
       const cwdString = cwd instanceof URL ? (0, import_node_url.fileURLToPath)(cwd) : cwd;
-      const cwdPath = import_node_path2.default.resolve(cwdString);
+      const cwdPath = import_node_path4.default.resolve(cwdString);
       const result = [];
       if (preferLocal) {
         applyPreferLocal(result, cwdPath);
@@ -26586,19 +26941,19 @@ var init_npm_run_path = __esm({
       if (addExecPath) {
         applyExecPath(result, execPath, cwdPath);
       }
-      return [...result, pathOption].join(import_node_path2.default.delimiter);
+      return [...result, pathOption].join(import_node_path4.default.delimiter);
     };
     applyPreferLocal = (result, cwdPath) => {
       let previous;
       while (previous !== cwdPath) {
-        result.push(import_node_path2.default.join(cwdPath, "node_modules/.bin"));
+        result.push(import_node_path4.default.join(cwdPath, "node_modules/.bin"));
         previous = cwdPath;
-        cwdPath = import_node_path2.default.resolve(cwdPath, "..");
+        cwdPath = import_node_path4.default.resolve(cwdPath, "..");
       }
     };
     applyExecPath = (result, execPath, cwdPath) => {
       const execPathString = execPath instanceof URL ? (0, import_node_url.fileURLToPath)(execPath) : execPath;
-      result.push(import_node_path2.default.resolve(cwdPath, execPathString, ".."));
+      result.push(import_node_path4.default.resolve(cwdPath, execPathString, ".."));
     };
     npmRunPathEnv = ({ env = import_node_process.default.env, ...options2 } = {}) => {
       env = { ...env };
@@ -27588,15 +27943,15 @@ var init_is_stream = __esm({
 });
 
 // ../../node_modules/.pnpm/execa@8.0.1/node_modules/execa/lib/pipe.js
-var import_node_fs, import_node_child_process, isExecaChildProcess, pipeToTarget, addPipeMethods;
+var import_node_fs, import_node_child_process2, isExecaChildProcess, pipeToTarget, addPipeMethods;
 var init_pipe = __esm({
   "../../node_modules/.pnpm/execa@8.0.1/node_modules/execa/lib/pipe.js"() {
     "use strict";
     init_cjs_shims();
     import_node_fs = require("fs");
-    import_node_child_process = require("child_process");
+    import_node_child_process2 = require("child_process");
     init_is_stream();
-    isExecaChildProcess = (target) => target instanceof import_node_child_process.ChildProcess && typeof target.then === "function";
+    isExecaChildProcess = (target) => target instanceof import_node_child_process2.ChildProcess && typeof target.then === "function";
     pipeToTarget = (spawned, streamName, target) => {
       if (typeof target === "string") {
         spawned[streamName].pipe((0, import_node_fs.createWriteStream)(target));
@@ -27916,13 +28271,13 @@ var require_merge_stream = __commonJS({
 });
 
 // ../../node_modules/.pnpm/execa@8.0.1/node_modules/execa/lib/stream.js
-var import_node_fs2, import_promises2, import_merge_stream, validateInputOptions, getInputSync, handleInputSync, getInput, handleInput, makeAllStream, getBufferedData, getStreamPromise, applyEncoding, getSpawnedResult;
+var import_node_fs2, import_promises4, import_merge_stream, validateInputOptions, getInputSync, handleInputSync, getInput, handleInput, makeAllStream, getBufferedData, getStreamPromise, applyEncoding, getSpawnedResult;
 var init_stream = __esm({
   "../../node_modules/.pnpm/execa@8.0.1/node_modules/execa/lib/stream.js"() {
     "use strict";
     init_cjs_shims();
     import_node_fs2 = require("fs");
-    import_promises2 = require("timers/promises");
+    import_promises4 = require("timers/promises");
     init_is_stream();
     init_source();
     import_merge_stream = __toESM(require_merge_stream(), 1);
@@ -27980,7 +28335,7 @@ var init_stream = __esm({
       if (!stream || streamPromise === void 0) {
         return;
       }
-      await (0, import_promises2.setTimeout)(0);
+      await (0, import_promises4.setTimeout)(0);
       stream.destroy();
       try {
         return await streamPromise;
@@ -28057,13 +28412,13 @@ var init_promise2 = __esm({
 });
 
 // ../../node_modules/.pnpm/execa@8.0.1/node_modules/execa/lib/command.js
-var import_node_buffer, import_node_child_process2, normalizeArgs, NO_ESCAPE_REGEXP, escapeArg, joinCommand, getEscapedCommand, SPACES_REGEXP, parseCommand, parseExpression, concatTokens, parseTemplate, parseTemplates;
+var import_node_buffer, import_node_child_process3, normalizeArgs, NO_ESCAPE_REGEXP, escapeArg, joinCommand, getEscapedCommand, SPACES_REGEXP, parseCommand, parseExpression, concatTokens, parseTemplate, parseTemplates;
 var init_command = __esm({
   "../../node_modules/.pnpm/execa@8.0.1/node_modules/execa/lib/command.js"() {
     "use strict";
     init_cjs_shims();
     import_node_buffer = require("buffer");
-    import_node_child_process2 = require("child_process");
+    import_node_child_process3 = require("child_process");
     normalizeArgs = (file, args = []) => {
       if (!Array.isArray(args)) {
         return [file];
@@ -28100,7 +28455,7 @@ var init_command = __esm({
       if (typeOfExpression === "number") {
         return String(expression);
       }
-      if (typeOfExpression === "object" && expression !== null && !(expression instanceof import_node_child_process2.ChildProcess) && "stdout" in expression) {
+      if (typeOfExpression === "object" && expression !== null && !(expression instanceof import_node_child_process3.ChildProcess) && "stdout" in expression) {
         const typeOfStdout = typeof expression.stdout;
         if (typeOfStdout === "string") {
           return expression.stdout;
@@ -28188,9 +28543,9 @@ function execa(file, args, options2) {
   validateTimeout(parsed.options);
   let spawned;
   try {
-    spawned = import_node_child_process3.default.spawn(parsed.file, parsed.args, parsed.options);
+    spawned = import_node_child_process4.default.spawn(parsed.file, parsed.args, parsed.options);
   } catch (error2) {
-    const dummySpawned = new import_node_child_process3.default.ChildProcess();
+    const dummySpawned = new import_node_child_process4.default.ChildProcess();
     const errorPromise = Promise.reject(makeError({
       error: error2,
       stdout: "",
@@ -28265,7 +28620,7 @@ function execaSync(file, args, options2) {
   const input = handleInputSync(parsed.options);
   let result;
   try {
-    result = import_node_child_process3.default.spawnSync(parsed.file, parsed.args, { ...parsed.options, input });
+    result = import_node_child_process4.default.spawnSync(parsed.file, parsed.args, { ...parsed.options, input });
   } catch (error2) {
     throw makeError({
       error: error2,
@@ -28366,14 +28721,14 @@ function execaNode(scriptPath, args, options2 = {}) {
     }
   );
 }
-var import_node_buffer2, import_node_path3, import_node_child_process3, import_node_process4, import_cross_spawn, DEFAULT_MAX_BUFFER, getEnv, handleArguments, handleOutput, normalizeScriptStdin, normalizeScriptOptions, $;
+var import_node_buffer2, import_node_path5, import_node_child_process4, import_node_process4, import_cross_spawn, DEFAULT_MAX_BUFFER, getEnv, handleArguments, handleOutput, normalizeScriptStdin, normalizeScriptOptions, $;
 var init_execa = __esm({
   "../../node_modules/.pnpm/execa@8.0.1/node_modules/execa/index.js"() {
     "use strict";
     init_cjs_shims();
     import_node_buffer2 = require("buffer");
-    import_node_path3 = __toESM(require("path"), 1);
-    import_node_child_process3 = __toESM(require("child_process"), 1);
+    import_node_path5 = __toESM(require("path"), 1);
+    import_node_child_process4 = __toESM(require("child_process"), 1);
     import_node_process4 = __toESM(require("process"), 1);
     import_cross_spawn = __toESM(require_cross_spawn(), 1);
     init_strip_final_newline();
@@ -28418,7 +28773,7 @@ var init_execa = __esm({
       };
       options2.env = getEnv(options2);
       options2.stdio = normalizeStdio(options2);
-      if (import_node_process4.default.platform === "win32" && import_node_path3.default.basename(file, ".exe") === "cmd") {
+      if (import_node_process4.default.platform === "win32" && import_node_path5.default.basename(file, ".exe") === "cmd") {
         args.unshift("/q");
       }
       return { file, args, options: options2, parsed };
@@ -33833,7 +34188,7 @@ var require_gray_matter = __commonJS({
   "../../node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/index.js"(exports2, module2) {
     "use strict";
     init_cjs_shims();
-    var fs39 = require("fs");
+    var fs40 = require("fs");
     var sections = require_section_matter();
     var defaults = require_defaults2();
     var stringify = require_stringify();
@@ -33917,7 +34272,7 @@ var require_gray_matter = __commonJS({
       return stringify(file, data, options2);
     };
     matter2.read = function(filepath, options2) {
-      const str2 = fs39.readFileSync(filepath, "utf8");
+      const str2 = fs40.readFileSync(filepath, "utf8");
       const file = matter2(str2, options2);
       file.path = filepath;
       return file;
@@ -34024,17 +34379,17 @@ var require_visit = __commonJS({
     visit.BREAK = BREAK;
     visit.SKIP = SKIP;
     visit.REMOVE = REMOVE;
-    function visit_(key, node, visitor, path38) {
-      const ctrl = callVisitor(key, node, visitor, path38);
+    function visit_(key, node, visitor, path39) {
+      const ctrl = callVisitor(key, node, visitor, path39);
       if (identity2.isNode(ctrl) || identity2.isPair(ctrl)) {
-        replaceNode(key, path38, ctrl);
-        return visit_(key, ctrl, visitor, path38);
+        replaceNode(key, path39, ctrl);
+        return visit_(key, ctrl, visitor, path39);
       }
       if (typeof ctrl !== "symbol") {
         if (identity2.isCollection(node)) {
-          path38 = Object.freeze(path38.concat(node));
+          path39 = Object.freeze(path39.concat(node));
           for (let i = 0; i < node.items.length; ++i) {
-            const ci2 = visit_(i, node.items[i], visitor, path38);
+            const ci2 = visit_(i, node.items[i], visitor, path39);
             if (typeof ci2 === "number")
               i = ci2 - 1;
             else if (ci2 === BREAK)
@@ -34045,13 +34400,13 @@ var require_visit = __commonJS({
             }
           }
         } else if (identity2.isPair(node)) {
-          path38 = Object.freeze(path38.concat(node));
-          const ck = visit_("key", node.key, visitor, path38);
+          path39 = Object.freeze(path39.concat(node));
+          const ck = visit_("key", node.key, visitor, path39);
           if (ck === BREAK)
             return BREAK;
           else if (ck === REMOVE)
             node.key = null;
-          const cv = visit_("value", node.value, visitor, path38);
+          const cv = visit_("value", node.value, visitor, path39);
           if (cv === BREAK)
             return BREAK;
           else if (cv === REMOVE)
@@ -34072,17 +34427,17 @@ var require_visit = __commonJS({
     visitAsync.BREAK = BREAK;
     visitAsync.SKIP = SKIP;
     visitAsync.REMOVE = REMOVE;
-    async function visitAsync_(key, node, visitor, path38) {
-      const ctrl = await callVisitor(key, node, visitor, path38);
+    async function visitAsync_(key, node, visitor, path39) {
+      const ctrl = await callVisitor(key, node, visitor, path39);
       if (identity2.isNode(ctrl) || identity2.isPair(ctrl)) {
-        replaceNode(key, path38, ctrl);
-        return visitAsync_(key, ctrl, visitor, path38);
+        replaceNode(key, path39, ctrl);
+        return visitAsync_(key, ctrl, visitor, path39);
       }
       if (typeof ctrl !== "symbol") {
         if (identity2.isCollection(node)) {
-          path38 = Object.freeze(path38.concat(node));
+          path39 = Object.freeze(path39.concat(node));
           for (let i = 0; i < node.items.length; ++i) {
-            const ci2 = await visitAsync_(i, node.items[i], visitor, path38);
+            const ci2 = await visitAsync_(i, node.items[i], visitor, path39);
             if (typeof ci2 === "number")
               i = ci2 - 1;
             else if (ci2 === BREAK)
@@ -34093,13 +34448,13 @@ var require_visit = __commonJS({
             }
           }
         } else if (identity2.isPair(node)) {
-          path38 = Object.freeze(path38.concat(node));
-          const ck = await visitAsync_("key", node.key, visitor, path38);
+          path39 = Object.freeze(path39.concat(node));
+          const ck = await visitAsync_("key", node.key, visitor, path39);
           if (ck === BREAK)
             return BREAK;
           else if (ck === REMOVE)
             node.key = null;
-          const cv = await visitAsync_("value", node.value, visitor, path38);
+          const cv = await visitAsync_("value", node.value, visitor, path39);
           if (cv === BREAK)
             return BREAK;
           else if (cv === REMOVE)
@@ -34126,23 +34481,23 @@ var require_visit = __commonJS({
       }
       return visitor;
     }
-    function callVisitor(key, node, visitor, path38) {
+    function callVisitor(key, node, visitor, path39) {
       if (typeof visitor === "function")
-        return visitor(key, node, path38);
+        return visitor(key, node, path39);
       if (identity2.isMap(node))
-        return visitor.Map?.(key, node, path38);
+        return visitor.Map?.(key, node, path39);
       if (identity2.isSeq(node))
-        return visitor.Seq?.(key, node, path38);
+        return visitor.Seq?.(key, node, path39);
       if (identity2.isPair(node))
-        return visitor.Pair?.(key, node, path38);
+        return visitor.Pair?.(key, node, path39);
       if (identity2.isScalar(node))
-        return visitor.Scalar?.(key, node, path38);
+        return visitor.Scalar?.(key, node, path39);
       if (identity2.isAlias(node))
-        return visitor.Alias?.(key, node, path38);
+        return visitor.Alias?.(key, node, path39);
       return void 0;
     }
-    function replaceNode(key, path38, node) {
-      const parent = path38[path38.length - 1];
+    function replaceNode(key, path39, node) {
+      const parent = path39[path39.length - 1];
       if (identity2.isCollection(parent)) {
         parent.items[key] = node;
       } else if (identity2.isPair(parent)) {
@@ -34761,10 +35116,10 @@ var require_Collection = __commonJS({
     var createNode = require_createNode();
     var identity2 = require_identity();
     var Node = require_Node();
-    function collectionFromPath(schema, path38, value) {
+    function collectionFromPath(schema, path39, value) {
       let v2 = value;
-      for (let i = path38.length - 1; i >= 0; --i) {
-        const k2 = path38[i];
+      for (let i = path39.length - 1; i >= 0; --i) {
+        const k2 = path39[i];
         if (typeof k2 === "number" && Number.isInteger(k2) && k2 >= 0) {
           const a = [];
           a[k2] = v2;
@@ -34783,7 +35138,7 @@ var require_Collection = __commonJS({
         sourceObjects: /* @__PURE__ */ new Map()
       });
     }
-    var isEmptyPath = (path38) => path38 == null || typeof path38 === "object" && !!path38[Symbol.iterator]().next().done;
+    var isEmptyPath = (path39) => path39 == null || typeof path39 === "object" && !!path39[Symbol.iterator]().next().done;
     var Collection = class extends Node.NodeBase {
       constructor(type, schema) {
         super(type);
@@ -34813,11 +35168,11 @@ var require_Collection = __commonJS({
        * be a Pair instance or a `{ key, value }` object, which may not have a key
        * that already exists in the map.
        */
-      addIn(path38, value) {
-        if (isEmptyPath(path38))
+      addIn(path39, value) {
+        if (isEmptyPath(path39))
           this.add(value);
         else {
-          const [key, ...rest] = path38;
+          const [key, ...rest] = path39;
           const node = this.get(key, true);
           if (identity2.isCollection(node))
             node.addIn(rest, value);
@@ -34831,8 +35186,8 @@ var require_Collection = __commonJS({
        * Removes a value from the collection.
        * @returns `true` if the item was found and removed.
        */
-      deleteIn(path38) {
-        const [key, ...rest] = path38;
+      deleteIn(path39) {
+        const [key, ...rest] = path39;
         if (rest.length === 0)
           return this.delete(key);
         const node = this.get(key, true);
@@ -34846,8 +35201,8 @@ var require_Collection = __commonJS({
        * scalar values from their surrounding node; to disable set `keepScalar` to
        * `true` (collections are always returned intact).
        */
-      getIn(path38, keepScalar) {
-        const [key, ...rest] = path38;
+      getIn(path39, keepScalar) {
+        const [key, ...rest] = path39;
         const node = this.get(key, true);
         if (rest.length === 0)
           return !keepScalar && identity2.isScalar(node) ? node.value : node;
@@ -34865,8 +35220,8 @@ var require_Collection = __commonJS({
       /**
        * Checks if the collection includes a value with the key `key`.
        */
-      hasIn(path38) {
-        const [key, ...rest] = path38;
+      hasIn(path39) {
+        const [key, ...rest] = path39;
         if (rest.length === 0)
           return this.has(key);
         const node = this.get(key, true);
@@ -34876,8 +35231,8 @@ var require_Collection = __commonJS({
        * Sets a value in this collection. For `!!set`, `value` needs to be a
        * boolean to add/remove the item from the set.
        */
-      setIn(path38, value) {
-        const [key, ...rest] = path38;
+      setIn(path39, value) {
+        const [key, ...rest] = path39;
         if (rest.length === 0) {
           this.set(key, value);
         } else {
@@ -37427,9 +37782,9 @@ var require_Document = __commonJS({
           this.contents.add(value);
       }
       /** Adds a value to the document. */
-      addIn(path38, value) {
+      addIn(path39, value) {
         if (assertCollection(this.contents))
-          this.contents.addIn(path38, value);
+          this.contents.addIn(path39, value);
       }
       /**
        * Create a new `Alias` node, ensuring that the target `node` has the required anchor.
@@ -37504,14 +37859,14 @@ var require_Document = __commonJS({
        * Removes a value from the document.
        * @returns `true` if the item was found and removed.
        */
-      deleteIn(path38) {
-        if (Collection.isEmptyPath(path38)) {
+      deleteIn(path39) {
+        if (Collection.isEmptyPath(path39)) {
           if (this.contents == null)
             return false;
           this.contents = null;
           return true;
         }
-        return assertCollection(this.contents) ? this.contents.deleteIn(path38) : false;
+        return assertCollection(this.contents) ? this.contents.deleteIn(path39) : false;
       }
       /**
        * Returns item at `key`, or `undefined` if not found. By default unwraps
@@ -37526,10 +37881,10 @@ var require_Document = __commonJS({
        * scalar values from their surrounding node; to disable set `keepScalar` to
        * `true` (collections are always returned intact).
        */
-      getIn(path38, keepScalar) {
-        if (Collection.isEmptyPath(path38))
+      getIn(path39, keepScalar) {
+        if (Collection.isEmptyPath(path39))
           return !keepScalar && identity2.isScalar(this.contents) ? this.contents.value : this.contents;
-        return identity2.isCollection(this.contents) ? this.contents.getIn(path38, keepScalar) : void 0;
+        return identity2.isCollection(this.contents) ? this.contents.getIn(path39, keepScalar) : void 0;
       }
       /**
        * Checks if the document includes a value with the key `key`.
@@ -37540,10 +37895,10 @@ var require_Document = __commonJS({
       /**
        * Checks if the document includes a value at `path`.
        */
-      hasIn(path38) {
-        if (Collection.isEmptyPath(path38))
+      hasIn(path39) {
+        if (Collection.isEmptyPath(path39))
           return this.contents !== void 0;
-        return identity2.isCollection(this.contents) ? this.contents.hasIn(path38) : false;
+        return identity2.isCollection(this.contents) ? this.contents.hasIn(path39) : false;
       }
       /**
        * Sets a value in this document. For `!!set`, `value` needs to be a
@@ -37560,13 +37915,13 @@ var require_Document = __commonJS({
        * Sets a value in this document. For `!!set`, `value` needs to be a
        * boolean to add/remove the item from the set.
        */
-      setIn(path38, value) {
-        if (Collection.isEmptyPath(path38)) {
+      setIn(path39, value) {
+        if (Collection.isEmptyPath(path39)) {
           this.contents = value;
         } else if (this.contents == null) {
-          this.contents = Collection.collectionFromPath(this.schema, Array.from(path38), value);
+          this.contents = Collection.collectionFromPath(this.schema, Array.from(path39), value);
         } else if (assertCollection(this.contents)) {
-          this.contents.setIn(path38, value);
+          this.contents.setIn(path39, value);
         }
       }
       /**
@@ -39544,9 +39899,9 @@ var require_cst_visit = __commonJS({
     visit.BREAK = BREAK;
     visit.SKIP = SKIP;
     visit.REMOVE = REMOVE;
-    visit.itemAtPath = (cst, path38) => {
+    visit.itemAtPath = (cst, path39) => {
       let item = cst;
-      for (const [field, index] of path38) {
+      for (const [field, index] of path39) {
         const tok = item?.[field];
         if (tok && "items" in tok) {
           item = tok.items[index];
@@ -39555,23 +39910,23 @@ var require_cst_visit = __commonJS({
       }
       return item;
     };
-    visit.parentCollection = (cst, path38) => {
-      const parent = visit.itemAtPath(cst, path38.slice(0, -1));
-      const field = path38[path38.length - 1][0];
+    visit.parentCollection = (cst, path39) => {
+      const parent = visit.itemAtPath(cst, path39.slice(0, -1));
+      const field = path39[path39.length - 1][0];
       const coll = parent?.[field];
       if (coll && "items" in coll)
         return coll;
       throw new Error("Parent collection not found");
     };
-    function _visit(path38, item, visitor) {
-      let ctrl = visitor(item, path38);
+    function _visit(path39, item, visitor) {
+      let ctrl = visitor(item, path39);
       if (typeof ctrl === "symbol")
         return ctrl;
       for (const field of ["key", "value"]) {
         const token = item[field];
         if (token && "items" in token) {
           for (let i = 0; i < token.items.length; ++i) {
-            const ci2 = _visit(Object.freeze(path38.concat([[field, i]])), token.items[i], visitor);
+            const ci2 = _visit(Object.freeze(path39.concat([[field, i]])), token.items[i], visitor);
             if (typeof ci2 === "number")
               i = ci2 - 1;
             else if (ci2 === BREAK)
@@ -39582,10 +39937,10 @@ var require_cst_visit = __commonJS({
             }
           }
           if (typeof ctrl === "function" && field === "key")
-            ctrl = ctrl(item, path38);
+            ctrl = ctrl(item, path39);
         }
       }
-      return typeof ctrl === "function" ? ctrl(item, path38) : ctrl;
+      return typeof ctrl === "function" ? ctrl(item, path39) : ctrl;
     }
     exports2.visit = visit;
   }
@@ -40874,14 +41229,14 @@ var require_parser = __commonJS({
             case "scalar":
             case "single-quoted-scalar":
             case "double-quoted-scalar": {
-              const fs39 = this.flowScalar(this.type);
+              const fs40 = this.flowScalar(this.type);
               if (atNextItem || it2.value) {
-                map.items.push({ start, key: fs39, sep: [] });
+                map.items.push({ start, key: fs40, sep: [] });
                 this.onKeyLine = true;
               } else if (it2.sep) {
-                this.stack.push(fs39);
+                this.stack.push(fs40);
               } else {
-                Object.assign(it2, { key: fs39, sep: [] });
+                Object.assign(it2, { key: fs40, sep: [] });
                 this.onKeyLine = true;
               }
               return;
@@ -41009,13 +41364,13 @@ var require_parser = __commonJS({
             case "scalar":
             case "single-quoted-scalar":
             case "double-quoted-scalar": {
-              const fs39 = this.flowScalar(this.type);
+              const fs40 = this.flowScalar(this.type);
               if (!it2 || it2.value)
-                fc.items.push({ start: [], key: fs39, sep: [] });
+                fc.items.push({ start: [], key: fs40, sep: [] });
               else if (it2.sep)
-                this.stack.push(fs39);
+                this.stack.push(fs40);
               else
-                Object.assign(it2, { key: fs39, sep: [] });
+                Object.assign(it2, { key: fs40, sep: [] });
               return;
             }
             case "flow-map-end":
@@ -41327,8 +41682,8 @@ var require_dist2 = __commonJS({
 
 // src/bin/manta.ts
 init_cjs_shims();
-var fs38 = __toESM(require("fs/promises"), 1);
-var path37 = __toESM(require("path"), 1);
+var fs39 = __toESM(require("fs/promises"), 1);
+var path38 = __toESM(require("path"), 1);
 
 // ../../node_modules/.pnpm/commander@12.1.0/node_modules/commander/esm.mjs
 init_cjs_shims();
@@ -41350,10 +41705,10 @@ var {
 
 // src/runtime.ts
 init_cjs_shims();
-var fs15 = __toESM(require("fs/promises"), 1);
-var path13 = __toESM(require("path"), 1);
-init_src();
+var fs16 = __toESM(require("fs/promises"), 1);
+var path14 = __toESM(require("path"), 1);
 init_src2();
+init_src3();
 
 // src/errors.ts
 init_cjs_shims();
@@ -41373,10 +41728,10 @@ function isCliError(value) {
 
 // src/library/lockfile.ts
 init_cjs_shims();
-var path11 = __toESM(require("path"), 1);
-var fs13 = __toESM(require("fs/promises"), 1);
+var path12 = __toESM(require("path"), 1);
+var fs14 = __toESM(require("fs/promises"), 1);
 init_zod();
-init_src();
+init_src2();
 var SHA256_BASE64 = /^sha256-[A-Za-z0-9+/=]+$/;
 var SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 var SEMVER_RANGE = /^(?:[\^~><=]{0,2}\d+(?:\.\d+){0,2}(?:-[0-9A-Za-z.-]+)?(?:\s*-\s*\d+(?:\.\d+){0,2})?(?:\s+(?:[\^~><=]{0,2}\d+(?:\.\d+){0,2}(?:-[0-9A-Za-z.-]+)?))*|\*)$/;
@@ -41438,7 +41793,7 @@ function serialize(lock) {
 `;
 }
 function createLockfileStore(opts) {
-  const filePath = path11.resolve(opts.repoRoot, LOCKFILE_NAME);
+  const filePath = path12.resolve(opts.repoRoot, LOCKFILE_NAME);
   async function read() {
     const parsed = await atomicReadJson(filePath, () => SENTINEL);
     if (parsed === SENTINEL) return null;
@@ -41453,10 +41808,10 @@ function createLockfileStore(opts) {
     const canonical = canonicalize2(parsed);
     const body = `${JSON.stringify(canonical, null, 2)}
 `;
-    await fs13.mkdir(path11.dirname(filePath), { recursive: true });
+    await fs14.mkdir(path12.dirname(filePath), { recursive: true });
     const tmp = `${filePath}.tmp.${process.pid}.${Date.now()}`;
-    await fs13.writeFile(tmp, body, "utf8");
-    await fs13.rename(tmp, filePath);
+    await fs14.writeFile(tmp, body, "utf8");
+    await fs14.rename(tmp, filePath);
   }
   async function mutate(fn2) {
     const result = await atomicMutateJson(
@@ -41472,8 +41827,8 @@ function createLockfileStore(opts) {
     const final = LockfileSchema.parse(result);
     const body = serialize(final);
     const tmp = `${filePath}.tmp.${process.pid}.${Date.now()}`;
-    await fs13.writeFile(tmp, body, "utf8");
-    await fs13.rename(tmp, filePath);
+    await fs14.writeFile(tmp, body, "utf8");
+    await fs14.rename(tmp, filePath);
     return final;
   }
   return { path: filePath, read, write, mutate };
@@ -41481,11 +41836,11 @@ function createLockfileStore(opts) {
 
 // src/library/local-store.ts
 init_cjs_shims();
-var fs14 = __toESM(require("fs/promises"), 1);
+var fs15 = __toESM(require("fs/promises"), 1);
 var os = __toESM(require("os"), 1);
-var path12 = __toESM(require("path"), 1);
+var path13 = __toESM(require("path"), 1);
 init_zod();
-init_src();
+init_src2();
 var SHA256_BASE642 = /^sha256-[A-Za-z0-9+/=]+$/;
 var SEMVER2 = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 var ISO_86012 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
@@ -41518,21 +41873,21 @@ var LocalStoreError = class extends Error {
   }
 };
 async function copyTree(src, dest) {
-  await fs14.mkdir(dest, { recursive: true });
-  const entries = await fs14.readdir(src, { withFileTypes: true });
+  await fs15.mkdir(dest, { recursive: true });
+  const entries = await fs15.readdir(src, { withFileTypes: true });
   for (const e of entries) {
-    const sp = path12.join(src, e.name);
-    const dp = path12.join(dest, e.name);
+    const sp = path13.join(src, e.name);
+    const dp = path13.join(dest, e.name);
     if (e.isDirectory()) {
       await copyTree(sp, dp);
     } else if (e.isFile()) {
-      await fs14.copyFile(sp, dp);
+      await fs15.copyFile(sp, dp);
     }
   }
 }
 async function pathExists(p2) {
   try {
-    await fs14.access(p2);
+    await fs15.access(p2);
     return true;
   } catch {
     return false;
@@ -41550,18 +41905,18 @@ function splitPackagePath(packageName) {
 }
 function createLocalStore(opts = {}) {
   const home = opts.homeDir ?? os.homedir();
-  const root = path12.join(home, ".manta", "library");
-  const stagingRoot = path12.join(root, ".staging");
-  const indexPath = path12.join(root, "index.json");
+  const root = path13.join(home, ".manta", "library");
+  const stagingRoot = path13.join(root, ".staging");
+  const indexPath = path13.join(root, "index.json");
   function pathFor(packageName, version2) {
-    return path12.join(root, ...splitPackagePath(packageName), version2);
+    return path13.join(root, ...splitPackagePath(packageName), version2);
   }
   async function isInstalled(packageName, version2) {
     return pathExists(pathFor(packageName, version2));
   }
   async function stage(stageOpts) {
-    await fs14.mkdir(stagingRoot, { recursive: true });
-    const stagingDir = await fs14.mkdtemp(path12.join(stagingRoot, "pkg-"));
+    await fs15.mkdir(stagingRoot, { recursive: true });
+    const stagingDir = await fs15.mkdtemp(path13.join(stagingRoot, "pkg-"));
     await copyTree(stageOpts.unpackedTarballDir, stagingDir);
     let settled = false;
     const commit = async ({ packageName, version: version2 }) => {
@@ -41574,14 +41929,14 @@ function createLocalStore(opts = {}) {
           path: finalDir
         });
       }
-      await fs14.mkdir(path12.dirname(finalDir), { recursive: true });
-      await fs14.rename(stagingDir, finalDir);
+      await fs15.mkdir(path13.dirname(finalDir), { recursive: true });
+      await fs15.rename(stagingDir, finalDir);
       settled = true;
       return { finalDir };
     };
     const discard = async () => {
       if (settled) return;
-      await fs14.rm(stagingDir, { recursive: true, force: true });
+      await fs15.rm(stagingDir, { recursive: true, force: true });
       settled = true;
     };
     return { stagingDir, commit, discard };
@@ -41637,20 +41992,20 @@ function createLocalStore(opts = {}) {
 
 // src/runtime.ts
 async function createRuntime(opts) {
-  const repoRoot = path13.resolve(opts.repoRoot);
+  const repoRoot = path14.resolve(opts.repoRoot);
   try {
-    await fs15.access(path13.join(repoRoot, ".git"));
+    await fs16.access(path14.join(repoRoot, ".git"));
   } catch (cause) {
     throw new CliError(`not a git repo root: ${repoRoot}`, {
       kind: "invalid_input",
       cause
     });
   }
-  const stateDir = path13.join(repoRoot, ".manta", "state");
-  await fs15.mkdir(path13.join(stateDir, "contracts"), { recursive: true });
-  await fs15.mkdir(path13.join(stateDir, "casts"), { recursive: true });
-  await fs15.mkdir(path13.join(stateDir, ".locks"), { recursive: true });
-  await fs15.mkdir(path13.join(stateDir, "timelines"), { recursive: true });
+  const stateDir = path14.join(repoRoot, ".manta", "state");
+  await fs16.mkdir(path14.join(stateDir, "contracts"), { recursive: true });
+  await fs16.mkdir(path14.join(stateDir, "casts"), { recursive: true });
+  await fs16.mkdir(path14.join(stateDir, ".locks"), { recursive: true });
+  await fs16.mkdir(path14.join(stateDir, "timelines"), { recursive: true });
   const thresholds = opts.thresholdOverrides ? mergeThresholds(opts.thresholdOverrides) : defaultThresholds;
   const clock = systemClock;
   const paths = busPaths(repoRoot);
@@ -41710,207 +42065,10 @@ init_cjs_shims();
 
 // src/spawner/clone-spawner.ts
 init_cjs_shims();
-var fs19 = __toESM(require("fs/promises"), 1);
-var path20 = __toESM(require("path"), 1);
+var fs20 = __toESM(require("fs/promises"), 1);
+var path21 = __toESM(require("path"), 1);
 init_execa();
-
-// ../manta-snapshot/src/index.ts
-init_cjs_shims();
-
-// ../manta-snapshot/src/capture.ts
-init_cjs_shims();
-
-// ../manta-snapshot/src/version.ts
-init_cjs_shims();
-var CURRENT_SCHEMA_VERSION = 1;
-
-// ../manta-snapshot/src/capture.ts
-function captureState(input) {
-  const sessionMode = input.sessionMode ?? "batch";
-  return {
-    version: CURRENT_SCHEMA_VERSION,
-    castId: input.castId,
-    parentSessionId: input.parentSessionId,
-    resumeEnabled: input.resumeEnabled ?? false,
-    parentPid: input.parentPid,
-    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-    taskContract: {
-      ...input.taskContract,
-      sessionMode: input.taskContract.sessionMode ?? sessionMode
-    },
-    recentMessages: input.recentMessages,
-    activeTodos: input.activeTodos,
-    openFiles: input.openFiles,
-    parentWorktree: input.parentWorktree,
-    cloneWorktree: input.cloneWorktree,
-    mode: input.taskContract.mode,
-    budget: input.budget,
-    ttlSeconds: input.ttlSeconds,
-    siblingCloneIds: input.siblingCloneIds,
-    sessionMode,
-    ...input.sessionId != null ? { sessionId: input.sessionId } : {}
-  };
-}
-
-// ../manta-snapshot/src/serialize.ts
-init_cjs_shims();
-var import_promises3 = require("fs/promises");
-var import_node_path4 = require("path");
-
-// ../manta-snapshot/src/schema.ts
-init_cjs_shims();
-init_zod();
-var ModeSchema2 = external_exports.enum([
-  "recon-swarm",
-  "forking-realities",
-  "pair-programming",
-  "test-storm",
-  "bug-hunt",
-  "refactor-wave",
-  "documentation-chase",
-  "phantom-lance",
-  "council",
-  "decoy"
-]);
-var ScopeSchema2 = external_exports.object({
-  allowedPaths: external_exports.array(external_exports.string().min(1)).min(1),
-  forbiddenPaths: external_exports.array(external_exports.string().min(1)),
-  maxFilesChanged: external_exports.number().int().nonnegative()
-});
-var SessionModeSchema = external_exports.enum(["batch", "daemon"]);
-var TaskContractSchema2 = external_exports.object({
-  cloneId: external_exports.string().min(1),
-  mode: ModeSchema2,
-  task: external_exports.string().min(1),
-  scope: ScopeSchema2,
-  approachHint: external_exports.string().nullable(),
-  siblingClones: external_exports.array(external_exports.string().min(1)),
-  deadlineSeconds: external_exports.number().int().positive(),
-  sessionMode: SessionModeSchema.default("batch")
-});
-var TodoSchema = external_exports.object({
-  id: external_exports.string().min(1),
-  subject: external_exports.string().min(1),
-  status: external_exports.enum(["pending", "in_progress", "completed"])
-});
-var MessageSchema = external_exports.object({
-  role: external_exports.enum(["user", "assistant", "tool", "system"]),
-  content: external_exports.string(),
-  timestamp: external_exports.string().datetime()
-});
-var OpenFileSchema = external_exports.object({
-  path: external_exports.string().min(1),
-  reason: external_exports.string().min(1)
-});
-var BudgetSchema = external_exports.object({
-  tokensTotal: external_exports.number().int().nonnegative(),
-  tokensUsed: external_exports.number().int().nonnegative(),
-  tokensEstimatedTotal: external_exports.number().nonnegative(),
-  tokensEstimatedUsed: external_exports.number().nonnegative()
-});
-var SnapshotSchema = external_exports.object({
-  version: external_exports.literal(CURRENT_SCHEMA_VERSION),
-  castId: external_exports.string().min(1),
-  // The REAL Claude Code session uuid of the parent (so a clone can resume
-  // the parent's transcript — RB1/bug #56), or `null` when no parent session
-  // is known. Historically this held the castId, which is the WRONG kind of
-  // value (a cast id, not a session id); that conflation was bug #56.
-  parentSessionId: external_exports.string().min(1).nullable(),
-  // Whether the clone should boot as a continuation of the parent's
-  // transcript. Defaults to false (today's empty-context behaviour). The
-  // refine below makes `resumeEnabled === true` imply a non-null
-  // parentSessionId — we never resume without a real session id.
-  resumeEnabled: external_exports.boolean().default(false),
-  parentPid: external_exports.number().int().positive(),
-  createdAt: external_exports.string().datetime(),
-  taskContract: TaskContractSchema2,
-  recentMessages: external_exports.array(MessageSchema),
-  activeTodos: external_exports.array(TodoSchema),
-  openFiles: external_exports.array(OpenFileSchema),
-  parentWorktree: external_exports.string().min(1),
-  cloneWorktree: external_exports.string().min(1),
-  mode: ModeSchema2,
-  budget: BudgetSchema,
-  ttlSeconds: external_exports.number().int().positive(),
-  siblingCloneIds: external_exports.array(external_exports.string().min(1)),
-  sessionMode: SessionModeSchema.default("batch"),
-  sessionId: external_exports.string().min(1).optional()
-}).refine((s3) => s3.mode === s3.taskContract.mode, {
-  message: "snapshot.mode must equal snapshot.taskContract.mode",
-  path: ["mode"]
-}).refine((s3) => !(s3.resumeEnabled && s3.parentSessionId === null), {
-  message: "resumeEnabled requires a non-null parentSessionId (never resume without a real session id)",
-  path: ["resumeEnabled"]
-});
-
-// ../manta-snapshot/src/errors.ts
-init_cjs_shims();
-var SnapshotValidationError = class extends Error {
-  name = "SnapshotValidationError";
-  issues;
-  constructor(message, issues, cause) {
-    super(message, cause !== void 0 ? { cause } : void 0);
-    this.issues = issues;
-  }
-};
-var SnapshotIOError = class extends Error {
-  name = "SnapshotIOError";
-  constructor(message, cause) {
-    super(message, cause !== void 0 ? { cause } : void 0);
-  }
-};
-
-// ../manta-snapshot/src/serialize.ts
-async function serializeSnapshot(snapshot, destPath) {
-  const result = SnapshotSchema.safeParse(snapshot);
-  if (!result.success) {
-    throw new SnapshotValidationError(
-      "Snapshot failed validation before serialization",
-      result.error.issues
-    );
-  }
-  const dir = (0, import_node_path4.dirname)(destPath);
-  try {
-    await (0, import_promises3.mkdir)(dir, { recursive: true });
-  } catch (cause) {
-    throw new SnapshotIOError(`Cannot create snapshot directory: ${dir}`, cause);
-  }
-  const payload = JSON.stringify(result.data, null, 2);
-  try {
-    await (0, import_promises3.writeFile)(destPath, payload, { encoding: "utf-8", flag: "w" });
-  } catch (cause) {
-    throw new SnapshotIOError(`Cannot write snapshot to: ${destPath}`, cause);
-  }
-}
-
-// ../manta-snapshot/src/deserialize.ts
-init_cjs_shims();
-var import_promises4 = require("fs/promises");
-
-// ../manta-snapshot/src/distill.ts
-init_cjs_shims();
-var import_node_path5 = require("path");
-
-// ../manta-snapshot/src/sanitized-schema.ts
-init_cjs_shims();
-init_zod();
-var SanitizedSnapshotSchema = external_exports.object({
-  version: external_exports.literal(CURRENT_SCHEMA_VERSION),
-  castId: external_exports.string().min(1),
-  createdAt: external_exports.string().datetime(),
-  // taskContract is sanitized separately (Task 1.4); the snapshot sanitizer
-  // keeps it verbatim and the command swaps in the sanitized contract.
-  taskContract: TaskContractSchema2,
-  activeTodos: external_exports.array(TodoSchema),
-  openFiles: external_exports.array(OpenFileSchema),
-  parentWorktree: external_exports.literal("<worktree>"),
-  cloneWorktree: external_exports.string().regex(/^<worktree>\/clone-[^/]+$/),
-  mode: ModeSchema2,
-  ttlSeconds: external_exports.number().int().positive(),
-  siblingCloneIds: external_exports.array(external_exports.string().min(1)),
-  sessionMode: SessionModeSchema,
-  resumeEnabled: external_exports.boolean()
-}).strict();
+init_src();
 
 // src/spawner/priming.ts
 init_cjs_shims();
@@ -42050,22 +42208,22 @@ Proceed per the startup sequence in your system prompt.`;
 
 // src/spawner/heartbeat-hook.ts
 init_cjs_shims();
-var fs16 = __toESM(require("fs/promises"), 1);
-var path16 = __toESM(require("path"), 1);
+var fs17 = __toESM(require("fs/promises"), 1);
+var path17 = __toESM(require("path"), 1);
 var import_node_module = require("module");
-init_src();
+init_src2();
 var require_ = (0, import_node_module.createRequire)(importMetaUrl);
 var PROPER_LOCKFILE_PATH = require_.resolve("proper-lockfile");
 var installedWorktrees = /* @__PURE__ */ new Set();
 async function installHeartbeatHook(worktree, repoRoot, cloneId) {
   if (installedWorktrees.has(worktree)) return;
-  const claudeDir = path16.join(worktree, ".claude");
-  await fs16.mkdir(claudeDir, { recursive: true });
+  const claudeDir = path17.join(worktree, ".claude");
+  await fs17.mkdir(claudeDir, { recursive: true });
   const registryPath = busPaths(repoRoot).registry;
   const touchScript = buildTouchScript(registryPath, cloneId);
-  const scriptPath = path16.join(worktree, ".manta", "heartbeat-touch.cjs");
-  await fs16.mkdir(path16.dirname(scriptPath), { recursive: true });
-  await fs16.writeFile(scriptPath, touchScript, "utf8");
+  const scriptPath = path17.join(worktree, ".manta", "heartbeat-touch.cjs");
+  await fs17.mkdir(path17.dirname(scriptPath), { recursive: true });
+  await fs17.writeFile(scriptPath, touchScript, "utf8");
   const hookEntry = {
     matcher: "",
     hooks: [
@@ -42076,10 +42234,10 @@ async function installHeartbeatHook(worktree, repoRoot, cloneId) {
       }
     ]
   };
-  const settingsPath = path16.join(claudeDir, "settings.local.json");
+  const settingsPath = path17.join(claudeDir, "settings.local.json");
   let settings = {};
   try {
-    const raw = await fs16.readFile(settingsPath, "utf8");
+    const raw = await fs17.readFile(settingsPath, "utf8");
     settings = JSON.parse(raw);
   } catch {
   }
@@ -42087,7 +42245,7 @@ async function installHeartbeatHook(worktree, repoRoot, cloneId) {
   hooks.PreToolUse = [hookEntry];
   hooks.PostToolUse = [hookEntry];
   settings.hooks = hooks;
-  await fs16.writeFile(settingsPath, JSON.stringify(settings, null, 2), "utf8");
+  await fs17.writeFile(settingsPath, JSON.stringify(settings, null, 2), "utf8");
   installedWorktrees.add(worktree);
 }
 function buildTouchScript(registryPath, cloneId) {
@@ -42140,8 +42298,8 @@ run().catch(() => { /* best-effort: missing one heartbeat is fine */ });
 
 // src/spawner/git-lock-hook-installer.ts
 init_cjs_shims();
-var fs17 = __toESM(require("fs/promises"), 1);
-var path17 = __toESM(require("path"), 1);
+var fs18 = __toESM(require("fs/promises"), 1);
+var path18 = __toESM(require("path"), 1);
 
 // src/hooks/git-lock-hook.ts
 init_cjs_shims();
@@ -42217,11 +42375,11 @@ process.stdin.on('end', () => {
 var installedGitLockWorktrees = /* @__PURE__ */ new Set();
 async function installGitLockHook(worktree, locksPath, cloneId) {
   if (installedGitLockWorktrees.has(worktree)) return;
-  const claudeDir = path17.join(worktree, ".claude");
-  await fs17.mkdir(claudeDir, { recursive: true });
-  const scriptPath = path17.join(worktree, ".manta", "git-lock-hook.cjs");
-  await fs17.mkdir(path17.dirname(scriptPath), { recursive: true });
-  await fs17.writeFile(scriptPath, buildGitLockHookScript(locksPath, cloneId), "utf8");
+  const claudeDir = path18.join(worktree, ".claude");
+  await fs18.mkdir(claudeDir, { recursive: true });
+  const scriptPath = path18.join(worktree, ".manta", "git-lock-hook.cjs");
+  await fs18.mkdir(path18.dirname(scriptPath), { recursive: true });
+  await fs18.writeFile(scriptPath, buildGitLockHookScript(locksPath, cloneId), "utf8");
   const hookEntry = {
     matcher: "Bash",
     hooks: [
@@ -42232,10 +42390,10 @@ async function installGitLockHook(worktree, locksPath, cloneId) {
       }
     ]
   };
-  const settingsPath = path17.join(claudeDir, "settings.local.json");
+  const settingsPath = path18.join(claudeDir, "settings.local.json");
   let settings = {};
   try {
-    const raw = await fs17.readFile(settingsPath, "utf8");
+    const raw = await fs18.readFile(settingsPath, "utf8");
     settings = JSON.parse(raw);
   } catch {
   }
@@ -42244,18 +42402,18 @@ async function installGitLockHook(worktree, locksPath, cloneId) {
   preToolUse.push(hookEntry);
   hooks.PreToolUse = preToolUse;
   settings.hooks = hooks;
-  await fs17.writeFile(settingsPath, JSON.stringify(settings, null, 2), "utf8");
+  await fs18.writeFile(settingsPath, JSON.stringify(settings, null, 2), "utf8");
   installedGitLockWorktrees.add(worktree);
 }
 
 // src/spawner/scope-guard-hook-installer.ts
 init_cjs_shims();
-var fs18 = __toESM(require("fs/promises"), 1);
-var path19 = __toESM(require("path"), 1);
+var fs19 = __toESM(require("fs/promises"), 1);
+var path20 = __toESM(require("path"), 1);
 
 // src/spawner/scope-guard-hook.ts
 init_cjs_shims();
-var path18 = __toESM(require("path"), 1);
+var path19 = __toESM(require("path"), 1);
 var ROOT_ALLOWLIST = ["last-gasp-report.md"];
 function buildScopeGuardHookScript(opts) {
   return `#!/usr/bin/env node
@@ -42469,11 +42627,11 @@ process.stdin.on('end', () => {
 var installedScopeGuardWorktrees = /* @__PURE__ */ new Set();
 async function installScopeGuardHook(worktree, opts) {
   if (installedScopeGuardWorktrees.has(worktree)) return;
-  const claudeDir = path19.join(worktree, ".claude");
-  await fs18.mkdir(claudeDir, { recursive: true });
-  const scriptPath = path19.join(worktree, ".manta", "scope-guard-hook.cjs");
-  await fs18.mkdir(path19.dirname(scriptPath), { recursive: true });
-  await fs18.writeFile(
+  const claudeDir = path20.join(worktree, ".claude");
+  await fs19.mkdir(claudeDir, { recursive: true });
+  const scriptPath = path20.join(worktree, ".manta", "scope-guard-hook.cjs");
+  await fs19.mkdir(path20.dirname(scriptPath), { recursive: true });
+  await fs19.writeFile(
     scriptPath,
     buildScopeGuardHookScript({
       worktree,
@@ -42493,10 +42651,10 @@ async function installScopeGuardHook(worktree, opts) {
       }
     ]
   };
-  const settingsPath = path19.join(claudeDir, "settings.local.json");
+  const settingsPath = path20.join(claudeDir, "settings.local.json");
   let settings = {};
   try {
-    const raw = await fs18.readFile(settingsPath, "utf8");
+    const raw = await fs19.readFile(settingsPath, "utf8");
     settings = JSON.parse(raw);
   } catch {
   }
@@ -42505,7 +42663,7 @@ async function installScopeGuardHook(worktree, opts) {
   preToolUse.push(hookEntry);
   hooks.PreToolUse = preToolUse;
   settings.hooks = hooks;
-  await fs18.writeFile(settingsPath, JSON.stringify(settings, null, 2), "utf8");
+  await fs19.writeFile(settingsPath, JSON.stringify(settings, null, 2), "utf8");
   installedScopeGuardWorktrees.add(worktree);
 }
 
@@ -42521,9 +42679,9 @@ async function spawnClone(opts) {
   if (!SAFE_KEY.test(cloneId)) {
     throw new CliError(`unsafe clone_id: ${cloneId}`, { kind: "invalid_input" });
   }
-  const dir = path20.join(opts.repoRoot, ".manta", "snapshots", castId);
-  await fs19.mkdir(dir, { recursive: true });
-  const snapshotPath = path20.join(dir, `${cloneId}.snapshot.json`);
+  const dir = path21.join(opts.repoRoot, ".manta", "snapshots", castId);
+  await fs20.mkdir(dir, { recursive: true });
+  const snapshotPath = path21.join(dir, `${cloneId}.snapshot.json`);
   await serializeSnapshot(opts.snapshot, snapshotPath);
   try {
     await opts.registry.register({
@@ -42561,7 +42719,7 @@ async function spawnClone(opts) {
     forbiddenPaths: opts.snapshot.taskContract.scope.forbiddenPaths
   });
   if (opts.castMode === "test-storm") {
-    const locksPath = path20.join(opts.repoRoot, ".manta", "state", "locks.json");
+    const locksPath = path21.join(opts.repoRoot, ".manta", "state", "locks.json");
     await installGitLockHook(opts.worktree, locksPath, cloneId);
   }
   const proc = opts.runner.run({
@@ -42692,10 +42850,10 @@ function runClaudeResume(opts) {
 
 // src/spawner/session-fork.ts
 init_cjs_shims();
-var fs20 = __toESM(require("fs/promises"), 1);
+var fs21 = __toESM(require("fs/promises"), 1);
 var import_node_fs3 = require("fs");
 var os3 = __toESM(require("os"), 1);
-var path21 = __toESM(require("path"), 1);
+var path22 = __toESM(require("path"), 1);
 var import_node_crypto2 = require("crypto");
 function mangle(cwd) {
   let resolved;
@@ -42708,9 +42866,9 @@ function mangle(cwd) {
 }
 var DEFAULT_THRESHOLD_BYTES = 2e6;
 async function forkParentSession(args) {
-  const claudeHome = args.claudeHome ?? path21.join(os3.homedir(), ".claude");
+  const claudeHome = args.claudeHome ?? path22.join(os3.homedir(), ".claude");
   const thresholdBytes = args.thresholdBytes ?? DEFAULT_THRESHOLD_BYTES;
-  const srcPath = path21.join(
+  const srcPath = path22.join(
     claudeHome,
     "projects",
     mangle(args.parentCwd),
@@ -42718,7 +42876,7 @@ async function forkParentSession(args) {
   );
   let size;
   try {
-    size = (await fs20.stat(srcPath)).size;
+    size = (await fs21.stat(srcPath)).size;
   } catch {
     return { skipped: "not_found" };
   }
@@ -42726,24 +42884,24 @@ async function forkParentSession(args) {
     return { skipped: "over_threshold" };
   }
   const forkedSessionId = (0, import_node_crypto2.randomUUID)();
-  const destDir = path21.join(claudeHome, "projects", mangle(args.cloneCwd));
-  await fs20.mkdir(destDir, { recursive: true });
-  const destPath = path21.join(destDir, `${forkedSessionId}.jsonl`);
-  await fs20.copyFile(srcPath, destPath);
+  const destDir = path22.join(claudeHome, "projects", mangle(args.cloneCwd));
+  await fs21.mkdir(destDir, { recursive: true });
+  const destPath = path22.join(destDir, `${forkedSessionId}.jsonl`);
+  await fs21.copyFile(srcPath, destPath);
   return { forkedSessionId };
 }
 
 // src/spawner/worktree.ts
 init_cjs_shims();
-var fs21 = __toESM(require("fs"), 1);
-var path22 = __toESM(require("path"), 1);
+var fs22 = __toESM(require("fs"), 1);
+var path23 = __toESM(require("path"), 1);
 init_execa();
 var SAFE_NAME = /^[A-Za-z0-9._-]+$/;
 function cloneWorktreeName(castId, cloneId) {
   return `clone-${castId}-${cloneId}`;
 }
 function cloneWorktreePath(repoRoot, castId, cloneId) {
-  return path22.join(repoRoot, ".manta", "worktrees", cloneWorktreeName(castId, cloneId));
+  return path23.join(repoRoot, ".manta", "worktrees", cloneWorktreeName(castId, cloneId));
 }
 async function worktreeHasUncommittedChanges(wtPath) {
   try {
@@ -42757,8 +42915,8 @@ async function addWorktree(opts) {
   if (!SAFE_NAME.test(opts.name)) {
     throw new Error(`unsafe worktree name: ${opts.name}`);
   }
-  const wtPath = path22.join(opts.repoRoot, ".manta", "worktrees", opts.name);
-  if (fs21.existsSync(wtPath)) {
+  const wtPath = path23.join(opts.repoRoot, ".manta", "worktrees", opts.name);
+  if (fs22.existsSync(wtPath)) {
     if (await worktreeHasUncommittedChanges(wtPath)) {
       throw new Error(
         `refusing to reuse worktree ${wtPath}: it has uncommitted changes from a previous clone (orphan). Inspect/commit or remove it manually, then retry \u2014 letter reuse must never clobber unsaved work (bug #64).`
@@ -42767,7 +42925,7 @@ async function addWorktree(opts) {
     try {
       await execa("git", ["worktree", "remove", "--force", wtPath], { cwd: opts.repoRoot });
     } catch {
-      await fs21.promises.rm(wtPath, { recursive: true, force: true });
+      await fs22.promises.rm(wtPath, { recursive: true, force: true });
     }
     await execa("git", ["worktree", "prune"], { cwd: opts.repoRoot });
   }
@@ -42807,6 +42965,7 @@ async function listWorktrees(opts) {
 
 // src/spawner/snapshot-builder.ts
 init_cjs_shims();
+init_src();
 function buildCloneSnapshot(req) {
   if (req.tokenEstimate <= 0) {
     throw new CliError(`invalid token estimate for clone ${req.cloneId}: must be > 0`, {
@@ -42941,7 +43100,7 @@ async function verifyMantaBusRegistered(opts = {}) {
 }
 
 // src/commands/cast.ts
-init_src2();
+init_src3();
 var import_node_path8 = require("path");
 var import_node_crypto3 = require("crypto");
 
@@ -43225,9 +43384,9 @@ function normalizeWeights(weights) {
 
 // src/config/budget-config.ts
 init_cjs_shims();
-var fs22 = __toESM(require("fs/promises"), 1);
-var path23 = __toESM(require("path"), 1);
-init_src();
+var fs23 = __toESM(require("fs/promises"), 1);
+var path24 = __toESM(require("path"), 1);
+init_src2();
 var DEFAULT_TOKEN_ESTIMATES = {
   "recon-swarm": 15e4,
   "pair-programming": 15e4,
@@ -43263,10 +43422,10 @@ var BUDGET_DEFAULTS = {
   aghsUnlocked: []
 };
 async function loadBudgetConfig(repoRoot) {
-  const configPath = path23.join(repoRoot, ".manta", "config", "budget.json");
+  const configPath = path24.join(repoRoot, ".manta", "config", "budget.json");
   let raw;
   try {
-    const content = await fs22.readFile(configPath, "utf8");
+    const content = await fs23.readFile(configPath, "utf8");
     raw = JSON.parse(content);
   } catch {
     return { ...BUDGET_DEFAULTS, tokenEstimates: { ...DEFAULT_TOKEN_ESTIMATES } };
@@ -43350,7 +43509,7 @@ function assertAghsUnlocked(mode, unlocked) {
 
 // src/budget/pre-spawn-gate.ts
 init_cjs_shims();
-init_src();
+init_src2();
 
 // src/budget/cost-estimator.ts
 init_cjs_shims();
@@ -43979,21 +44138,21 @@ function buildCompatErrorMessage(ctx) {
 
 // src/library/integrity.ts
 init_cjs_shims();
-var fs24 = __toESM(require("fs/promises"), 1);
+var fs25 = __toESM(require("fs/promises"), 1);
 
 // src/library/dir-digest.ts
 init_cjs_shims();
 var crypto2 = __toESM(require("crypto"), 1);
-var fs23 = __toESM(require("fs/promises"), 1);
-var path24 = __toESM(require("path"), 1);
+var fs24 = __toESM(require("fs/promises"), 1);
+var path25 = __toESM(require("path"), 1);
 async function walkFiles(root, current, acc) {
-  const entries = await fs23.readdir(current, { withFileTypes: true });
+  const entries = await fs24.readdir(current, { withFileTypes: true });
   for (const e of entries) {
-    const full = path24.join(current, e.name);
+    const full = path25.join(current, e.name);
     if (e.isDirectory()) {
       await walkFiles(root, full, acc);
     } else if (e.isFile()) {
-      acc.push(path24.relative(root, full).split(path24.sep).join("/"));
+      acc.push(path25.relative(root, full).split(path25.sep).join("/"));
     }
   }
 }
@@ -44003,7 +44162,7 @@ async function computeDirDigest(root) {
   files.sort();
   const lines = [];
   for (const rel of files) {
-    const data = await fs23.readFile(path24.join(root, ...rel.split("/")));
+    const data = await fs24.readFile(path25.join(root, ...rel.split("/")));
     const sha = crypto2.createHash("sha256").update(data).digest("hex");
     lines.push(`${rel}:${sha}`);
   }
@@ -44016,7 +44175,7 @@ async function computeDirDigest(root) {
 var MISSING_INSTALL_SENTINEL = "<missing>";
 async function pathExists2(p2) {
   try {
-    await fs24.access(p2);
+    await fs25.access(p2);
     return true;
   } catch {
     return false;
@@ -44777,7 +44936,7 @@ async function runCastCommand(rt2, opts) {
   }
 }
 async function runMergeAllPipeline(rt2, opts, cloneIds) {
-  const { runMergeAll: runMergeAll2, fsMergeAllWriter: fsMergeAllWriter2, renderMergeAllMarkdown: renderMergeAllMarkdown2 } = await Promise.resolve().then(() => (init_src2(), src_exports));
+  const { runMergeAll: runMergeAll2, fsMergeAllWriter: fsMergeAllWriter2, renderMergeAllMarkdown: renderMergeAllMarkdown2 } = await Promise.resolve().then(() => (init_src3(), src_exports));
   const { execa: execa2 } = await Promise.resolve().then(() => (init_execa(), execa_exports));
   const allWorktrees = await listWorktrees({ repoRoot: rt2.repoRoot });
   const allClones = await rt2.ctx.registry.list();
@@ -44900,6 +45059,18 @@ function renderStatusTable(status) {
       `${pad(c.clone_id, 5)} | ${pad(c.mode, 12)} | ${pad(stateDisplay, 15)} | ${pad(ageStr, 13)} | ${pad(locks, 20)} | ${pad(claims, 20)}`
     );
   }
+  const live = status.clones.filter((c) => c.state !== "DEAD");
+  lines.push("");
+  if (live.length > 0) {
+    const ids = live.map((c) => c.clone_id).join(", ");
+    lines.push(
+      `\u2191 "Clone" is the id. Stop one: \`manta kill <id>\` (e.g. \`manta kill ${live[0].clone_id}\`) \xB7 stop all: \`manta abort\` \xB7 details: \`manta inspect <id>\`  [live: ${ids}]`
+    );
+  } else {
+    lines.push(
+      "All clones settled (DEAD) \u2014 finished casts, safe to ignore. The next cast reuses these slots. (Full reset of Manta in this repo: `manta cleanup`.)"
+    );
+  }
   return lines.join("\n");
 }
 function pad(s3, width) {
@@ -44921,7 +45092,7 @@ async function runStatusCommand(rt2, opts) {
 
 // src/commands/kill.ts
 init_cjs_shims();
-init_src2();
+init_src3();
 async function runKillCommand(rt2, opts) {
   let record2;
   try {
@@ -44956,7 +45127,7 @@ async function runKillCommand(rt2, opts) {
 
 // src/commands/abort.ts
 init_cjs_shims();
-init_src2();
+init_src3();
 var DEFAULT_GRACEFUL_MS2 = 5e3;
 var realKill = (pid, signal) => {
   process.kill(pid, signal);
@@ -45014,13 +45185,13 @@ init_cjs_shims();
 
 // src/spawner/graveyard.ts
 init_cjs_shims();
-var fs25 = __toESM(require("fs/promises"), 1);
-var path25 = __toESM(require("path"), 1);
+var fs26 = __toESM(require("fs/promises"), 1);
+var path26 = __toESM(require("path"), 1);
 init_execa();
 async function moveWorktreeToGraveyard(opts) {
-  const graveyardDir = path25.join(opts.repoRoot, ".manta", "graveyard");
-  const targetDir = path25.join(graveyardDir, `${opts.castId}-${opts.cloneId}`);
-  await fs25.mkdir(graveyardDir, { recursive: true });
+  const graveyardDir = path26.join(opts.repoRoot, ".manta", "graveyard");
+  const targetDir = path26.join(graveyardDir, `${opts.castId}-${opts.cloneId}`);
+  await fs26.mkdir(graveyardDir, { recursive: true });
   await execa("git", ["worktree", "move", opts.worktreePath, targetDir], {
     cwd: opts.repoRoot
   });
@@ -45030,8 +45201,8 @@ async function moveWorktreeToGraveyard(opts) {
     movedAt: Date.now(),
     originalBranch: opts.branch
   };
-  await fs25.writeFile(
-    path25.join(targetDir, "info.json"),
+  await fs26.writeFile(
+    path26.join(targetDir, "info.json"),
     JSON.stringify(info, null, 2),
     "utf-8"
   );
@@ -45044,7 +45215,7 @@ async function sweepOrphanWorktrees(opts) {
   }
   const all = await listWorktrees({ repoRoot: opts.repoRoot });
   const repoRootCanon = await safeRealpath(opts.repoRoot);
-  const mantaPrefix = path25.join(repoRootCanon, ".manta", "worktrees") + path25.sep;
+  const mantaPrefix = path26.join(repoRootCanon, ".manta", "worktrees") + path26.sep;
   const knownCanon = /* @__PURE__ */ new Set();
   for (const p2 of opts.knownPaths) {
     knownCanon.add(await safeRealpath(p2));
@@ -45064,7 +45235,7 @@ async function sweepOrphanWorktrees(opts) {
 }
 async function safeRealpath(p2) {
   try {
-    return await fs25.realpath(p2);
+    return await fs26.realpath(p2);
   } catch {
     return p2;
   }
@@ -45116,7 +45287,7 @@ async function runRecoverCommand(rt2, opts) {
 // src/commands/promote.ts
 init_cjs_shims();
 init_execa();
-init_src();
+init_src2();
 async function runPromoteCommand(rt2, opts) {
   let manifest;
   try {
@@ -45226,7 +45397,7 @@ async function runPromoteCommand(rt2, opts) {
 
 // src/commands/inspect.ts
 init_cjs_shims();
-init_src();
+init_src2();
 
 // src/output/inspect-renderer.ts
 init_cjs_shims();
@@ -45363,7 +45534,7 @@ async function runInspectCommand(rt2, opts) {
 
 // src/commands/tail.ts
 init_cjs_shims();
-init_src();
+init_src2();
 
 // src/output/tail-formatter.ts
 init_cjs_shims();
@@ -45457,8 +45628,8 @@ async function runTailLoop(opts) {
 
 // src/commands/replay.ts
 init_cjs_shims();
-init_src();
 init_src2();
+init_src3();
 async function runReplayCommand(rt2, opts) {
   let timeline;
   try {
@@ -45482,8 +45653,8 @@ async function runReplayCommand(rt2, opts) {
 
 // src/commands/audit.ts
 init_cjs_shims();
-init_src();
 init_src2();
+init_src3();
 async function runAuditCommand(rt2, opts) {
   let log;
   try {
@@ -45632,7 +45803,7 @@ async function runCostCommand(rt2, opts) {
 
 // src/commands/charges.ts
 init_cjs_shims();
-init_src();
+init_src2();
 function stateLabel(s3) {
   if (s3.cooldown_until != null && Date.now() < s3.cooldown_until) return "COOLDOWN";
   if (s3.current_charges < 0) return "OVERDRAFT";
@@ -45693,10 +45864,10 @@ async function runChargesCommand(rt2, opts) {
 
 // src/commands/doctor.ts
 init_cjs_shims();
-var fs26 = __toESM(require("fs/promises"), 1);
-var path26 = __toESM(require("path"), 1);
+var fs27 = __toESM(require("fs/promises"), 1);
+var path27 = __toESM(require("path"), 1);
 init_execa();
-init_src();
+init_src2();
 var MIN_NODE_MAJOR = 20;
 function parseNodeMajor(version2) {
   const m2 = /^v?(\d+)\./.exec(version2.trim());
@@ -45712,14 +45883,14 @@ async function defaultClaudeOnPath() {
   }
 }
 async function defaultIsGitRepo(cwd) {
-  let dir = path26.resolve(cwd);
+  let dir = path27.resolve(cwd);
   for (; ; ) {
     try {
-      await fs26.access(path26.join(dir, ".git"));
+      await fs27.access(path27.join(dir, ".git"));
       return true;
     } catch {
     }
-    const parent = path26.dirname(dir);
+    const parent = path27.dirname(dir);
     if (parent === dir) return false;
     dir = parent;
   }
@@ -45727,7 +45898,7 @@ async function defaultIsGitRepo(cwd) {
 async function defaultReadCharges(cwd) {
   if (!await defaultIsGitRepo(cwd)) return null;
   try {
-    const store = new ChargeStore(busPaths(path26.resolve(cwd)), systemClock);
+    const store = new ChargeStore(busPaths(path27.resolve(cwd)), systemClock);
     return await store.read();
   } catch {
     return null;
@@ -45892,7 +46063,7 @@ async function runRefreshCommand(rt2, opts) {
 init_cjs_shims();
 var import_promises8 = require("fs/promises");
 var import_node_path9 = require("path");
-init_src();
+init_src2();
 function flattenConfig(c) {
   return [
     { key: "max_parallel_clones", display: String(c.maxParallelClones) },
@@ -46116,9 +46287,9 @@ async function runFeedbackCommand(rt2, opts) {
 
 // src/commands/install.ts
 init_cjs_shims();
-var fs30 = __toESM(require("fs/promises"), 1);
+var fs31 = __toESM(require("fs/promises"), 1);
 var os5 = __toESM(require("os"), 1);
-var path29 = __toESM(require("path"), 1);
+var path30 = __toESM(require("path"), 1);
 
 // ../../node_modules/.pnpm/tar@7.5.15/node_modules/tar/dist/esm/index.min.js
 init_cjs_shims();
@@ -48248,7 +48419,7 @@ var Vn = dr && !!Er;
 var $n = 512 * 1024;
 var Xn = Er | mr | ur | pr;
 var cr = !dr && typeof lr == "number" ? lr | mr | ur | pr : null;
-var fs27 = cr !== null ? () => cr : Vn ? (s3) => s3 < $n ? Xn : "w" : () => "w";
+var fs28 = cr !== null ? () => cr : Vn ? (s3) => s3 < $n ? Xn : "w" : () => "w";
 var ds = (s3, t, e) => {
   try {
     return import_node_fs8.default.lchownSync(s3, t, e);
@@ -48630,7 +48801,7 @@ var qt = class extends st {
     return Ir(this.gid, t.gid, this.processGid);
   }
   [bs](t, e) {
-    let i = typeof t.mode == "number" ? t.mode & 4095 : this.fmode, r = new tt(String(t.absolute), { flags: fs27(t.size), mode: i, autoClose: false });
+    let i = typeof t.mode == "number" ? t.mode & 4095 : this.fmode, r = new tt(String(t.absolute), { flags: fs28(t.size), mode: i, autoClose: false });
     r.on("error", (a) => {
       r.fd && import_node_fs7.default.close(r.fd, () => {
       }), r.write = () => true, this[O](a, t), e();
@@ -48840,7 +49011,7 @@ var xe = class extends qt {
       (h || a) && this[O](h || a, t), e();
     }, n;
     try {
-      n = import_node_fs7.default.openSync(String(t.absolute), fs27(t.size), i);
+      n = import_node_fs7.default.openSync(String(t.absolute), fs28(t.size), i);
     } catch (h) {
       return r(h);
     }
@@ -49101,16 +49272,16 @@ function extractHeadings(body) {
 
 // ../manta-skill-validator/src/validate.ts
 init_cjs_shims();
-function validateAgainst(path38, source, schema, requiredSections) {
+function validateAgainst(path39, source, schema, requiredSections) {
   const issues = [];
   const doc = parseDocument(source);
   if (doc.parseError === "missing_frontmatter") {
     issues.push({ severity: "error", code: "missing_frontmatter", message: "no `---` frontmatter fence at top of document" });
-    return { path: path38, ok: false, issues };
+    return { path: path39, ok: false, issues };
   }
   if (doc.parseError === "parse_error") {
     issues.push({ severity: "error", code: "parse_error", message: "frontmatter is not valid YAML" });
-    return { path: path38, ok: false, issues };
+    return { path: path39, ok: false, issues };
   }
   const r = schema.safeParse(doc.frontmatter ?? {});
   if (!r.success) {
@@ -49124,26 +49295,26 @@ function validateAgainst(path38, source, schema, requiredSections) {
       if (field) v2.field = field;
       issues.push(v2);
     }
-    return { path: path38, ok: false, issues };
+    return { path: path39, ok: false, issues };
   }
   for (const required2 of requiredSections) {
     if (!doc.headings.includes(required2)) {
       issues.push({ severity: "error", code: "missing_section", message: `missing required H2 section: "## ${required2}"` });
     }
   }
-  return { path: path38, ok: issues.length === 0, issues };
+  return { path: path39, ok: issues.length === 0, issues };
 }
-function validateSkill(path38, source) {
-  return validateAgainst(path38, source, SkillFrontmatterSchema, REQUIRED_SKILL_SECTIONS);
+function validateSkill(path39, source) {
+  return validateAgainst(path39, source, SkillFrontmatterSchema, REQUIRED_SKILL_SECTIONS);
 }
-function validateCommand(path38, source) {
-  return validateAgainst(path38, source, SlashCommandFrontmatterSchema, REQUIRED_COMMAND_SECTIONS);
+function validateCommand(path39, source) {
+  return validateAgainst(path39, source, SlashCommandFrontmatterSchema, REQUIRED_COMMAND_SECTIONS);
 }
 
 // ../manta-skill-validator/src/walk.ts
 init_cjs_shims();
-var fs28 = __toESM(require("fs/promises"), 1);
-var path27 = __toESM(require("path"), 1);
+var fs29 = __toESM(require("fs/promises"), 1);
+var path28 = __toESM(require("path"), 1);
 
 // ../manta-skill-validator/src/manifest-schema.ts
 init_cjs_shims();
@@ -49326,10 +49497,10 @@ async function walkSkillsAndCommands(repoRoot) {
   return { skills, commands, warnings };
 }
 async function walkSkills(repoRoot, warnings) {
-  const dir = path27.join(repoRoot, "skills");
+  const dir = path28.join(repoRoot, "skills");
   let entries;
   try {
-    entries = await fs28.readdir(dir);
+    entries = await fs29.readdir(dir);
   } catch {
     return [];
   }
@@ -49340,9 +49511,9 @@ async function walkSkills(repoRoot, warnings) {
       warnings.push({ severity: "warning", code: "unsafe_path", message: `skipping unsafe skill directory name: ${e}` });
       continue;
     }
-    const file = path27.join(dir, e, "SKILL.md");
+    const file = path28.join(dir, e, "SKILL.md");
     try {
-      await fs28.access(file);
+      await fs29.access(file);
     } catch {
       continue;
     }
@@ -49351,10 +49522,10 @@ async function walkSkills(repoRoot, warnings) {
   return out;
 }
 async function walkCommands(repoRoot, warnings) {
-  const dir = path27.join(repoRoot, "commands");
+  const dir = path28.join(repoRoot, "commands");
   let entries;
   try {
-    entries = await fs28.readdir(dir);
+    entries = await fs29.readdir(dir);
   } catch {
     return [];
   }
@@ -49365,7 +49536,7 @@ async function walkCommands(repoRoot, warnings) {
       warnings.push({ severity: "warning", code: "unsafe_path", message: `skipping unsafe command file name: ${e}` });
       continue;
     }
-    out.push({ name: e.replace(/\.md$/, ""), filePath: path27.join(dir, e) });
+    out.push({ name: e.replace(/\.md$/, ""), filePath: path28.join(dir, e) });
   }
   return out;
 }
@@ -49373,32 +49544,32 @@ async function validateAll(repoRoot) {
   const walked = await walkSkillsAndCommands(repoRoot);
   const reports = [];
   for (const s3 of walked.skills) {
-    const src = await fs28.readFile(s3.filePath, "utf8");
-    reports.push(validateSkill(path27.relative(repoRoot, s3.filePath), src));
+    const src = await fs29.readFile(s3.filePath, "utf8");
+    reports.push(validateSkill(path28.relative(repoRoot, s3.filePath), src));
   }
   for (const c of walked.commands) {
-    const src = await fs28.readFile(c.filePath, "utf8");
-    reports.push(validateCommand(path27.relative(repoRoot, c.filePath), src));
+    const src = await fs29.readFile(c.filePath, "utf8");
+    reports.push(validateCommand(path28.relative(repoRoot, c.filePath), src));
   }
   const errorCount = reports.reduce((acc, r) => acc + r.issues.filter((i) => i.severity === "error").length, 0);
   return { reports, warnings: walked.warnings, allOk: errorCount === 0, errorCount };
 }
 async function fileExists(p2) {
   try {
-    await fs28.access(p2);
+    await fs29.access(p2);
     return true;
   } catch {
     return false;
   }
 }
 async function validatePackage(packageRoot) {
-  const manifestPath = path27.join(packageRoot, "manta-package.json");
+  const manifestPath = path28.join(packageRoot, "manta-package.json");
   const validationReport = [];
   const crossCheckIssues = [];
   let manifest = null;
   let manifestRaw = null;
   try {
-    manifestRaw = await fs28.readFile(manifestPath, "utf8");
+    manifestRaw = await fs29.readFile(manifestPath, "utf8");
   } catch {
     validationReport.push({
       path: "manta-package.json",
@@ -49470,14 +49641,14 @@ async function validatePackage(packageRoot) {
     }
   }
   for (const mode of manifest.contributes.modes) {
-    const modeJsonPath = path27.join(packageRoot, "modes", mode.name, "mode.json");
+    const modeJsonPath = path28.join(packageRoot, "modes", mode.name, "mode.json");
     if (!await fileExists(modeJsonPath)) {
       crossCheckIssues.push(`manifest declares mode "${mode.name}" but modes/${mode.name}/mode.json was not found on disk`);
       continue;
     }
     let modeRaw;
     try {
-      modeRaw = await fs28.readFile(modeJsonPath, "utf8");
+      modeRaw = await fs29.readFile(modeJsonPath, "utf8");
     } catch (err) {
       crossCheckIssues.push(`modes/${mode.name}/mode.json could not be read: ${String(err)}`);
       continue;
@@ -49499,13 +49670,13 @@ async function validatePackage(packageRoot) {
     }
   }
   for (const tmpl of manifest.contributes.templates) {
-    const tmplPath = path27.join(packageRoot, "templates", tmpl.name);
+    const tmplPath = path28.join(packageRoot, "templates", tmpl.name);
     if (!await fileExists(tmplPath)) {
       crossCheckIssues.push(`manifest declares template "${tmpl.name}" but templates/${tmpl.name} was not found on disk`);
     }
   }
   for (const hook of manifest.contributes.hooks) {
-    const hookPath = path27.join(packageRoot, hook.script);
+    const hookPath = path28.join(packageRoot, hook.script);
     if (!await fileExists(hookPath)) {
       crossCheckIssues.push(
         `manifest declares hook "${hook.event}" with script "${hook.script}" but the file was not found at ${hook.script}`
@@ -49523,8 +49694,8 @@ async function validatePackage(packageRoot) {
 
 // src/library/registry-client.ts
 init_cjs_shims();
-var fs29 = __toESM(require("fs/promises"), 1);
-var path28 = __toESM(require("path"), 1);
+var fs30 = __toESM(require("fs/promises"), 1);
+var path29 = __toESM(require("path"), 1);
 var crypto3 = __toESM(require("crypto"), 1);
 init_execa();
 var RegistryClientError = class extends Error {
@@ -49568,7 +49739,7 @@ function parseSpec(spec) {
   throw new RegistryClientError("unrecognized_spec", `cannot parse spec: ${spec}`, { spec });
 }
 async function sha256Hex(filePath) {
-  const buf = await fs29.readFile(filePath);
+  const buf = await fs30.readFile(filePath);
   return crypto3.createHash("sha256").update(buf).digest("hex");
 }
 function extractNameVersion(parsed) {
@@ -49605,10 +49776,10 @@ async function extractManifestFromTarball(tarballPath) {
   return captured;
 }
 async function readManifestFromDir(dir) {
-  const p2 = path28.join(dir, "manta-package.json");
+  const p2 = path29.join(dir, "manta-package.json");
   let raw;
   try {
-    raw = await fs29.readFile(p2, "utf8");
+    raw = await fs30.readFile(p2, "utf8");
   } catch (cause) {
     throw new RegistryClientError("manifest_missing", `manta-package.json not found in ${dir}`, { dir, cause: String(cause) });
   }
@@ -49625,7 +49796,7 @@ async function readManifestFromDir(dir) {
   return extracted;
 }
 async function packDirToTarball(srcDir, outPath) {
-  const files = await fs29.readdir(srcDir);
+  const files = await fs30.readdir(srcDir);
   await Yn(
     {
       file: outPath,
@@ -49639,10 +49810,10 @@ async function packDirToTarball(srcDir, outPath) {
 }
 function createRegistryClient(opts) {
   async function resolveLocalTgz(spec, parsed, workDir) {
-    const localPath = path28.resolve(parsed.localPath);
-    const destName = path28.basename(localPath);
-    const dest = path28.join(workDir, destName);
-    await fs29.copyFile(localPath, dest);
+    const localPath = path29.resolve(parsed.localPath);
+    const destName = path29.basename(localPath);
+    const dest = path29.join(workDir, destName);
+    await fs30.copyFile(localPath, dest);
     const { name, version: version2 } = await extractManifestFromTarball(dest);
     const sha = await sha256Hex(dest);
     return { spec, kind: "local-tgz", name, version: version2, resolved: localPath, tarballPath: dest, contentSha256Hex: sha };
@@ -49655,14 +49826,14 @@ function createRegistryClient(opts) {
     } catch (cause) {
       throw new RegistryClientError("network_failure", `npm pack failed for ${fetchSpec}`, { cause: String(cause) });
     }
-    const tarballPath = path28.join(workDir, filename);
+    const tarballPath = path29.join(workDir, filename);
     const { name, version: version2 } = await extractManifestFromTarball(tarballPath);
     const sha = await sha256Hex(tarballPath);
-    const resolved = `https://registry.npmjs.org/${name}/-/${path28.basename(filename)}`;
+    const resolved = `https://registry.npmjs.org/${name}/-/${path29.basename(filename)}`;
     return { spec, kind: "npm", name, version: version2, resolved, tarballPath, contentSha256Hex: sha };
   }
   async function resolveGit(spec, parsed, workDir) {
-    const cloneDir = path28.join(workDir, "src");
+    const cloneDir = path29.join(workDir, "src");
     try {
       await opts.runner.gitClone({ url: parsed.gitUrl, ref: parsed.gitRef, dest: cloneDir });
     } catch (cause) {
@@ -49670,7 +49841,7 @@ function createRegistryClient(opts) {
     }
     const { name, version: version2 } = await readManifestFromDir(cloneDir);
     const safeName = name.replace(/[/@]/g, "-").replace(/^-+/, "");
-    const tarballPath = path28.join(workDir, `${safeName}-${version2}.tgz`);
+    const tarballPath = path29.join(workDir, `${safeName}-${version2}.tgz`);
     await packDirToTarball(cloneDir, tarballPath);
     const sha = await sha256Hex(tarballPath);
     return { spec, kind: "git", name, version: version2, resolved: spec, tarballPath, contentSha256Hex: sha };
@@ -49686,8 +49857,8 @@ function createRegistryClient(opts) {
           { spec, kind: parsed.kind }
         );
       }
-      const wd = path28.resolve(options2.workDir);
-      await fs29.mkdir(wd, { recursive: true });
+      const wd = path29.resolve(options2.workDir);
+      await fs30.mkdir(wd, { recursive: true });
       switch (parsed.kind) {
         case "local-tgz":
           return resolveLocalTgz(spec, parsed, wd);
@@ -49745,7 +49916,7 @@ var InstallError = class extends Error {
 };
 async function safeRmRf(p2) {
   try {
-    await fs30.rm(p2, { recursive: true, force: true });
+    await fs31.rm(p2, { recursive: true, force: true });
   } catch {
   }
 }
@@ -49767,10 +49938,10 @@ function hexToIntegrity(hex) {
   return `sha256-${Buffer.from(hex, "hex").toString("base64")}`;
 }
 async function parseManifestSchemaOnly(stagingDir, spec) {
-  const manifestPath = path29.join(stagingDir, "manta-package.json");
+  const manifestPath = path30.join(stagingDir, "manta-package.json");
   let raw;
   try {
-    raw = await fs30.readFile(manifestPath, "utf8");
+    raw = await fs31.readFile(manifestPath, "utf8");
   } catch (cause) {
     throw new InstallError(
       "install_manifest_invalid",
@@ -49800,7 +49971,7 @@ async function parseManifestSchemaOnly(stagingDir, spec) {
   return result.data;
 }
 async function runInstallCommand(rt2, opts) {
-  const workDir = await fs30.mkdtemp(path29.join(os5.tmpdir(), "manta-install-"));
+  const workDir = await fs31.mkdtemp(path30.join(os5.tmpdir(), "manta-install-"));
   try {
     let resolved;
     try {
@@ -49836,18 +50007,18 @@ async function runInstallCommand(rt2, opts) {
         { spec: opts.spec, expected: opts.integrity, actual: computedIntegrity }
       );
     }
-    const unpacked = path29.join(workDir, "unpacked");
-    await fs30.mkdir(unpacked, { recursive: true });
+    const unpacked = path30.join(workDir, "unpacked");
+    await fs31.mkdir(unpacked, { recursive: true });
     await fo({
       file: resolved.tarballPath,
       cwd: unpacked,
       strict: true,
       filter: rejectUnsafeTarEntry
     });
-    const manifestPath = path29.join(unpacked, "manta-package.json");
+    const manifestPath = path30.join(unpacked, "manta-package.json");
     let manifestRaw;
     try {
-      manifestRaw = await fs30.readFile(manifestPath, "utf8");
+      manifestRaw = await fs31.readFile(manifestPath, "utf8");
     } catch {
       throw new InstallError("install_manifest_invalid", "package tarball does not contain manta-package.json at root", {
         spec: opts.spec
@@ -49909,7 +50080,7 @@ async function runInstallCommand(rt2, opts) {
           `[manta] install: --force overwriting existing ${manifest.name}@${manifest.version} at ${finalDirPath}
 `
         );
-        await fs30.rm(finalDirPath, { recursive: true, force: true });
+        await fs31.rm(finalDirPath, { recursive: true, force: true });
       }
       if (manifest.contributes.hooks.length > 0) {
         process.stderr.write(
@@ -50002,7 +50173,7 @@ async function runInstallCommand(rt2, opts) {
 init_cjs_shims();
 init_execa();
 var import_node_url2 = require("url");
-var path30 = __toESM(require("path"), 1);
+var path31 = __toESM(require("path"), 1);
 var BOOTSTRAP_TIMEOUT_MS = 15e3;
 var defaultExec = (args) => (
   // Reason: real `claude` invocation — never exercised in unit tests (they inject
@@ -50010,7 +50181,7 @@ var defaultExec = (args) => (
   /* c8 ignore next */
   execa("claude", args, { reject: false, timeout: BOOTSTRAP_TIMEOUT_MS })
 );
-var defaultServerPathResolver = () => path30.resolve(path30.dirname((0, import_node_url2.fileURLToPath)(importMetaUrl)), "server.cjs");
+var defaultServerPathResolver = () => path31.resolve(path31.dirname((0, import_node_url2.fileURLToPath)(importMetaUrl)), "server.cjs");
 function detailSuffix(result) {
   const detail = (result.stderr || result.stdout || "").trim();
   return detail ? ` (claude said: ${detail})` : "";
@@ -50098,18 +50269,19 @@ function formatBootstrapResult(result) {
 
 // src/commands/share.ts
 init_cjs_shims();
-var fs33 = __toESM(require("fs/promises"), 1);
-var path34 = __toESM(require("path"), 1);
+var fs34 = __toESM(require("fs/promises"), 1);
+var path35 = __toESM(require("path"), 1);
 init_execa();
 init_src();
+init_src2();
 
 // src/share/sanitize-snapshot.ts
 init_cjs_shims();
-var path31 = __toESM(require("path"), 1);
+var path32 = __toESM(require("path"), 1);
 function relativiseToRepo(p2, root) {
-  const rel = path31.relative(root, p2);
-  if (rel === "" || rel.startsWith("..") || path31.isAbsolute(rel)) return null;
-  return rel.split(path31.sep).join("/");
+  const rel = path32.relative(root, p2);
+  if (rel === "" || rel.startsWith("..") || path32.isAbsolute(rel)) return null;
+  return rel.split(path32.sep).join("/");
 }
 function sanitizeSnapshot(s3) {
   const warnings = [];
@@ -50157,7 +50329,7 @@ function sanitizeSnapshot(s3) {
 
 // src/share/sanitize-task-contract.ts
 init_cjs_shims();
-var path32 = __toESM(require("path"), 1);
+var path33 = __toESM(require("path"), 1);
 
 // src/share/secret-scanner.ts
 init_cjs_shims();
@@ -50223,10 +50395,10 @@ var ShareSanitizationError = class extends Error {
 
 // src/share/sanitize-task-contract.ts
 function relPathOrDrop(p2, root) {
-  if (!path32.isAbsolute(p2)) return { rel: p2 };
-  const rel = path32.relative(root, p2);
-  if (rel === "" || rel.startsWith("..") || path32.isAbsolute(rel)) return { drop: true };
-  return { rel: rel.split(path32.sep).join("/") };
+  if (!path33.isAbsolute(p2)) return { rel: p2 };
+  const rel = path33.relative(root, p2);
+  if (rel === "" || rel.startsWith("..") || path33.isAbsolute(rel)) return { drop: true };
+  return { rel: rel.split(path33.sep).join("/") };
 }
 function sanitizePathList(paths, root, rule) {
   const kept = [];
@@ -50572,77 +50744,77 @@ function generateReadme(input) {
 // src/share/bundle-assembler.ts
 init_cjs_shims();
 var crypto4 = __toESM(require("crypto"), 1);
-var fs31 = __toESM(require("fs/promises"), 1);
-var path33 = __toESM(require("path"), 1);
+var fs32 = __toESM(require("fs/promises"), 1);
+var path34 = __toESM(require("path"), 1);
 var CHECKSUM_FILENAME = "checksum.json";
 var MANIFEST_FILENAME = "manta-package.json";
 function sha256Hex2(data) {
   return crypto4.createHash("sha256").update(data).digest("hex");
 }
 async function listFiles(root, current, acc) {
-  const entries = await fs31.readdir(current, { withFileTypes: true });
+  const entries = await fs32.readdir(current, { withFileTypes: true });
   for (const e of entries) {
-    const full = path33.join(current, e.name);
+    const full = path34.join(current, e.name);
     if (e.isDirectory()) {
       await listFiles(root, full, acc);
     } else if (e.isFile()) {
-      acc.push(path33.relative(root, full).split(path33.sep).join("/"));
+      acc.push(path34.relative(root, full).split(path34.sep).join("/"));
     }
   }
 }
 async function writeFileEnsuringDir(filePath, content) {
-  await fs31.mkdir(path33.dirname(filePath), { recursive: true });
-  await fs31.writeFile(filePath, content, "utf8");
+  await fs32.mkdir(path34.dirname(filePath), { recursive: true });
+  await fs32.writeFile(filePath, content, "utf8");
 }
 async function assembleBundle(artifacts, opts) {
-  const unpackedDir = path33.join(opts.outDir, opts.packageBaseName);
-  await fs31.rm(unpackedDir, { recursive: true, force: true });
-  await fs31.mkdir(unpackedDir, { recursive: true });
+  const unpackedDir = path34.join(opts.outDir, opts.packageBaseName);
+  await fs32.rm(unpackedDir, { recursive: true, force: true });
+  await fs32.mkdir(unpackedDir, { recursive: true });
   await writeFileEnsuringDir(
-    path33.join(unpackedDir, MANIFEST_FILENAME),
+    path34.join(unpackedDir, MANIFEST_FILENAME),
     `${JSON.stringify(artifacts.manifest, null, 2)}
 `
   );
-  await writeFileEnsuringDir(path33.join(unpackedDir, "README.md"), artifacts.readme);
-  await writeFileEnsuringDir(path33.join(unpackedDir, "LICENSE"), artifacts.license);
+  await writeFileEnsuringDir(path34.join(unpackedDir, "README.md"), artifacts.readme);
+  await writeFileEnsuringDir(path34.join(unpackedDir, "LICENSE"), artifacts.license);
   await writeFileEnsuringDir(
-    path33.join(unpackedDir, "task-contract.json"),
+    path34.join(unpackedDir, "task-contract.json"),
     `${JSON.stringify(artifacts.taskContract, null, 2)}
 `
   );
   await writeFileEnsuringDir(
-    path33.join(unpackedDir, "snapshot.json"),
+    path34.join(unpackedDir, "snapshot.json"),
     `${JSON.stringify(artifacts.snapshot, null, 2)}
 `
   );
   for (const pm of artifacts.postMortems) {
     await writeFileEnsuringDir(
-      path33.join(unpackedDir, "post-mortems", `${pm.cloneId}.md`),
+      path34.join(unpackedDir, "post-mortems", `${pm.cloneId}.md`),
       pm.markdown
     );
   }
   for (const zk of artifacts.zkNotes) {
-    await writeFileEnsuringDir(path33.join(unpackedDir, "zk-notes", zk.filename), zk.markdown);
+    await writeFileEnsuringDir(path34.join(unpackedDir, "zk-notes", zk.filename), zk.markdown);
   }
-  await writeFileEnsuringDir(path33.join(unpackedDir, "events.jsonl"), artifacts.eventsJsonl);
+  await writeFileEnsuringDir(path34.join(unpackedDir, "events.jsonl"), artifacts.eventsJsonl);
   await writeFileEnsuringDir(
-    path33.join(unpackedDir, "worktree-diff.patch"),
+    path34.join(unpackedDir, "worktree-diff.patch"),
     artifacts.worktreeDiff
   );
   for (const skill of artifacts.skills ?? []) {
-    await writeFileEnsuringDir(path33.join(unpackedDir, "skills", skill.relPath), skill.content);
+    await writeFileEnsuringDir(path34.join(unpackedDir, "skills", skill.relPath), skill.content);
   }
   const fileList = [];
   await listFiles(unpackedDir, unpackedDir, fileList);
   fileList.sort();
   const checksums = {};
   for (const rel of fileList) {
-    const bytes = await fs31.readFile(path33.join(unpackedDir, ...rel.split("/")));
+    const bytes = await fs32.readFile(path34.join(unpackedDir, ...rel.split("/")));
     checksums[rel] = sha256Hex2(bytes);
   }
   const checksumFile = { algorithm: "sha256", files: checksums };
-  await fs31.writeFile(
-    path33.join(unpackedDir, CHECKSUM_FILENAME),
+  await fs32.writeFile(
+    path34.join(unpackedDir, CHECKSUM_FILENAME),
     `${JSON.stringify(checksumFile, null, 2)}
 `,
     "utf8"
@@ -50652,7 +50824,7 @@ async function assembleBundle(artifacts, opts) {
   await listFiles(unpackedDir, unpackedDir, allEntries);
   allEntries.sort();
   const fixedMtime = new Date(artifacts.manifest.castOrigin.bundledAt);
-  const tarballPath = path33.join(opts.outDir, `${opts.packageBaseName}.manta-pkg.tar.gz`);
+  const tarballPath = path34.join(opts.outDir, `${opts.packageBaseName}.manta-pkg.tar.gz`);
   await Yn(
     {
       file: tarballPath,
@@ -50666,13 +50838,13 @@ async function assembleBundle(artifacts, opts) {
   return { tarballPath, unpackedDir, directoryDigest, checksums };
 }
 async function verifyBundleChecksums(unpackedDir) {
-  const raw = await fs31.readFile(path33.join(unpackedDir, CHECKSUM_FILENAME), "utf8");
+  const raw = await fs32.readFile(path34.join(unpackedDir, CHECKSUM_FILENAME), "utf8");
   const parsed = JSON.parse(raw);
   const mismatches = [];
   for (const [rel, expected] of Object.entries(parsed.files)) {
     let actual;
     try {
-      const bytes = await fs31.readFile(path33.join(unpackedDir, ...rel.split("/")));
+      const bytes = await fs32.readFile(path34.join(unpackedDir, ...rel.split("/")));
       actual = sha256Hex2(bytes);
     } catch {
       mismatches.push(rel);
@@ -50686,7 +50858,7 @@ async function verifyBundleChecksums(unpackedDir) {
 
 // src/share/publish-flow.ts
 init_cjs_shims();
-var fs32 = __toESM(require("fs/promises"), 1);
+var fs33 = __toESM(require("fs/promises"), 1);
 
 // src/share/static-scanner.ts
 init_cjs_shims();
@@ -50790,7 +50962,7 @@ async function publishBundle(opts) {
     "This is PUBLIC and PERMANENT \u2014 npm does not allow unpublish after 72h. Confirm?"
   );
   if (!ok2) return { ok: false, reason: "declined", detail: "second confirmation declined" };
-  const stat4 = await fs32.stat(opts.tarballPath);
+  const stat4 = await fs33.stat(opts.tarballPath);
   if (stat4.size > maxBytes) {
     return {
       ok: false,
@@ -50884,7 +51056,7 @@ function defaultDeps() {
 }
 async function readJsonFile(p2) {
   try {
-    return JSON.parse(await fs33.readFile(p2, "utf8"));
+    return JSON.parse(await fs34.readFile(p2, "utf8"));
   } catch {
     return null;
   }
@@ -50903,9 +51075,9 @@ function parseMergeReviewWinner(markdown) {
 }
 async function resolveWinner(rt2, castId, explicitClone) {
   if (explicitClone !== void 0) return explicitClone;
-  const reviewPath = path34.join(rt2.repoRoot, "docs", "merge-reviews", `${castId}.md`);
+  const reviewPath = path35.join(rt2.repoRoot, "docs", "merge-reviews", `${castId}.md`);
   try {
-    const md = await fs33.readFile(reviewPath, "utf8");
+    const md = await fs34.readFile(reviewPath, "utf8");
     const winner = parseMergeReviewWinner(md);
     if (winner !== null) return winner;
   } catch {
@@ -50917,16 +51089,16 @@ async function resolveWinner(rt2, castId, explicitClone) {
   );
 }
 async function findPostMortem(rt2, castId, cloneId) {
-  const dir = path34.join(rt2.repoRoot, "docs", "post-mortems");
+  const dir = path35.join(rt2.repoRoot, "docs", "post-mortems");
   let entries;
   try {
-    entries = await fs33.readdir(dir);
+    entries = await fs34.readdir(dir);
   } catch {
     return null;
   }
   const match = entries.find((f2) => f2.endsWith(`-${castId}-${cloneId}.md`));
   if (match === void 0) return null;
-  return fs33.readFile(path34.join(dir, match), "utf8");
+  return fs34.readFile(path35.join(dir, match), "utf8");
 }
 async function findZkNotes(rt2, cloneId) {
   const events = await rt2.ctx.events.readAll();
@@ -50938,10 +51110,10 @@ async function findZkNotes(rt2, cloneId) {
     }
   }
   if (noteIds.size === 0) return [];
-  const dir = path34.join(rt2.repoRoot, "docs", "zk");
+  const dir = path35.join(rt2.repoRoot, "docs", "zk");
   let entries;
   try {
-    entries = await fs33.readdir(dir);
+    entries = await fs34.readdir(dir);
   } catch {
     return [];
   }
@@ -50949,7 +51121,7 @@ async function findZkNotes(rt2, cloneId) {
   for (const f2 of entries) {
     for (const id of noteIds) {
       if (f2.includes(id) && f2.endsWith(".md")) {
-        out.push({ filename: f2, markdown: await fs33.readFile(path34.join(dir, f2), "utf8") });
+        out.push({ filename: f2, markdown: await fs34.readFile(path35.join(dir, f2), "utf8") });
         break;
       }
     }
@@ -50969,12 +51141,12 @@ async function walkContributes(cloneWorktree) {
     templates: [],
     hooks: []
   };
-  const skillsDir = path34.join(cloneWorktree, "skills");
+  const skillsDir = path35.join(cloneWorktree, "skills");
   try {
-    for (const name of await fs33.readdir(skillsDir)) {
-      const skillMd = path34.join(skillsDir, name, "SKILL.md");
+    for (const name of await fs34.readdir(skillsDir)) {
+      const skillMd = path35.join(skillsDir, name, "SKILL.md");
       try {
-        const md = await fs33.readFile(skillMd, "utf8");
+        const md = await fs34.readFile(skillMd, "utf8");
         const desc = readFrontmatterField(md, "description") ?? `Skill ${name}`;
         contributes.skills.push({ name, description: desc.slice(0, 280) });
       } catch {
@@ -50982,11 +51154,11 @@ async function walkContributes(cloneWorktree) {
     }
   } catch {
   }
-  const modesDir = path34.join(cloneWorktree, "modes");
+  const modesDir = path35.join(cloneWorktree, "modes");
   try {
-    for (const file of await fs33.readdir(modesDir)) {
+    for (const file of await fs34.readdir(modesDir)) {
       if (!file.endsWith(".json")) continue;
-      const parsed = await readJsonFile(path34.join(modesDir, file));
+      const parsed = await readJsonFile(path35.join(modesDir, file));
       const result = LibraryModeJsonSchema.safeParse(parsed);
       if (!result.success) continue;
       const m2 = result.data;
@@ -51007,21 +51179,21 @@ async function walkContributes(cloneWorktree) {
 async function collectSkillFiles(cloneWorktree) {
   const out = [];
   async function walk(rel) {
-    const abs = path34.join(cloneWorktree, rel);
+    const abs = path35.join(cloneWorktree, rel);
     let entries;
     try {
-      entries = await fs33.readdir(abs, { withFileTypes: true });
+      entries = await fs34.readdir(abs, { withFileTypes: true });
     } catch {
       return;
     }
     for (const e of entries) {
-      const childRel = path34.join(rel, e.name);
+      const childRel = path35.join(rel, e.name);
       if (e.isDirectory()) await walk(childRel);
       else if (e.isFile()) {
         out.push({
-          relPath: childRel.split(path34.sep).slice(1).join("/"),
+          relPath: childRel.split(path35.sep).slice(1).join("/"),
           // strip leading "skills/"
-          content: await fs33.readFile(path34.join(cloneWorktree, childRel), "utf8")
+          content: await fs34.readFile(path35.join(cloneWorktree, childRel), "utf8")
         });
       }
     }
@@ -51052,7 +51224,7 @@ async function runShareCommand(rt2, opts) {
   }
   const castManifest = CastManifestSchema.parse(rawCast);
   const winningCloneId = await resolveWinner(rt2, opts.castId, opts.clone);
-  const snapshotPath = path34.join(
+  const snapshotPath = path35.join(
     rt2.repoRoot,
     ".manta",
     "snapshots",
@@ -51251,7 +51423,7 @@ Copyright (c) ${author}
 
 // src/commands/uninstall.ts
 init_cjs_shims();
-var fs34 = __toESM(require("fs/promises"), 1);
+var fs35 = __toESM(require("fs/promises"), 1);
 var EXIT_CODES3 = {
   uninstall_spec_parse_failed: 11,
   uninstall_not_installed: 12,
@@ -51377,7 +51549,7 @@ async function runUninstallCommand(rt2, opts) {
     );
   }
   const installPath = rt2.localStore.pathFor(packageName, entry.version);
-  await fs34.rm(installPath, { recursive: true, force: true });
+  await fs35.rm(installPath, { recursive: true, force: true });
   await rt2.localStore.removeIndexEntry(packageName, entry.version);
   const currentLock = await rt2.lockfile.read();
   if (currentLock !== null && currentLock.packages[packageName] !== void 0) {
@@ -51405,10 +51577,10 @@ async function runUninstallCommand(rt2, opts) {
 
 // src/commands/cleanup.ts
 init_cjs_shims();
-var fs35 = __toESM(require("fs/promises"), 1);
-var path35 = __toESM(require("path"), 1);
+var fs36 = __toESM(require("fs/promises"), 1);
+var path36 = __toESM(require("path"), 1);
 init_execa();
-init_src();
+init_src2();
 var BUS_MCP_TIMEOUT_MS = 15e3;
 var BUS_SERVER_NAME = "manta-bus";
 var defaultMcpExec = (args) => (
@@ -51435,14 +51607,14 @@ var defaultGitOps = {
 };
 async function safeRealpath2(p2) {
   try {
-    return await fs35.realpath(p2);
+    return await fs36.realpath(p2);
   } catch {
     return p2;
   }
 }
 async function pathExists3(p2) {
   try {
-    await fs35.stat(p2);
+    await fs36.stat(p2);
     return true;
   } catch {
     return false;
@@ -51478,7 +51650,7 @@ async function runCleanupCommand(rt2, opts = {}) {
     }
   }
   const repoRootCanon = await safeRealpath2(rt2.repoRoot);
-  const mantaPrefix = path35.join(repoRootCanon, ".manta", "worktrees") + path35.sep;
+  const mantaPrefix = path36.join(repoRootCanon, ".manta", "worktrees") + path36.sep;
   let allWorktrees = [];
   try {
     allWorktrees = await git.listWorktrees({ repoRoot: rt2.repoRoot });
@@ -51540,7 +51712,7 @@ async function runCleanupCommand(rt2, opts = {}) {
       stateCleared = true;
     } else {
       try {
-        await fs35.rm(stateDir, { recursive: true, force: true });
+        await fs36.rm(stateDir, { recursive: true, force: true });
         stateCleared = true;
       } catch (err) {
         warnings.push(`failed to clear ${stateDir}: ${err instanceof Error ? err.message : String(err)}`);
@@ -51592,7 +51764,7 @@ function formatCleanupResult(result) {
 
 // src/commands/library.ts
 init_cjs_shims();
-var fs36 = __toESM(require("fs/promises"), 1);
+var fs37 = __toESM(require("fs/promises"), 1);
 var import_semver2 = __toESM(require_semver2(), 1);
 var EXIT_CODES4 = {
   library_not_installed: 12,
@@ -51737,7 +51909,7 @@ async function runLibraryOutdatedCommand(rt2) {
 }
 async function pathExists4(p2) {
   try {
-    await fs36.access(p2);
+    await fs37.access(p2);
     return true;
   } catch {
     return false;
@@ -51810,18 +51982,18 @@ function createDefaultLibraryNetworkRunner() {
 
 // src/spawner/tasks-file.ts
 init_cjs_shims();
-var fs37 = __toESM(require("fs"), 1);
-var path36 = __toESM(require("path"), 1);
+var fs38 = __toESM(require("fs"), 1);
+var path37 = __toESM(require("path"), 1);
 var import_yaml = __toESM(require_dist2(), 1);
 init_zod();
-init_src();
+init_src2();
 var FileSchema = external_exports.record(CloneAssignmentSchema).refine((rec) => Object.keys(rec).length >= 1, {
   message: "tasks file must contain at least one clone assignment"
 }).refine((rec) => Object.keys(rec).every((k2) => k2.length >= 1), {
   message: "tasks file clone_id keys must be non-empty"
 });
 function parseTasksFile(file) {
-  const ext = path36.extname(file).toLowerCase();
+  const ext = path37.extname(file).toLowerCase();
   if (![".yaml", ".yml", ".json"].includes(ext)) {
     throw new CliError(
       `--tasks file must end in .yaml/.yml/.json (got "${ext || "<no extension>"}")`,
@@ -51830,7 +52002,7 @@ function parseTasksFile(file) {
   }
   let raw;
   try {
-    raw = fs37.readFileSync(file, "utf-8");
+    raw = fs38.readFileSync(file, "utf-8");
   } catch (cause) {
     throw new CliError(`--tasks: cannot read file ${file}`, {
       kind: "invalid_input",
@@ -52480,9 +52652,9 @@ async function main() {
   program2.command("cleanup").description(
     "Remove Manta from this repo: .manta/worktrees/*, manta/cast-* branches, the manta-bus MCP registration, and .manta/state"
   ).option("--dry-run", "show what would be removed without changing anything", false).option("--yes", "perform the removal (without it, cleanup only previews, like --dry-run)", false).option("--json", "emit the result as a single JSON line", false).action(async (options2) => {
-    const repoRoot = path37.resolve(process.cwd());
+    const repoRoot = path38.resolve(process.cwd());
     try {
-      await fs38.access(path37.join(repoRoot, ".git"));
+      await fs39.access(path38.join(repoRoot, ".git"));
     } catch (cause) {
       throw new CliError(
         `not a git repo root: ${repoRoot} \u2014 run \`manta cleanup\` from inside the repo`,
