@@ -1,6 +1,11 @@
-<div align="center">
+<table>
+<tr>
+<td width="42%" align="center">
 
-<img src="docs/assets/manta-header.jpg" alt="Manta — one agent forked into many" width="600">
+<img src="docs/assets/manta-header.jpg" alt="Manta — one agent forked into many" width="100%">
+
+</td>
+<td width="58%" valign="middle">
 
 # ⧉ Manta
 
@@ -16,6 +21,12 @@ Instead of spawning cold, specialized helper agents, Manta makes Claude Code **c
 [![tests](https://img.shields.io/badge/tests-1667%20passing-brightgreen)](#-how-ready-is-it)
 [![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](#-how-ready-is-it)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A2BE2)](#-install)
+
+</td>
+</tr>
+</table>
+
+<div align="center">
 
 [What it is](#what-it-is) · [How it works](#-how-it-works) · [Install](#-install) · [First cast](#-your-first-cast) · [Modes](#-modes) · [CLI](#-cli) · [Status](#-how-ready-is-it)
 
