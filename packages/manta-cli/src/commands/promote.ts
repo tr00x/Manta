@@ -1,4 +1,5 @@
 import { execa } from 'execa';
+import { BusNotFoundError } from '@manta/bus';
 import type { Runtime } from '../runtime.js';
 import type { Reporter } from '../output/reporter.js';
 import type { CommandResult } from './status.js';
@@ -16,9 +17,21 @@ export async function runPromoteCommand(
   rt: Runtime,
   opts: RunPromoteOptions,
 ): Promise<CommandResult> {
-  const manifest = await rt.ctx.casts.read(opts.castId);
-  if (!manifest) {
-    throw new CliError(`cast not found: ${opts.castId}`, { kind: 'not_found' });
+  // `casts.read` THROWS BusNotFoundError on a missing cast (it never resolves
+  // null), so the unknown-castId guard must catch that and convert it to a
+  // clean, typed CLI error — otherwise the internal bus error leaks to the
+  // operator. (A bare `if (!manifest)` here was dead code: read() throws first.)
+  let manifest;
+  try {
+    manifest = await rt.ctx.casts.read(opts.castId);
+  } catch (err) {
+    if (err instanceof BusNotFoundError) {
+      throw new CliError(`cast not found: ${opts.castId}`, {
+        kind: 'not_found',
+        cause: err,
+      });
+    }
+    throw err;
   }
 
   const rosterIds = manifest.clones.map((c) => c.clone_id);
