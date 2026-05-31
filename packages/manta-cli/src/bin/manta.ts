@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import { Command } from 'commander';
 import type { Thresholds } from '@manta/orchestrator';
 import { createRuntime, type Runtime } from '../runtime.js';
@@ -24,6 +26,7 @@ import { runInstallCommand, InstallError } from '../commands/install.js';
 import { runBootstrap, formatBootstrapResult } from '../commands/bootstrap.js';
 import { runShareCommand, ShareError } from '../commands/share.js';
 import { runUninstallCommand, UninstallError } from '../commands/uninstall.js';
+import { runCleanupCommand, formatCleanupResult } from '../commands/cleanup.js';
 import {
   runLibraryListCommand,
   runLibraryShowCommand,
@@ -44,7 +47,7 @@ import {
   parseNonNegativeIntOption,
 } from './option-parsers.js';
 import { createReporter, StderrSink } from '../output/reporter.js';
-import { isCliError } from '../errors.js';
+import { CliError, isCliError } from '../errors.js';
 import { renderTopLevelError } from './error-render.js';
 import type { CommandResult } from '../commands/status.js';
 import type { Mode } from '@manta/snapshot';
@@ -828,6 +831,38 @@ async function main(): Promise<void> {
         }
       },
     );
+
+  program
+    .command('cleanup')
+    .description(
+      'Remove Manta from this repo: .manta/worktrees/*, manta/cast-* branches, the manta-bus MCP registration, and .manta/state',
+    )
+    .option('--dry-run', 'show what would be removed without changing anything', false)
+    .option('--yes', 'perform the removal (without it, cleanup only previews, like --dry-run)', false)
+    .option('--json', 'emit the result as a single JSON line', false)
+    .action(async (options: { dryRun: boolean; yes: boolean; json: boolean }) => {
+      const repoRoot = path.resolve(process.cwd());
+      try {
+        await fs.access(path.join(repoRoot, '.git'));
+      } catch (cause) {
+        throw new CliError(
+          `not a git repo root: ${repoRoot} — run \`manta cleanup\` from inside the repo`,
+          { kind: 'invalid_input', cause },
+        );
+      }
+      // Confirmation model: destructive removal requires --yes. Without it (and
+      // without --dry-run) we preview exactly like --dry-run and tell the user
+      // how to proceed — a CLI can't reliably prompt in every context, and a
+      // bare `manta cleanup` must never silently nuke worktrees + state.
+      const dryRun = options.dryRun || !options.yes;
+      const result = await runCleanupCommand({ repoRoot }, { dryRun });
+      if (options.json) {
+        process.stdout.write(JSON.stringify(result) + '\n');
+      } else {
+        process.stdout.write(formatCleanupResult(result) + '\n');
+      }
+      process.exitCode = 0;
+    });
 
   const libraryCmd = program
     .command('library')
