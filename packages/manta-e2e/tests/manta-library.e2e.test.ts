@@ -144,14 +144,18 @@ describe('manta library preflight (always runs, no MANTA_E2E required)', () => {
   });
 });
 
-describe('manta library install + cast + uninstall round-trip (MANTA_E2E=1, real claude)', () => {
-  let claude: Awaited<ReturnType<typeof probeClaudeBin>>;
+// Probe once at module load so the skip is VISIBLE in the reporter. A suite-level
+// `describe.skipIf` reports as skipped (not a zero-assertion pass), so green CI can
+// distinguish a real armed run from a no-op when claude is absent (H1).
+const claude = await probeClaudeBin();
+const noClaude = !claude.available;
+
+describe.skipIf(noClaude)('manta library install + cast + uninstall round-trip (MANTA_E2E=1, real claude)', () => {
   let fx: IsolatedRepo | undefined;
   let suiteFailed = false;
 
   beforeAll(async () => {
     await ensureCliBuilt();
-    claude = await probeClaudeBin();
   }, 5 * 60 * 1000);
 
   afterEach((ctx) => {
@@ -174,12 +178,6 @@ describe('manta library install + cast + uninstall round-trip (MANTA_E2E=1, real
   });
 
   it('install → library list → cast --dry-run → real cast → uninstall', async () => {
-    if (!claude.available) {
-      // eslint-disable-next-line no-console -- skip signal for the human
-      console.warn(`[manta-library.e2e] SKIPPED: ${claude.reason}`);
-      return;
-    }
-
     fx = await makeIsolatedRepo('manta-library-e2e');
     const env = envWithHome(fx.homeDir);
 

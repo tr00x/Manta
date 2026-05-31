@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
+import { describe, it, expect, afterAll, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -145,21 +145,23 @@ async function runReconCast(opts: {
  * are subagents). This proof is SEMANTIC: the clone recalls parent-only content.
  *
  * DIVISION OF LABOR: this suite is AUTHORED here but SKIPS in the unit gate (MANTA_E2E unset
- * → probeClaudeBin returns available:false → loud warn + return). The CURATOR runs it armed
+ * → probeClaudeBin returns available:false → `describe.skipIf` reports a VISIBLE skip, not a
+ * zero-assertion pass). The CURATOR runs it armed
  * (MANTA_E2E=1 + real claude) post-merge; a clone must NOT run it (it spawns a nested
  * `manta cast` = cast-within-a-cast, forbidden, and costs real money). ANTI-THEATER: when
  * armed, every assertion runs and fails loudly on mismatch; there is no assertion-free happy
  * path, and the negative control is what stops a pass for the wrong reason.
  */
-describe('transcript inheritance end-to-end against real claude', () => {
+// Probe once at module load so the skip is VISIBLE in the reporter. A suite-level
+// `describe.skipIf` reports as skipped (not a zero-assertion pass), so green CI can
+// distinguish a real armed run from a no-op when claude is absent (H1).
+const claude = await probeClaudeBin();
+const noClaude = !claude.available;
+
+describe.skipIf(noClaude)('transcript inheritance end-to-end against real claude', () => {
   let fxPositive: SampleRepoFixture | undefined;
   let fxNegative: SampleRepoFixture | undefined;
-  let claude: Awaited<ReturnType<typeof probeClaudeBin>>;
   let suiteFailed = false;
-
-  beforeAll(async () => {
-    claude = await probeClaudeBin();
-  });
 
   afterEach((ctx) => {
     if (ctx.task.result?.state === 'fail') suiteFailed = true;
@@ -182,10 +184,6 @@ describe('transcript inheritance end-to-end against real claude', () => {
   });
 
   it('positive flow: clones reproduce a parent-only token via forked-transcript --resume (plan steps 1-5)', async () => {
-    if (!claude.available) {
-      console.warn(`[transcript-inheritance.e2e] SKIPPED: ${claude.reason}`);
-      return;
-    }
     const bin = claude.path ?? 'claude';
     // Dynamic, post-guard (see top-of-file note): resolves to the built dist.
     const { mangle } = await import('manta');
@@ -328,10 +326,6 @@ describe('transcript inheritance end-to-end against real claude', () => {
   }, 35 * 60 * 1000);
 
   it('negative control: same setup with inheritance disarmed → clones write NONE (plan step 6)', async () => {
-    if (!claude.available) {
-      console.warn(`[transcript-inheritance.e2e] SKIPPED: ${claude.reason}`);
-      return;
-    }
     const bin = claude.path ?? 'claude';
     fxNegative = await makeSampleRepo();
     const repoCwd = fxNegative.root;

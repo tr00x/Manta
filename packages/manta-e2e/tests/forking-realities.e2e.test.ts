@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
+import { describe, it, expect, afterAll, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,14 +9,15 @@ import { makeSampleRepo, type SampleRepoFixture } from './helpers/sampleRepo.js'
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const cliBin = path.join(repoRoot, 'packages/manta-cli/dist/bin/manta.cjs');
 
-describe('forking-realities end-to-end against real claude', () => {
-  let fx: SampleRepoFixture | undefined;
-  let claude: Awaited<ReturnType<typeof probeClaudeBin>>;
-  let suiteFailed = false;
+// Probe once at module load so the skip is VISIBLE in the reporter. A suite-level
+// `describe.skipIf` reports as skipped (not a zero-assertion pass), so green CI can
+// distinguish a real armed run from a no-op when claude is absent (H1).
+const claude = await probeClaudeBin();
+const noClaude = !claude.available;
 
-  beforeAll(async () => {
-    claude = await probeClaudeBin();
-  });
+describe.skipIf(noClaude)('forking-realities end-to-end against real claude', () => {
+  let fx: SampleRepoFixture | undefined;
+  let suiteFailed = false;
 
   afterEach((ctx) => {
     if (ctx.task.result?.state === 'fail') suiteFailed = true;
@@ -38,10 +39,6 @@ describe('forking-realities end-to-end against real claude', () => {
   });
 
   it('runs a 2-clone forking-realities cast with merge review and forensic timeline', async () => {
-    if (!claude.available) {
-      console.warn(`[forking-realities.e2e] SKIPPED: ${claude.reason}`);
-      return;
-    }
     fx = await makeSampleRepo();
 
     const tasksYaml = path.join(fx.root, 'tasks.yaml');

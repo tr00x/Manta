@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
+import { describe, it, expect, afterAll, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,17 +15,19 @@ const cliBin = path.join(repoRoot, 'packages/manta-cli/dist/bin/manta.cjs');
 // the *quality* of the answer the clone produced (e.g. that `docs/recon.md`
 // usefully maps the codebase). Output-quality assessment is the human's job
 // in `docs/acceptance/phase-0.md`.
-describe('recon-swarm end-to-end against real claude', () => {
+//
+// Probe once at module load so the skip is VISIBLE in the reporter. A suite-level
+// `describe.skipIf` reports as skipped (not a zero-assertion pass), so green CI can
+// distinguish a real armed run from a no-op when claude is absent (H1).
+const claude = await probeClaudeBin();
+const noClaude = !claude.available;
+
+describe.skipIf(noClaude)('recon-swarm end-to-end against real claude', () => {
   let fx: SampleRepoFixture | undefined;
-  let claude: Awaited<ReturnType<typeof probeClaudeBin>>;
   // Preserve-evidence: when a test in this suite fails, keep the tmp repo so
   // the dogfood post-mortems / ZK notes / registry / worktrees are inspectable.
   // Set MANTA_E2E_KEEP=1 to force-retain even on success.
   let suiteFailed = false;
-
-  beforeAll(async () => {
-    claude = await probeClaudeBin();
-  });
 
   afterEach((ctx) => {
     if (ctx.task.result?.state === 'fail') suiteFailed = true;
@@ -47,10 +49,6 @@ describe('recon-swarm end-to-end against real claude', () => {
   });
 
   it('runs a 2-clone recon-swarm cast and produces post-mortems and ZK notes', async () => {
-    if (!claude.available) {
-      console.warn(`[recon-swarm.e2e] SKIPPED: ${claude.reason}`);
-      return;
-    }
     fx = await makeSampleRepo();
     // Phase-1 lockdown: positive-timeline guard. Bug #3 was a 30-min vitest hang
     // because clones never moved past STARTING. With pre-registration + correct
