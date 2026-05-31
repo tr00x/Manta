@@ -974,3 +974,20 @@ The `.gitignore` correctly excludes `.manta/worktrees/` for future files but doe
 **Fix options (for RB#4 / curator):** (a) replace any `require.resolve('proper-lockfile')` path with a static import the bundler can inline; (b) add an esbuild plugin that rewrites the dynamic resolve; (c) as a stopgap, ship `proper-lockfile` (+ its small pure-JS deps `graceful-fs`/`retry`/`signal-exit`) inside the plugin payload's `node_modules` so the resolve succeeds. (a) is cleanest and matches the bug-#53 "clean by construction" principle.
 
 **Impact on RB#3 deliverable:** the plugin scaffold, manifests (`claude plugin validate` ✔), commands, skills, and the **auto-bus `.mcp.json` → standalone `server.cjs`** all work and survive a real install. The remaining publish gap is this one command-bin dependency-resolution hole. Plugin users get discoverability + skills + bus today; full standalone `/manta:cast` from a pure plugin install waits on this fix.
+
+### #67 — `manta cast --dry-run` preview token estimate disagrees with the per-cast ceiling gate (two estimate sources)
+
+**Severity:** MEDIUM. Found 2026-05-31 during the live post-repivot audit (real CLI runs, not tests).
+
+**Reproducer (verified, live):**
+```
+$ manta cast recon-swarm --clones 2 --task t --dry-run
+  → gate.dry_run … estimatedCost=300000 perCloneCost=150000 …   (preview: 300k total, 150k/clone)
+$ manta cast recon-swarm --clones 2 --task t --max-tokens-estimate 400000 --dry-run
+  → [manta] cumulative per-clone usage estimate (B=300000 + C=300000 = 600000) exceeds --max-tokens-estimate=400000
+```
+The dry-run **preview** reports the cast at 300k (150k/clone, from the cost-estimator's mode-specific table), but the **per-cast ceiling gate** computes 600k (300k/clone, from `internalTokenEstimatePerClone`'s flat default). A user who reads the preview (300k, "400k cap is plenty") gets their real cast **rejected** (600k > 400k). For `forking-realities` the two happen to agree (both 300k/clone), so the mismatch is mode-dependent — recon-swarm is the visible case.
+
+**Root cause:** two independent per-clone estimates. (1) `budget/cost-estimator.ts` `estimateCost(mode, n, cfg)` uses the per-mode `tokenEstimates` table (recon-swarm = 150k) for the dry-run **display**. (2) `commands/cast.ts` builds `effective[id].tokenEstimate = a.token_estimate ?? opts.internalTokenEstimatePerClone` (flat 300k default) for the cumulative ceiling **check** and for what each clone actually receives. The repivot surfaced this: the new `--max-tokens-estimate` flag gates against (2) while the preview shows (1). Pre-existing dual-source drift, newly user-visible.
+
+**Why not fixed inline:** out of the audit-fix scope (the 4 chain-breaks in `908da9d` were $→usage correctness, not estimate-source unification). Surgical but touches the dry-run preview wiring + the cost-estimator/internal-default relationship — wants its own small change so both paths read ONE per-clone estimate (prefer the per-mode `tokenEstimates` table, used by both the preview AND the ceiling). Not a guard-bypass / not data-loss, so MEDIUM not blocker. **Fix:** make `internalTokenEstimatePerClone` derive from the same per-mode `tokenEstimates` table the cost-estimator uses (or have the ceiling check call `estimateCost`), so preview and gate are one number.
