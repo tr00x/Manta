@@ -33,7 +33,7 @@ describe('formatStatusline', () => {
       tokenCap: 15_000_000,
       nowMs: NOW,
     });
-    expect(line).toBe('🦈 A▶WORKING B▶WINDING_DOWN · 2.4M/15M · 4m');
+    expect(line).toBe('⧉ A▶WORKING B▶WINDING_DOWN · 2.4M/15M · 4m');
   });
 
   it('returns EMPTY string when there are no clones at all', () => {
@@ -63,7 +63,7 @@ describe('formatStatusline', () => {
       tokenCap: 15_000_000,
       nowMs: NOW,
     });
-    expect(line).toBe('🦈 B▶WORKING · 1M/15M · 30s');
+    expect(line).toBe('⧉ B▶WORKING · 1M/15M · 30s');
   });
 
   it('omits the cap when tokenCap is null', () => {
@@ -73,7 +73,7 @@ describe('formatStatusline', () => {
       tokenCap: null,
       nowMs: NOW,
     });
-    expect(line).toBe('🦈 A▶WORKING · 3M · 1m');
+    expect(line).toBe('⧉ A▶WORKING · 3M · 1m');
   });
 
   it('omits the usage segment when tokensEstimated is null', () => {
@@ -83,7 +83,7 @@ describe('formatStatusline', () => {
       tokenCap: 15_000_000,
       nowMs: NOW,
     });
-    expect(line).toBe('🦈 A▶WORKING · 1m');
+    expect(line).toBe('⧉ A▶WORKING · 1m');
   });
 
   it('omits the elapsed segment when no live clone has registered_at', () => {
@@ -93,7 +93,7 @@ describe('formatStatusline', () => {
       tokenCap: 15_000_000,
       nowMs: NOW,
     });
-    expect(line).toBe('🦈 A▶WORKING · 2M/15M');
+    expect(line).toBe('⧉ A▶WORKING · 2M/15M');
   });
 
   it('renders sub-million usage as compact k and a fractional-M cap', () => {
@@ -103,7 +103,7 @@ describe('formatStatusline', () => {
       tokenCap: 2_500_000,
       nowMs: NOW,
     });
-    expect(line).toBe('🦈 A▶WORKING · 250k/2.5M');
+    expect(line).toBe('⧉ A▶WORKING · 250k/2.5M');
   });
 
   it('treats a clock skew (now before registration) as 0s, not negative', () => {
@@ -113,7 +113,7 @@ describe('formatStatusline', () => {
       tokenCap: null,
       nowMs: NOW,
     });
-    expect(line).toBe('🦈 A▶WORKING · 0s');
+    expect(line).toBe('⧉ A▶WORKING · 0s');
   });
 
   it('uses the OLDEST live clone for elapsed', () => {
@@ -126,7 +126,7 @@ describe('formatStatusline', () => {
       tokenCap: null,
       nowMs: NOW,
     });
-    expect(line).toBe('🦈 A▶WORKING B▶WORKING · 5m');
+    expect(line).toBe('⧉ A▶WORKING B▶WORKING · 5m');
   });
 });
 
@@ -283,7 +283,7 @@ describe('computeStatusline (end-to-end)', () => {
       JSON.stringify({ version: 1, date: today, tokens_estimated: 3_000_000, entries: [] }),
     );
     await fsp.writeFile(path.join(stateDir, 'budget.json'), JSON.stringify({ daily_token_cap: 15_000_000 }));
-    expect(computeStatusline(dir, NOW)).toBe('🦈 A▶WORKING · 3M/15M · 1m');
+    expect(computeStatusline(dir, NOW)).toBe('⧉ A▶WORKING · 3M/15M · 1m');
   });
 
   it('no live clones → EMPTY string', async () => {

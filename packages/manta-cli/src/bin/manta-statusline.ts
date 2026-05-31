@@ -43,7 +43,10 @@ export interface StatuslineInput {
   readonly nowMs: number;
 }
 
-const SHARK = '🦈';
+// ⧉ (U+29C9) — the Manta marker: two joined squares = duplication/cloning, the
+// essence of the self-cloning pattern. Monochrome, renders cleanly in any
+// terminal (no emoji-presentation variance).
+const MARK = '⧉';
 const STATE_ARROW = '▶'; // ▶
 const SEP = ' · '; // " · "
 
@@ -52,7 +55,7 @@ const SEP = ' · '; // " · "
  * that empty string is the signal Claude Code uses to hide the row. Pure: no
  * I/O, no clock access (now is injected). Never throws.
  *
- * Example: `🦈 A▶WORKING B▶WINDING_DOWN · 1.2M/5M · 4m` (token usage, not dollars)
+ * Example: `⧉ A▶WORKING B▶WINDING_DOWN · 1.2M/5M · 4m` (token usage, not dollars)
  */
 export function formatStatusline(input: StatuslineInput): string {
   const live = input.clones.filter((c) => isLive(c.state));
@@ -82,7 +85,7 @@ export function formatStatusline(input: StatuslineInput): string {
     segments.push(formatDuration(elapsedMs));
   }
 
-  return `${SHARK} ${segments.join(SEP)}`;
+  return `${MARK} ${segments.join(SEP)}`;
 }
 
 /** A clone counts as "live" for the statusline unless it is terminally DEAD. */

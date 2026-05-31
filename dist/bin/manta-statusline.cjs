@@ -51,7 +51,7 @@ var importMetaUrl = /* @__PURE__ */ getImportMetaUrl();
 var fs = __toESM(require("fs"), 1);
 var path = __toESM(require("path"), 1);
 var import_node_url = require("url");
-var SHARK = "\u{1F988}";
+var MARK = "\u29C9";
 var STATE_ARROW = "\u25B6";
 var SEP = " \xB7 ";
 function formatStatusline(input) {
@@ -73,7 +73,7 @@ function formatStatusline(input) {
     const elapsedMs = Math.max(0, input.nowMs - oldest);
     segments.push(formatDuration(elapsedMs));
   }
-  return `${SHARK} ${segments.join(SEP)}`;
+  return `${MARK} ${segments.join(SEP)}`;
 }
 function isLive(state) {
   return state !== "DEAD";
