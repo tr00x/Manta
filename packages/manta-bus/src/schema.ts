@@ -499,6 +499,17 @@ export const BudgetConfigSchema = z
       })
       .strict()
       .default({ global_hourly_cap: 6 }),
+    // Phase 8: Aghanim's Scepter unlock (spec Sec 6.6). `decoy`, `council`, and
+    // `phantom-lance` ship locked; the operator opts in per-repo by listing the
+    // modes here (the env var MANTA_UNLOCK_AGHS is the ephemeral equivalent).
+    // Validated against ModeSchema so a typo is a config error, not a silent
+    // no-unlock. Defaults to none (everything locked).
+    aghs: z
+      .object({
+        unlocked: z.array(ModeSchema).default([]),
+      })
+      .strict()
+      .default({ unlocked: [] }),
   });
 
 // Inferred types — exported so handlers and stores can share them.

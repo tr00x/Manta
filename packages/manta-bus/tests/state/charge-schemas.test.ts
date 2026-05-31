@@ -240,9 +240,31 @@ describe('DailySpendStateSchema', () => {
 });
 
 describe('BudgetConfigSchema', () => {
-  it('accepts empty object (all fields optional; triggers defaults)', () => {
+  it('accepts empty object (all fields optional; triggers + aghs defaults)', () => {
     // Phase 7c Task 1.2: triggers carries a firing default even on empty input.
-    expect(BudgetConfigSchema.parse({})).toEqual({ triggers: { global_hourly_cap: 6 } });
+    // Phase 8: aghs carries an empty-unlocked default (everything locked).
+    expect(BudgetConfigSchema.parse({})).toEqual({
+      triggers: { global_hourly_cap: 6 },
+      aghs: { unlocked: [] },
+    });
+  });
+
+  it('defaults aghs.unlocked to [] (all Aghs modes locked) when no aghs key', () => {
+    const parsed = BudgetConfigSchema.parse({ per_cast_usd: 5 });
+    expect(parsed.aghs.unlocked).toEqual([]);
+  });
+
+  it('accepts an explicit aghs.unlocked list of valid modes', () => {
+    const parsed = BudgetConfigSchema.parse({ aghs: { unlocked: ['decoy', 'council'] } });
+    expect(parsed.aghs.unlocked).toEqual(['decoy', 'council']);
+  });
+
+  it('rejects an aghs.unlocked entry that is not a valid mode', () => {
+    expect(() => BudgetConfigSchema.parse({ aghs: { unlocked: ['not-a-mode'] } })).toThrow();
+  });
+
+  it('rejects unknown keys inside aghs (strict)', () => {
+    expect(() => BudgetConfigSchema.parse({ aghs: { unlocked: [], extra: 1 } })).toThrow();
   });
 
   it('defaults triggers.global_hourly_cap to 6 when no triggers key', () => {

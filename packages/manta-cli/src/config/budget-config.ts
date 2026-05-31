@@ -24,6 +24,8 @@ export interface ResolvedBudgetConfig {
   autoDowngrade: ResolvedAutoDowngrade;
   charges: ResolvedCharges;
   triggersGlobalHourlyCap: number;
+  /** Aghs-locked modes the operator has unlocked via config (spec Sec 6.6). */
+  aghsUnlocked: Mode[];
 }
 
 const DEFAULT_COST_ESTIMATES: Record<Mode, number> = {
@@ -57,6 +59,7 @@ export const BUDGET_DEFAULTS: ResolvedBudgetConfig = {
     cooldownHours: 24,
   },
   triggersGlobalHourlyCap: 6,
+  aghsUnlocked: [],
 };
 
 export async function loadBudgetConfig(repoRoot: string): Promise<ResolvedBudgetConfig> {
@@ -99,5 +102,6 @@ export async function loadBudgetConfig(repoRoot: string): Promise<ResolvedBudget
     },
     triggersGlobalHourlyCap:
       data.triggers?.global_hourly_cap ?? BUDGET_DEFAULTS.triggersGlobalHourlyCap,
+    aghsUnlocked: [...(data.aghs?.unlocked ?? [])],
   };
 }

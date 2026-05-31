@@ -12,12 +12,13 @@ describe('Phase-0 pre-flight (cheap, always runs)', () => {
     expect(r.exitCode, r.stderr || r.stdout).toBe(0);
   });
 
-  it('skill-validator finds 14 skills and 13 commands, zero errors', async () => {
+  it('skill-validator finds 16 skills and 13 commands, zero errors', async () => {
+    // Phase 8 added manta-decoy + manta-council (Aghs-locked mode skills) → 16.
     const result = await validateAll(repoRoot);
     expect(result.errorCount).toBe(0);
     const skills = result.reports.filter((r) => r.path.startsWith('skills/'));
     const commands = result.reports.filter((r) => r.path.startsWith('commands/'));
-    expect(skills).toHaveLength(14);
+    expect(skills).toHaveLength(16);
     expect(commands).toHaveLength(13);
   });
 

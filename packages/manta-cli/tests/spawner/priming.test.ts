@@ -254,6 +254,41 @@ describe('buildPrimingText — Wave-2 priming blocks (Phase 6)', () => {
   });
 });
 
+describe('buildPrimingText — Phase 8 Aghs-locked modes', () => {
+  it('includes DECOY_BLOCK and names the manta-decoy skill for decoy mode', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', mode: 'decoy' });
+    const text = buildPrimingText(snap);
+    expect(text).toContain('Decoy Protocol');
+    expect(text).toContain('manta-decoy');
+    // The defining property of decoy: explicitly draft, not final.
+    expect(text).toContain('DRAFT');
+    expect(text).toMatch(/do NOT (polish|merge|finalize)/i);
+  });
+
+  it('includes COUNCIL_BLOCK and names the manta-council skill for council mode', () => {
+    const snap = makeSnapshotFor({ cloneId: 'A', mode: 'council' });
+    const text = buildPrimingText(snap);
+    expect(text).toContain('Council Protocol');
+    expect(text).toContain('manta-council');
+    // The defining property of council: independent, no peeking, no auto-merge.
+    expect(text).toContain('independently');
+    expect(text).toMatch(/no auto-merge/i);
+  });
+
+  it('does not cross-contaminate: decoy has no Council block and vice versa', () => {
+    const decoy = buildPrimingText(makeSnapshotFor({ cloneId: 'A', mode: 'decoy' }));
+    const council = buildPrimingText(makeSnapshotFor({ cloneId: 'A', mode: 'council' }));
+    expect(decoy).not.toContain('Council Protocol');
+    expect(council).not.toContain('Decoy Protocol');
+  });
+
+  it('does not include either Aghs block for recon-swarm', () => {
+    const text = buildPrimingText(makeSnapshotFor({ cloneId: 'A', mode: 'recon-swarm' }));
+    expect(text).not.toContain('Decoy Protocol');
+    expect(text).not.toContain('Council Protocol');
+  });
+});
+
 describe('buildInitialPrompt', () => {
   const snap = makeSnapshotFor({ cloneId: 'clone-A', task: 'map auth/* and billing/*' });
 

@@ -102,16 +102,16 @@ describe('cast command (recon-swarm)', () => {
     expect(events).toContain('cast.done');
   });
 
-  it('rejects unsupported modes (e.g. council)', async () => {
+  it('rejects unsupported modes (e.g. phantom-lance — not in BUILTIN_MODES)', async () => {
     fx = await makeRepoFixture();
     const rt = await createRuntime({ repoRoot: fx.root });
     await expect(
       runCastCommand(rt, {
-        // Cast through `unknown` to keep the type-system honest while still
-        // exercising the runtime's invalid_input branch for not-yet-allowlisted
-        // modes (Phase 2a allows recon-swarm + forking-realities; council
-        // is reserved for Phase 8).
-        mode: 'council' as unknown as 'recon-swarm',
+        // phantom-lance (#8) is the recursive/risky Aghs mode and is NOT in the
+        // dispatcher's BUILTIN_MODES, so it is rejected at the "not supported"
+        // check — before the Aghs unlock gate is even reached. This keeps it
+        // locked regardless of MANTA_UNLOCK_AGHS / config (Phase 8 task fence).
+        mode: 'phantom-lance' as unknown as 'recon-swarm',
         task: 't',
         cloneCount: 1,
         cycleIntervalMs: 50,

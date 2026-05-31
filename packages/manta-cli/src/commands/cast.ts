@@ -28,6 +28,7 @@ import { createMetricCollector, prepareWorktreeForGate } from './merge-review-co
 import { adjustWeightsFromProject } from './rubric-prepass.js';
 import { listWorktrees } from '../spawner/worktree.js';
 import { loadBudgetConfig } from '../config/budget-config.js';
+import { assertAghsUnlocked, resolveUnlockedAghsModes } from '../config/aghs-gate.js';
 import { runPreSpawnGate } from '../budget/pre-spawn-gate.js';
 import { classifyCastOutcome } from '../budget/cast-outcome.js';
 import type { DispatchEnqueuer } from '../dispatch/types.js';
@@ -56,6 +57,13 @@ const BUILTIN_MODES: ReadonlySet<Mode> = new Set<Mode>([
   'pair-programming',
   'test-storm',
   'documentation-chase',
+  // Phase 8: Aghanim's-locked safe modes (spec Sec 2 #9/#10, Sec 6.6). Present
+  // in BUILTIN_MODES so the dispatcher recognises them, but gated by
+  // assertAghsUnlocked below — a cast is rejected unless the operator opted in
+  // via config/env. `phantom-lance` (#8) is intentionally absent: it stays
+  // locked at the "not supported" check (separate, riskier cast).
+  'decoy',
+  'council',
 ]);
 
 const DAEMON_MODES: ReadonlySet<Mode> = new Set<Mode>([
@@ -381,6 +389,16 @@ export async function runCastCommand(
     opts = { ...opts, mode: libraryEntry.basedOn };
   }
   void libraryModeName;
+  // Phase 8 — Aghanim's Scepter gate (spec Sec 6.6). Load the budget config
+  // once here (reused by the pre-spawn gate below) and reject Aghs-locked modes
+  // unless the operator unlocked them via config or MANTA_UNLOCK_AGHS. Runs
+  // before cloneCount/per-mode validation so the actionable "enable in config"
+  // message wins over a count complaint for a mode the operator can't use yet.
+  const budgetConfig = await loadBudgetConfig(rt.repoRoot);
+  assertAghsUnlocked(
+    opts.mode,
+    resolveUnlockedAghsModes(budgetConfig.aghsUnlocked, process.env),
+  );
   if (
     !Number.isInteger(opts.cloneCount) ||
     opts.cloneCount < 1 ||
@@ -412,6 +430,25 @@ export async function runCastCommand(
   if (opts.mode === 'test-storm' && (opts.cloneCount < 2 || opts.cloneCount > 3)) {
     throw new CliError(
       'test-storm mode requires 2-3 clones (spec Sec 2)',
+      { kind: 'invalid_input' },
+    );
+  }
+  // Phase 8: decoy drafts with at most 2 clones (spec Sec 2 #10 — "clones do
+  // draft work"; mirrors bug-hunt's ≤2 ceiling). Main polishes the drafts, so a
+  // big roster adds review load without proportional value.
+  if (opts.mode === 'decoy' && opts.cloneCount > 2) {
+    throw new CliError(
+      'decoy mode supports at most 2 clones (spec Sec 2 #10)',
+      { kind: 'invalid_input' },
+    );
+  }
+  // Phase 8: council = wisdom of crowds. Spec Sec 2 #9 calls for 5 independent
+  // proposers; the Phase-0 roster ceiling is 5, so 5 is the intended maximum.
+  // Require ≥3 so "crowd" aggregation is meaningful (2 is a pair, not a
+  // council). Operators wanting the full spec experience pass --clones 5.
+  if (opts.mode === 'council' && (opts.cloneCount < 3 || opts.cloneCount > 5)) {
+    throw new CliError(
+      'council mode requires 3-5 clones (spec Sec 2 #9 — 5 independent proposers ideal, 3 minimum for a meaningful crowd)',
       { kind: 'invalid_input' },
     );
   }
@@ -512,8 +549,8 @@ export async function runCastCommand(
     await preflight();
   }
 
-  // Phase 3: Pre-spawn gate (charge + daily budget + dry-run)
-  const budgetConfig = await loadBudgetConfig(rt.repoRoot);
+  // Phase 3: Pre-spawn gate (charge + daily budget + dry-run). `budgetConfig`
+  // was loaded above for the Aghs gate; reuse it (single read per cast).
   const gateResult = await runPreSpawnGate({
     mode: opts.mode,
     cloneCount: opts.cloneCount,
@@ -554,8 +591,12 @@ export async function runCastCommand(
 
   // Mode-aware policy. Recorded on the manifest now; Phase 2b enforces
   // peer_messaging at the bus surface.
+  // `council` clones propose INDEPENDENTLY (no peeking, no peer chatter) — same
+  // messaging isolation as forking-realities, but without the auto-merge scorer
+  // (the main aggregates the proposals by hand). `decoy` stays collaborative
+  // (drafters may broadcast progress) like recon-swarm.
   const castPolicy: CastPolicy =
-    (opts.mode === 'forking-realities' || opts.mode === 'refactor-wave')
+    (opts.mode === 'forking-realities' || opts.mode === 'refactor-wave' || opts.mode === 'council')
       ? { peer_messaging: 'denied', auto_merge_threshold: null, session_mode: sessionMode }
       : { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: sessionMode };
 
@@ -580,6 +621,20 @@ export async function runCastCommand(
     effective[cloneIds[1]!]!.approachHint = effective[cloneIds[1]!]!.approachHint ?? 'tester';
     if (cloneIds.length > 2) {
       effective[cloneIds[2]!]!.approachHint = effective[cloneIds[2]!]!.approachHint ?? 'fuzzer';
+    }
+  }
+  // Phase 8: every decoy clone is a 'drafter', every council clone a 'proposer'
+  // (homogeneous roles — unlike pair/test-storm's distinct slots). The priming
+  // builder keys its mode-specific protocol block off the mode, and the hint
+  // reinforces the role in the clone's contract.
+  if (opts.mode === 'decoy') {
+    for (const id of cloneIds) {
+      effective[id]!.approachHint = effective[id]!.approachHint ?? 'drafter';
+    }
+  }
+  if (opts.mode === 'council') {
+    for (const id of cloneIds) {
+      effective[id]!.approachHint = effective[id]!.approachHint ?? 'proposer';
     }
   }
 

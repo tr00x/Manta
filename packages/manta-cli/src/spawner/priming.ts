@@ -86,6 +86,33 @@ REVIEWER: Wait for writer's commit_ready broadcast, review the diff, run tests, 
 Iterate until convergence (reviewer broadcasts review_complete with verdict "approved") or iteration budget exhausted (max 5).
 `;
 
+const DECOY_BLOCK = `
+## Decoy Protocol (DRAFT work — main finalizes)
+You are a decoy clone. Load the \`manta-decoy\` skill for the full protocol.
+Your job is to produce a DRAFT, not a finished deliverable.
+The main agent will review, edit, and finalize your work — do NOT polish to completion.
+
+OUTPUT RULES:
+1. Produce a draft deliverable (code sketch, doc outline, design proposal) on your branch.
+2. Mark it UNMISTAKABLY as a draft: start the file with "> DRAFT — produced by a decoy clone. Not final. The main agent reviews/edits/approves before this is used." and use TODO/??? markers where you made assumptions or left gaps for the main to resolve.
+3. Favor breadth and speed over perfection — a complete-enough sketch the main can polish beats a half-finished perfect fragment. Surface open questions explicitly rather than guessing silently.
+4. Do NOT run a full polish/lint/format pass and do NOT claim production-readiness — that is the main's job. Your branch is raw material.
+5. Commit your draft + last-gasp-report.md, then graceful death. The main pulls your branch and finalizes; you never merge.
+`;
+
+const COUNCIL_BLOCK = `
+## Council Protocol (INDEPENDENT proposal — wisdom of crowds)
+You are a council clone. Load the \`manta-council\` skill for the full protocol.
+You and your siblings each propose a solution to the SAME question, independently. The main agent reads all proposals and aggregates — there is NO auto-merge and NO scoring between you.
+
+OUTPUT RULES:
+1. Propose INDEPENDENTLY. Do NOT read sibling worktrees, do NOT message peers, do NOT try to coordinate — divergent proposals are the whole point (peer messaging is denied at the bus for this mode).
+2. Write a single proposal document on your branch (e.g. proposal-<your-id>.md) with these sections: Recommendation | Reasoning | Trade-offs / risks | Alternatives considered | Confidence (1-10 + why).
+3. Commit fully to ONE recommendation and defend it — do not hedge across every option. The crowd's value comes from each member taking a clear, reasoned stance.
+4. You may broadcast a self_certainty event with your confidence score, but never argue your version is better than a sibling's (anti-gossip, spec Sec 5.5). If you spot a blocker, broadcast event_type 'blocker' to the main.
+5. Commit your proposal + last-gasp-report.md, then graceful death. The main synthesizes all proposals; you never merge.
+`;
+
 export function buildPrimingText(snapshot: Snapshot): string {
   const hint = snapshot.taskContract.approachHint;
   // The block is one paragraph + a leading blank line so it reads as its own
@@ -107,6 +134,10 @@ export function buildPrimingText(snapshot: Snapshot): string {
     snapshot.taskContract.mode === 'documentation-chase'
       ? `\n${DOC_CHASE_BLOCK}`
       : '';
+  const decoyBlock =
+    snapshot.taskContract.mode === 'decoy' ? `\n${DECOY_BLOCK}` : '';
+  const councilBlock =
+    snapshot.taskContract.mode === 'council' ? `\n${COUNCIL_BLOCK}` : '';
   const modeSpecificBlock =
     snapshot.taskContract.mode === 'bug-hunt'
       ? `\n${BUG_HUNT_BLOCK}`
@@ -122,7 +153,7 @@ export function buildPrimingText(snapshot: Snapshot): string {
     .replaceAll('{CAST_ID}', snapshot.castId)
     .replaceAll('{MODE}', snapshot.taskContract.mode)
     .replaceAll('{APPROACH_HINT_BLOCK}', approachBlock)
-    .replaceAll('{MODE_SPECIFIC_BLOCK}', modeSpecificBlock + daemonBlock + pairBlock + docChaseBlock)
+    .replaceAll('{MODE_SPECIFIC_BLOCK}', modeSpecificBlock + daemonBlock + pairBlock + docChaseBlock + decoyBlock + councilBlock)
     .replaceAll('{SELF_CERTAINTY_BLOCK}', selfCertaintyBlock);
 }
 
