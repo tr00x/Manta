@@ -51,15 +51,27 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      # Build BEFORE the gate: cross-package type resolution (`@manta/bus`, …)
-      # reads each package's built dist `.d.ts`. A fresh CI checkout has no dist,
-      # so running `tsc -b`/vitest first fails with TS2307. Building first emits
-      # the declarations the typecheck + tests resolve against.
-      - name: Build all packages
+      # Build FIRST so cross-package type resolution (`@manta/bus`, …) finds each
+      # package's dist `.d.ts` (a fresh checkout has none → TS2307).
+      - name: Build (for typecheck resolution)
         run: pnpm -r build
 
-      - name: Gate (typecheck + lint + tests)
-        run: pnpm gate
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      # Rebuild with tsup AFTER typecheck: `tsc -b` can overwrite the tsup bundles
+      # in dist/ with unbundled output (e.g. index.js → `require('./capture')`
+      # with no sibling emitted), which then breaks vitest's runtime resolution of
+      # `@manta/*`. A final tsup pass restores the self-contained bundles the
+      # tests load.
+      - name: Rebuild bundles for tests
+        run: pnpm -r build
+
+      - name: Test
+        run: pnpm test
 
       - name: Publish if the version is new
         working-directory: packages/manta-cli
