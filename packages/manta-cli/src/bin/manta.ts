@@ -14,7 +14,7 @@ import { runInspectCommand } from '../commands/inspect.js';
 import { runTailCommand } from '../commands/tail.js';
 import { runReplayCommand } from '../commands/replay.js';
 import { runAuditCommand } from '../commands/audit.js';
-import { runCostCommand } from '../commands/cost.js';
+import { runCostCommand, normalizeCostPeriod } from '../commands/cost.js';
 import { runChargesCommand } from '../commands/charges.js';
 import { runDoctorCommand } from '../commands/doctor.js';
 import { runRefreshCommand } from '../commands/refresh.js';
@@ -469,9 +469,13 @@ async function main(): Promise<void> {
 
   program
     .command('cost [period]')
-    .description('Show daily/weekly spend summary')
+    .description('Show spend summary. period: "today" (default) or "weekly"')
     .action(async (period: string | undefined) => {
-      const p = period === 'week' ? 'week' : 'today';
+      // M3: normalize the raw token (today/day/daily | week/weekly) and reject
+      // anything else with exit 1 — `cost weekly` used to collapse silently to
+      // the daily report. Throwing here propagates to main()'s top-level error
+      // renderer (clean `[manta]` line, exit 1).
+      const p = normalizeCostPeriod(period);
       await runWithRuntime((rt) => runCostCommand(rt, { period: p, reporter }));
     });
 

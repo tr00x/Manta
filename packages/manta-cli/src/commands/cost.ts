@@ -3,10 +3,42 @@ import type { Reporter } from '../output/reporter.js';
 import type { CommandResult } from './status.js';
 import type { ChargeEvent, DailySpendState } from '@manta/bus';
 import { loadBudgetConfig } from '../config/budget-config.js';
+import { CliError } from '../errors.js';
+
+export type CostPeriod = 'today' | 'week';
 
 export interface CostCommandOptions {
-  period?: 'today' | 'week';
+  period?: CostPeriod;
   reporter: Reporter;
+}
+
+/**
+ * Normalise the raw `[period]` CLI argument to a `CostPeriod`.
+ *
+ * M3: the bin previously did `period === 'week' ? 'week' : 'today'`, so the
+ * exact token `week` worked but `weekly` — and every other unrecognised value —
+ * silently collapsed to the daily report. `manta cost weekly` therefore behaved
+ * identically to `manta cost`, with no signal that the period arg was ignored.
+ * Accept the natural daily/weekly spellings, and reject anything else loudly
+ * (exit 1) instead of pretending it meant "today".
+ */
+export function normalizeCostPeriod(raw: string | undefined): CostPeriod {
+  if (raw === undefined) return 'today';
+  switch (raw.trim().toLowerCase()) {
+    case '':
+    case 'today':
+    case 'day':
+    case 'daily':
+      return 'today';
+    case 'week':
+    case 'weekly':
+      return 'week';
+    default:
+      throw new CliError(
+        `unknown cost period "${raw}"; expected "today" (default) or "weekly"`,
+        { kind: 'invalid_input' },
+      );
+  }
 }
 
 function progressBar(fraction: number, width = 20): string {
