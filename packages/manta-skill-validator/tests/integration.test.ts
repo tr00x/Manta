@@ -31,6 +31,6 @@ describe('Phase 0e content integration', () => {
     const result = await validateAll(repoRoot);
     const commandReports = result.reports.filter((r) => r.path.startsWith('commands/'));
     const commands = commandReports.map((r) => r.path.replace(/^commands\//, '').replace(/\.md$/, '')).sort();
-    expect(commands).toEqual(['abort', 'cast', 'cost', 'help', 'kill', 'promote', 'recover', 'status', 'tail']);
+    expect(commands).toEqual(['abort', 'cast', 'charges', 'cost', 'doctor', 'help', 'inspect', 'kill', 'promote', 'recover', 'replay', 'status', 'tail']);
   });
 });

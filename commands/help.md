@@ -11,14 +11,21 @@ Show the user this Manta command reference verbatim (it is static — do not cal
 
 - `/manta:cast` — spawn N clones for a mode (recon-swarm, forking-realities, bug-hunt, …) against a task. The core verb.
 - `/manta:status` — print the orchestrator snapshot: live clones, their state, heartbeat age, locks, claims.
+- `/manta:inspect` — deep-dive one clone by id: registry, contract, locks, recent events.
+- `/manta:tail` — stream one clone's events live (Tier 3 real-time watch).
+- `/manta:replay` — replay a finished cast's timeline: phased events and per-clone summaries.
 - `/manta:cost` — show Manta spend: per-cast cost and accumulated charges against the budget.
+- `/manta:charges` — show the charge system state: current charges, cooldown, mode availability.
 - `/manta:promote` — merge the winning candidate from a forking-realities cast and graveyard the losers.
 - `/manta:recover` — run one orchestrator cycle: detect zombies, reap stale locks/claims, write missing post-mortems.
 - `/manta:kill` — mark a single clone DEAD by id and write its post-mortem.
 - `/manta:abort` — emergency stop: mark every live clone DEAD and write a post-mortem for each.
+- `/manta:doctor` — health-check your environment: Node, the `claude` CLI, the `manta-bus` MCP, git, charges.
 - `/manta:help` — this reference.
 
-**Check your setup:** run `manta doctor` in a terminal — it health-checks your Node version, the `claude` CLI, the `manta-bus` MCP registration, whether cwd is a git repo, and your charges/cooldown state.
+**Terminal-only commands** (power-user or destructive — run these in a terminal, no slash wrapper): `manta daemon`, `manta retask`, `manta feedback`, `manta install` / `manta uninstall`, `manta share`, `manta library`, `manta limit`, `manta refresh`, `manta cleanup`, `manta audit`.
+
+**Check your setup:** run `/manta:doctor` (or `manta doctor` in a terminal) — it health-checks your Node version, the `claude` CLI, the `manta-bus` MCP registration, whether cwd is a git repo, and your charges/cooldown state.
 
 **Docs:** getting started → `docs/user/getting-started.md`. Plugin internals → `docs/internals/plugin-packaging.md`.
 
