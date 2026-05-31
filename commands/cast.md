@@ -17,4 +17,4 @@ The CLI is the single code path — this command does not re-implement any logic
 - Suggest `/manta:status` to watch the clones and `/manta:abort` to stop them early.
 - If the CLI exited non-zero (e.g. `invalid_input`, budget rejection), surface its stderr verbatim — do not paraphrase or retry with guessed flags.
 
-Phase 0 supports `recon-swarm`; later phases unlock `forking-realities` and other modes. Run with no mode to see the CLI's usage.
+Modes: `recon-swarm`, `bug-hunt`, `refactor-wave`, `forking-realities`, `pair-programming`, `test-storm`, `documentation-chase`, plus the opt-in `council` / `decoy`. Run with no mode to see the CLI's usage.
