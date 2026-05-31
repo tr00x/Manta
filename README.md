@@ -218,13 +218,17 @@ Honest status — this is `0.1.0`, early but real, not a toy and not a demo.
 - ✅ **Merge-review quality gate** mirrors the canonical `pnpm gate` (typecheck + lint + tests) before scoring branches.
 - ✅ **Charges, budgets, cooldowns** — runaway-cost guardrails.
 - ✅ **Distribution** — single self-contained npm artifact + a validated Claude Code plugin (`claude plugin validate` passes).
-- ✅ Gate: **171 test files / 1462 tests green.**
+- ✅ **Clone cold-start (#66) FIXED** — the spawner emits a "booting" heartbeat at process launch and the startup grace is measured from launch (not pre-registration), so a large parent transcript no longer gets the clone reaped before its first bus call. Proven by a live cast from a multi-MB session.
+- ✅ **Concurrent casts** — running several casts at once is safe: the allocator + atomic registry CAS guarantee disjoint clone letters, and a data-loss guard refuses to clobber a dirty orphan worktree. (Verified: 4 clones in parallel on disjoint letters.)
+- ✅ **Clone safety** — an always-on PreToolUse guard hard-enforces each clone's path scope and blocks dangerous ops (push, `rm -rf` outside the worktree) in the harness, not just via priming.
+- ✅ **Observability** — conditional statusline (Tier 0): shows live clones + spend only while a cast runs, nothing when idle; `manta doctor` health-checks the environment; `/manta:tail` for deep watch.
+- ✅ Gate: **173 test files / ~1580 tests green** (real-claude e2e are visibly skipped unless `MANTA_E2E=1`, never a zero-assertion pass).
 
-**Known limitations (tracked in [`docs/manta-bugs.md`](docs/manta-bugs.md)):**
+**Known limitations (tracked in [`docs/manta-bugs.md`](docs/manta-bugs.md)) — none block normal use:**
 
-- ⚠️ **Large parent transcripts slow clone cold-start** (#66). Late in a very long session the transcript can grow big enough that a clone's boot exceeds the 300s startup grace and it's reaped before its first heartbeat. Workaround: `--startup-grace-ms 600000`, or cast from a fresher session. Being fixed.
-- ⚠️ **Concurrent *separate* casts** share a clone-letter namespace; a data-loss guard is in place, but the fully structural fix (cast-scoped worktree paths) is post-`0.1.0`. For now, run casts serially.
-- ⚠️ A short list of reliability/polish follow-ups (see the bug log) — none block normal use.
+- ⚠️ **Worktree paths are clone-letter-scoped, not cast-scoped** — the data-loss guard makes this safe today; the structural cleanup (cast-scoped paths) is a post-`0.1.0` refactor.
+- ⚠️ **macOS / Linux first** — Windows isn't yet exercised (`sh -c` wrappers, SIGTERM semantics need a pass).
+- ⚠️ **In the Manta repo itself**, `/manta:*` slash commands collide with the installed plugin of the same name (Claude Code upstream #14929) — use `claude --plugin-dir .` there. Normal users in their own projects are unaffected.
 
 **Phases 0–7** of the internal build are complete (see [`CHANGELOG.md`](CHANGELOG.md)); Phase 8 (advanced modes) is gated behind production maturity.
 
