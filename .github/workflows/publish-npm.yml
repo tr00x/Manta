@@ -6,10 +6,12 @@ name: publish-npm
 # "cannot publish over existing version". To ship a new release: bump the version
 # in packages/manta-cli/package.json, commit, push to main.
 #
-# REQUIRED ONE-TIME SETUP (GitHub repo → Settings → Secrets and variables →
-# Actions → New repository secret):
-#   NPM_TOKEN = an npm **Automation** access token (it bypasses 2FA; a classic
-#               "Publish" token is rejected by npm's 2FA policy in CI).
+# AUTH = npm Trusted Publisher (OIDC) — NO token/secret needed. One-time setup on
+# npmjs.com → @tr00x/manta → Settings → Trusted Publisher:
+#   Publisher: GitHub Actions · Org/user: tr00x · Repo: Manta ·
+#   Workflow filename: publish-npm.yml · Environment: (blank) · Allow npm publish.
+# The job's `permissions: id-token: write` lets `npm publish` authenticate via
+# the GitHub OIDC token — no NPM_TOKEN, no leak risk.
 
 on:
   push:
@@ -23,6 +25,9 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write # OIDC token for npm Trusted Publisher
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -36,6 +41,12 @@ jobs:
           node-version: 20
           registry-url: https://registry.npmjs.org
           cache: pnpm
+
+      # OIDC trusted publishing needs a recent npm (>= 11.5). Node 20 ships
+      # npm 10.x, so upgrade before publish. No NPM_TOKEN secret — auth comes
+      # from the GitHub OIDC id-token (see `permissions: id-token: write`).
+      - name: Upgrade npm for OIDC
+        run: npm install -g npm@latest
 
       - name: Install
         run: pnpm install --frozen-lockfile
@@ -52,8 +63,6 @@ jobs:
 
       - name: Publish if the version is new
         working-directory: packages/manta-cli
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           NAME=$(node -p "require('./package.json').name")
           VERSION=$(node -p "require('./package.json').version")
