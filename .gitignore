@@ -97,3 +97,13 @@ docs/post-mortems/
 docs/zk/
 graphify-out/
 .manta/scope-guard-hook.cjs
+
+# Internal dev/curator artifacts — kept local, not shipped to the public repo.
+video/
+docs/research/
+docs/audit-v1/
+docs/superpowers/plans/
+docs/merge-all-reports/
+docs/plan-reviews/
+docs/acceptance/
+docs/release-v1-board.md
