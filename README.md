@@ -53,6 +53,11 @@ That's it. No role hierarchy to design, no "researcher agent + coder agent" to w
 > [!NOTE]
 > Manta is an **experiment**, stated honestly: `0.1.0`, early, real, not a demo. As far as we know it's the first *same-system-prompt, full-transcript-inheritance* cloning pattern for Claude Code. The core works and is tested ([see status](#-how-ready-is-it)); the rough edges are listed, not hidden.
 
+> [!TIP]
+> **You don't have to drive the CLI.** Manta looks like a power-user tool — worktrees, a message bus, file locks. You can ignore all of it. Tell your agent *"orchestrate this with Manta"* and it does the deciding: whether to cast, how many clones, reviewing their branches, merging the winner. You watch and approve.
+>
+> Power users get the raw `manta` CLI. Vibe-coders get a one-line ask. **Same engine underneath.**
+
 ---
 
 ## Why clone instead of spawn helpers?
