@@ -256,8 +256,33 @@ export interface RunCastOptions {
    * it is fine as a commander default (contrast the Chunk-1 flag-default trap).
    */
   distillThresholdBytes?: number | undefined;
+  /**
+   * Internal per-clone usage budget (token estimate) handed to the spawner so
+   * each clone's snapshot carries a positive resource cap. NOT a dollar budget
+   * and NOT user-tunable — Claude Code is a subscription. Defaults applied by
+   * the CLI wiring; tests may override.
+   */
   budgetUsdPerClone: number;
   budgetUsdPerCast: number;
+  /**
+   * Parallelism cap (CLI: `--max-parallel-clones`). When set, a cast whose
+   * cloneCount exceeds it is rejected before any state-committing call. When
+   * undefined, the BudgetConfig default (`max_parallel_clones`) applies.
+   */
+  maxParallelClones?: number;
+  /**
+   * Cast-rate cap (CLI: `--max-casts-per-hour`). When set, a cast is rejected
+   * if the charge ledger already recorded >= this many `cast_start` events in
+   * the trailing hour. When undefined, the BudgetConfig default applies. This
+   * is the subscription usage/rate guard — the charge system stays the primary
+   * rate primitive and this is a hard hourly ceiling on top of it.
+   */
+  maxCastsPerHour?: number;
+  /**
+   * Optional token-estimate budget (CLI: `--max-tokens-estimate`). Overrides
+   * the per-cast token-estimate daily-cap projection for this cast only.
+   */
+  maxTokensEstimate?: number;
   /**
    * Per-clone scope (allowed/forbidden paths, max files changed). Optional —
    * when omitted defaults to read-only whole-repo with `.manta/state` and
@@ -284,8 +309,8 @@ export interface RunCastOptions {
    * a dry-run.
    */
   preflight?: () => Promise<void>;
-  /** Daily cap override (CLI: --daily-cap-usd). If undefined, reads from BudgetConfig. */
-  dailyCapUsdOverride?: number;
+  /** Daily token-estimate cap override. If undefined, reads from BudgetConfig. */
+  dailyTokenCapOverride?: number;
   /** Skip charge system check (CLI: --no-charge-check). Default false. */
   noChargeCheck?: boolean;
   /** Force past daily cap (CLI: --force). Default false. */
@@ -517,13 +542,47 @@ export async function runCastCommand(
 
   if (totalBudgetUsd > opts.budgetUsdPerCast) {
     const detail = cloneIds
-      .map((id) => `${id}=$${effective[id]!.budgetUsd}`)
+      .map((id) => `${id}=${effective[id]!.budgetUsd}`)
       .join(' + ');
     throw new CliError(
-      `cumulative budget (${detail} = $${totalBudgetUsd}) exceeds --budget-per-cast-usd=$${opts.budgetUsdPerCast}. ` +
-        `Reduce per-clone budgets, lower --budget-per-clone-usd, or raise --budget-per-cast-usd.`,
+      `cumulative per-clone usage estimate (${detail} = ${totalBudgetUsd}) exceeds the per-cast ` +
+        `usage budget (${opts.budgetUsdPerCast}). Lower the per-clone overrides in --tasks, or spawn fewer clones.`,
       { kind: 'invalid_input' },
     );
+  }
+
+  // Usage-aware gates (budget repivot 2026-05-31). Claude Code is a
+  // subscription, not pay-per-token, so the real constraints are PARALLELISM
+  // (how many clones run at once) and the cast RATE (how often you cast against
+  // your subscription's usage limit) — not a dollar budget. Both run here,
+  // before any state-committing call (charge debit / daily-spend record in the
+  // pre-spawn gate), so a rejected cast leaks no usage. Bug #60 NaN-reject is
+  // preserved at the flag boundary (parsePositiveIntOption).
+  const parallelismCap = opts.maxParallelClones ?? budgetConfig.maxParallelClones;
+  if (opts.cloneCount > parallelismCap) {
+    throw new CliError(
+      `parallelism cap exceeded: ${opts.cloneCount} clones requested but --max-parallel-clones=${parallelismCap}. ` +
+        `Spawn fewer clones or raise the cap (Claude Code is subscription-based — running too many clones at once ` +
+        `exhausts your usage/rate limit).`,
+      { kind: 'invalid_input' },
+    );
+  }
+
+  const castRateCap = opts.maxCastsPerHour ?? budgetConfig.maxCastsPerHour;
+  if (!(opts.dryRun ?? false)) {
+    const oneHourAgo = Date.now() - 3_600_000;
+    const log = await rt.ctx.charges.readLog();
+    const castsLastHour = log.filter(
+      (e) => e.type === 'cast_start' && e.ts >= oneHourAgo,
+    ).length;
+    if (castsLastHour >= castRateCap) {
+      throw new CliError(
+        `cast-rate cap reached: ${castsLastHour} cast(s) started in the last hour, limit is ` +
+          `--max-casts-per-hour=${castRateCap}. Wait for the window to roll, or raise the cap. ` +
+          `This protects your Claude Code subscription's usage/rate limit.`,
+        { kind: 'budget_gate_failed' },
+      );
+    }
   }
 
   // Bug #31: every operator-typo guard belongs before any state-committing call.
@@ -555,9 +614,7 @@ export async function runCastCommand(
     mode: opts.mode,
     cloneCount: opts.cloneCount,
     castId: opts.castId,
-    budgetUsdPerClone: opts.budgetUsdPerClone,
-    budgetUsdPerCast: opts.budgetUsdPerCast,
-    dailyCapUsdOverride: opts.dailyCapUsdOverride,
+    dailyTokenCapOverride: opts.maxTokensEstimate ?? opts.dailyTokenCapOverride,
     force: opts.force ?? false,
     noChargeCheck: opts.noChargeCheck ?? false,
     dryRun: opts.dryRun ?? false,

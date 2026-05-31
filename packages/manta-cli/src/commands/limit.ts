@@ -20,12 +20,17 @@ interface FlatEntry {
 
 function flattenConfig(c: ResolvedBudgetConfig): FlatEntry[] {
   return [
-    { key: 'per_cast_usd', display: String(c.perCastUsd) },
+    { key: 'max_parallel_clones', display: String(c.maxParallelClones) },
+    { key: 'max_casts_per_hour', display: String(c.maxCastsPerHour) },
+    { key: 'token_estimate_per_cast', display: String(c.tokenEstimatePerCast) },
     {
-      key: 'per_clone_usd',
-      display: c.perCloneUsd === 'auto' ? 'auto (computed: per_cast / N)' : String(c.perCloneUsd),
+      key: 'token_estimate_per_clone',
+      display:
+        c.tokenEstimatePerClone === 'auto'
+          ? 'auto (computed: per_cast / N)'
+          : String(c.tokenEstimatePerClone),
     },
-    { key: 'daily_cap_usd', display: String(c.dailyCapUsd) },
+    { key: 'daily_token_cap', display: String(c.dailyTokenCap) },
     {
       key: 'auto_downgrade.enabled',
       display: String(c.autoDowngrade.enabled),
@@ -57,9 +62,11 @@ function resolvedValue(
   key: string,
 ): string | undefined {
   const map: Record<string, unknown> = {
-    per_cast_usd: config.perCastUsd,
-    per_clone_usd: config.perCloneUsd,
-    daily_cap_usd: config.dailyCapUsd,
+    max_parallel_clones: config.maxParallelClones,
+    max_casts_per_hour: config.maxCastsPerHour,
+    token_estimate_per_cast: config.tokenEstimatePerCast,
+    token_estimate_per_clone: config.tokenEstimatePerClone,
+    daily_token_cap: config.dailyTokenCap,
     'auto_downgrade.enabled': config.autoDowngrade.enabled,
     'auto_downgrade.confirm': config.autoDowngrade.confirm,
     'auto_downgrade.min_clones': config.autoDowngrade.minClones,

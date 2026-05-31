@@ -1,12 +1,17 @@
 import type { ResolvedBudgetConfig } from '../config/budget-config.js';
 import type { Mode } from '@manta/bus';
 
+/**
+ * Usage estimate for a cast. Units are TOKEN ESTIMATES (a proxy for how much
+ * of your Claude Code subscription's usage budget a cast consumes), not
+ * dollars — Claude Code is a subscription, not pay-per-token.
+ */
 export interface CostEstimate {
   mode: Mode;
   cloneCount: number;
-  perCloneCostUsd: number;
-  totalEstimatedUsd: number;
-  perCloneBudgetUsd: number;
+  perCloneTokens: number;
+  totalEstimatedTokens: number;
+  perCloneTokenBudget: number;
 }
 
 export function estimateCost(
@@ -18,14 +23,16 @@ export function estimateCost(
   if (cloneCount < 1) {
     throw new Error(`estimateCost: cloneCount must be >= 1, got ${cloneCount}`);
   }
-  const perClone = config.costEstimates[mode] ?? 2.00;
+  const perClone = config.tokenEstimates[mode] ?? 200_000;
   const perCloneBudget = perCloneBudgetOverride ??
-    (config.perCloneUsd === 'auto' ? config.perCastUsd / cloneCount : config.perCloneUsd);
+    (config.tokenEstimatePerClone === 'auto'
+      ? config.tokenEstimatePerCast / cloneCount
+      : config.tokenEstimatePerClone);
   return {
     mode,
     cloneCount,
-    perCloneCostUsd: perClone,
-    totalEstimatedUsd: perClone * cloneCount,
-    perCloneBudgetUsd: perCloneBudget,
+    perCloneTokens: perClone,
+    totalEstimatedTokens: perClone * cloneCount,
+    perCloneTokenBudget: perCloneBudget,
   };
 }

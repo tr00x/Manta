@@ -17,10 +17,19 @@ export interface ResolvedCharges {
 }
 
 export interface ResolvedBudgetConfig {
-  perCastUsd: number;
-  perCloneUsd: number | 'auto';
-  dailyCapUsd: number;
-  costEstimates: Record<Mode, number>;
+  /**
+   * Usage-aware caps. Claude Code is a subscription (Pro/Max), not pay-per-
+   * token, so these are TOKEN ESTIMATES — a proxy for how much of your
+   * subscription's usage/rate budget a cast consumes — not dollars.
+   */
+  tokenEstimatePerCast: number;
+  tokenEstimatePerClone: number | 'auto';
+  dailyTokenCap: number;
+  /** Max clones a single cast may spawn concurrently. */
+  maxParallelClones: number;
+  /** Max casts allowed to start within a rolling hour (cast-rate cap). */
+  maxCastsPerHour: number;
+  tokenEstimates: Record<Mode, number>;
   autoDowngrade: ResolvedAutoDowngrade;
   charges: ResolvedCharges;
   triggersGlobalHourlyCap: number;
@@ -28,24 +37,29 @@ export interface ResolvedBudgetConfig {
   aghsUnlocked: Mode[];
 }
 
-const DEFAULT_COST_ESTIMATES: Record<Mode, number> = {
-  'recon-swarm': 1.50,
-  'pair-programming': 1.50,
-  'documentation-chase': 1.50,
-  'forking-realities': 3.00,
-  'test-storm': 3.00,
-  'refactor-wave': 3.00,
-  'bug-hunt': 3.00,
-  'decoy': 3.00,
-  'council': 5.00,
-  'phantom-lance': 5.00,
+// Per-clone token estimates by mode (rough order-of-magnitude proxies for
+// subscription usage, NOT dollars). Heavier modes spawn more / longer-running
+// clones, so they estimate higher.
+const DEFAULT_TOKEN_ESTIMATES: Record<Mode, number> = {
+  'recon-swarm': 150_000,
+  'pair-programming': 150_000,
+  'documentation-chase': 150_000,
+  'forking-realities': 300_000,
+  'test-storm': 300_000,
+  'refactor-wave': 300_000,
+  'bug-hunt': 300_000,
+  'decoy': 300_000,
+  'council': 500_000,
+  'phantom-lance': 500_000,
 };
 
 export const BUDGET_DEFAULTS: ResolvedBudgetConfig = {
-  perCastUsd: 15,
-  perCloneUsd: 'auto',
-  dailyCapUsd: 50,
-  costEstimates: { ...DEFAULT_COST_ESTIMATES },
+  tokenEstimatePerCast: 1_500_000,
+  tokenEstimatePerClone: 'auto',
+  dailyTokenCap: 5_000_000,
+  maxParallelClones: 5,
+  maxCastsPerHour: 6,
+  tokenEstimates: { ...DEFAULT_TOKEN_ESTIMATES },
   autoDowngrade: {
     enabled: true,
     confirm: true,
@@ -70,23 +84,25 @@ export async function loadBudgetConfig(repoRoot: string): Promise<ResolvedBudget
     const content = await fs.readFile(configPath, 'utf8');
     raw = JSON.parse(content);
   } catch {
-    return { ...BUDGET_DEFAULTS, costEstimates: { ...DEFAULT_COST_ESTIMATES } };
+    return { ...BUDGET_DEFAULTS, tokenEstimates: { ...DEFAULT_TOKEN_ESTIMATES } };
   }
 
   const parsed = BudgetConfigSchema.safeParse(raw);
   if (!parsed.success) {
-    return { ...BUDGET_DEFAULTS, costEstimates: { ...DEFAULT_COST_ESTIMATES } };
+    return { ...BUDGET_DEFAULTS, tokenEstimates: { ...DEFAULT_TOKEN_ESTIMATES } };
   }
 
   const data = parsed.data;
 
   return {
-    perCastUsd: data.per_cast_usd ?? BUDGET_DEFAULTS.perCastUsd,
-    perCloneUsd: data.per_clone_usd ?? BUDGET_DEFAULTS.perCloneUsd,
-    dailyCapUsd: data.daily_cap_usd ?? BUDGET_DEFAULTS.dailyCapUsd,
-    costEstimates: {
-      ...DEFAULT_COST_ESTIMATES,
-      ...(data.cost_estimates ?? {}),
+    tokenEstimatePerCast: data.token_estimate_per_cast ?? BUDGET_DEFAULTS.tokenEstimatePerCast,
+    tokenEstimatePerClone: data.token_estimate_per_clone ?? BUDGET_DEFAULTS.tokenEstimatePerClone,
+    dailyTokenCap: data.daily_token_cap ?? BUDGET_DEFAULTS.dailyTokenCap,
+    maxParallelClones: data.max_parallel_clones ?? BUDGET_DEFAULTS.maxParallelClones,
+    maxCastsPerHour: data.max_casts_per_hour ?? BUDGET_DEFAULTS.maxCastsPerHour,
+    tokenEstimates: {
+      ...DEFAULT_TOKEN_ESTIMATES,
+      ...(data.token_estimates ?? {}),
     } as Record<Mode, number>,
     autoDowngrade: {
       enabled: data.auto_downgrade?.enabled ?? BUDGET_DEFAULTS.autoDowngrade.enabled,

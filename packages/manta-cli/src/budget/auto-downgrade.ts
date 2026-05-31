@@ -6,13 +6,13 @@ export interface DowngradeOption {
   label: string;
   mode: Mode;
   cloneCount: number;
-  estimatedCostUsd: number;
+  estimatedTokens: number;
   viable: boolean;
 }
 
 export interface DowngradeAdvice {
   originalEstimate: CostEstimate;
-  remainingBudgetUsd: number;
+  remainingTokenBudget: number;
   options: DowngradeOption[];
 }
 
@@ -29,13 +29,13 @@ const CHEAPER_MODE_MAP: Partial<Record<Mode, Mode>> = {
 export function computeDowngradeOptions(
   mode: Mode,
   cloneCount: number,
-  remainingBudgetUsd: number,
+  remainingTokenBudget: number,
   config: ResolvedBudgetConfig,
 ): DowngradeAdvice {
   const originalEstimate = estimateCost(mode, cloneCount, config);
 
   if (!config.autoDowngrade.enabled) {
-    return { originalEstimate, remainingBudgetUsd, options: [] };
+    return { originalEstimate, remainingTokenBudget, options: [] };
   }
 
   const options: DowngradeOption[] = [];
@@ -46,8 +46,8 @@ export function computeDowngradeOptions(
       label: `${mode} × ${n}`,
       mode,
       cloneCount: n,
-      estimatedCostUsd: est.totalEstimatedUsd,
-      viable: est.totalEstimatedUsd <= remainingBudgetUsd,
+      estimatedTokens: est.totalEstimatedTokens,
+      viable: est.totalEstimatedTokens <= remainingTokenBudget,
     });
   }
 
@@ -59,11 +59,11 @@ export function computeDowngradeOptions(
         label: `${cheaperMode} × ${n}`,
         mode: cheaperMode,
         cloneCount: n,
-        estimatedCostUsd: est.totalEstimatedUsd,
-        viable: est.totalEstimatedUsd <= remainingBudgetUsd,
+        estimatedTokens: est.totalEstimatedTokens,
+        viable: est.totalEstimatedTokens <= remainingTokenBudget,
       });
     }
   }
 
-  return { originalEstimate, remainingBudgetUsd, options };
+  return { originalEstimate, remainingTokenBudget, options };
 }

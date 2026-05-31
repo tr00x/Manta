@@ -59,19 +59,33 @@ function truncateMode(mode: string, len = 15): string {
   return mode.length > len ? mode.slice(0, len - 1) + '.' : mode.padEnd(len);
 }
 
+function formatTokens(tokens: number): string {
+  if (tokens >= 1_000_000) return `~${(tokens / 1_000_000).toFixed(1)}M tok`;
+  if (tokens >= 1_000) return `~${Math.round(tokens / 1_000)}k tok`;
+  return `~${Math.round(tokens)} tok`;
+}
+
 async function renderToday(rt: Runtime, opts: CostCommandOptions): Promise<string> {
   const config = await loadBudgetConfig(rt.repoRoot);
   const dailyState: DailySpendState = await rt.ctx.dailySpend.read();
   const chargeState = await rt.ctx.charges.read();
-  const remaining = Math.max(0, config.dailyCapUsd - dailyState.spent_usd);
-  const fraction = config.dailyCapUsd > 0 ? dailyState.spent_usd / config.dailyCapUsd : 0;
-  const pct = Math.round(fraction * 100);
+
+  // Usage-aware view (budget repivot). Claude Code is a subscription, not pay-
+  // per-token, so there is no dollar spend to show — the real signals are how
+  // many casts/clones you ran and how much of your rolling rate budget remains.
+  const castsToday = dailyState.entries.length;
+  const clonesToday = dailyState.entries.reduce((n, e) => n + e.clone_count, 0);
+
+  const oneHourAgo = Date.now() - 3_600_000;
+  const log = await rt.ctx.charges.readLog();
+  const castsLastHour = log.filter((e) => e.type === 'cast_start' && e.ts >= oneHourAgo).length;
+  const rateRemaining = Math.max(0, config.maxCastsPerHour - castsLastHour);
+  const rateFraction = config.maxCastsPerHour > 0 ? castsLastHour / config.maxCastsPerHour : 0;
 
   const lines: string[] = [];
-  lines.push(
-    `Daily budget: $${dailyState.spent_usd.toFixed(2)} / $${config.dailyCapUsd.toFixed(2)} (${pct}%)`,
-  );
-  lines.push(`${progressBar(fraction)} ${pct}%`);
+  lines.push(`Usage today: ${castsToday} cast${castsToday !== 1 ? 's' : ''}, ${clonesToday} clone${clonesToday !== 1 ? 's' : ''} spawned`);
+  lines.push(`Cast rate: ${castsLastHour}/${config.maxCastsPerHour} this hour  ${progressBar(rateFraction)}`);
+  lines.push(`  ${rateRemaining} more cast${rateRemaining !== 1 ? 's' : ''} allowed before the hourly cap`);
   lines.push('');
 
   if (dailyState.entries.length === 0) {
@@ -82,19 +96,20 @@ async function renderToday(rt: Runtime, opts: CostCommandOptions): Promise<strin
       const castId = e.cast_id.length > 20 ? e.cast_id.slice(0, 20) : e.cast_id.padEnd(20);
       const mode = truncateMode(e.mode);
       const clones = `${e.clone_count} clone${e.clone_count !== 1 ? 's' : ''}`.padEnd(9);
-      const cost = `~$${e.estimated_cost_usd.toFixed(2)}`.padEnd(8);
+      const usage = formatTokens(e.estimated_tokens).padEnd(10);
       const time = formatTime(e.started_at);
-      lines.push(`  ${castId}  ${mode}  ${clones}  ${cost}  ${time}`);
+      lines.push(`  ${castId}  ${mode}  ${clones}  ${usage}  ${time}`);
     }
   }
   lines.push('');
-  lines.push(`Remaining today: $${remaining.toFixed(2)}`);
-  lines.push(`Charges: ${chargeState.current_charges}/${chargeState.charges_max}`);
+  lines.push(`Token estimate today: ${formatTokens(dailyState.tokens_estimated)} (usage proxy, not dollars)`);
+  lines.push(`Charges: ${chargeState.current_charges}/${chargeState.charges_max}  (parallelism cap: ${config.maxParallelClones} clones/cast)`);
 
   opts.reporter.info('cost.today', {
-    spent: dailyState.spent_usd,
-    remaining,
-    entries: dailyState.entries.length,
+    casts: castsToday,
+    clones: clonesToday,
+    castsLastHour,
+    tokensEstimated: dailyState.tokens_estimated,
   });
 
   return lines.join('\n');
@@ -108,24 +123,26 @@ async function renderWeek(rt: Runtime, opts: CostCommandOptions): Promise<string
 
   const dailyState = await rt.ctx.dailySpend.read();
 
-  const dayTotals = new Map<string, number>();
+  // Per-day cast counts (usage signal), derived from today's ledger entries
+  // plus the charge log's cast_start events across the week.
+  const dayCasts = new Map<string, number>();
   for (const entry of dailyState.entries) {
     const dateKey = new Date(entry.started_at).toLocaleDateString('en-CA');
-    dayTotals.set(dateKey, (dayTotals.get(dateKey) ?? 0) + entry.estimated_cost_usd);
+    dayCasts.set(dateKey, (dayCasts.get(dateKey) ?? 0) + 1);
   }
 
-  const weekEvents = log.filter(
-    (e) => e.ts >= weekStart && e.type === 'cast_start' && e.cost != null,
-  );
+  const todayKey = new Date(now).toLocaleDateString('en-CA');
+  const weekEvents = log.filter((e) => e.ts >= weekStart && e.type === 'cast_start');
   for (const ev of weekEvents) {
     const dateKey = new Date(ev.ts).toLocaleDateString('en-CA');
-    if (!dayTotals.has(dateKey)) {
-      dayTotals.set(dateKey, ev.cost ?? 0);
-    }
+    // Today is already counted from the ledger; only the charge log carries
+    // prior days (the daily ledger resets each calendar day).
+    if (dateKey === todayKey) continue;
+    dayCasts.set(dateKey, (dayCasts.get(dateKey) ?? 0) + 1);
   }
 
   let weekTotal = 0;
-  for (const v of dayTotals.values()) weekTotal += v;
+  for (const v of dayCasts.values()) weekTotal += v;
 
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const dayParts: string[] = [];
@@ -133,19 +150,19 @@ async function renderWeek(rt: Runtime, opts: CostCommandOptions): Promise<string
     const d = new Date(now - i * 24 * 3600_000);
     const key = d.toLocaleDateString('en-CA');
     const name = dayNames[d.getDay()];
-    const amount = dayTotals.get(key) ?? 0;
-    dayParts.push(`${name} $${amount.toFixed(2)}`);
+    const count = dayCasts.get(key) ?? 0;
+    dayParts.push(`${name} ${count}`);
   }
 
-  const activeDays = dayTotals.size || 1;
+  const activeDays = dayCasts.size || 1;
   const avg = weekTotal / activeDays;
 
   const lines: string[] = [];
-  lines.push(`This week: $${weekTotal.toFixed(2)}`);
+  lines.push(`This week: ${weekTotal} cast${weekTotal !== 1 ? 's' : ''}`);
   lines.push(`  ${dayParts.join('  ')}`);
-  lines.push(`  Avg: $${avg.toFixed(2)}/day`);
+  lines.push(`  Avg: ${avg.toFixed(1)} casts/active day`);
 
-  opts.reporter.info('cost.week', { total: weekTotal, avg });
+  opts.reporter.info('cost.week', { totalCasts: weekTotal, avg });
 
   return lines.join('\n');
 }
