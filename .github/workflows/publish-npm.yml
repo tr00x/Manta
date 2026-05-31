@@ -1,0 +1,60 @@
+name: publish-npm
+
+# Auto-publish @tr00x/manta to npm when main is updated.
+# Publishes ONLY when packages/manta-cli/package.json `version` is not already on
+# npm — so routine pushes (docs, fixes at the same version) don't fail on
+# "cannot publish over existing version". To ship a new release: bump the version
+# in packages/manta-cli/package.json, commit, push to main.
+#
+# REQUIRED ONE-TIME SETUP (GitHub repo → Settings → Secrets and variables →
+# Actions → New repository secret):
+#   NPM_TOKEN = an npm **Automation** access token (it bypasses 2FA; a classic
+#               "Publish" token is rejected by npm's 2FA policy in CI).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {} # allow manual runs from the Actions tab
+
+concurrency:
+  group: publish-npm
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Gate (typecheck + lint + tests)
+        run: pnpm gate
+
+      - name: Build all packages
+        run: pnpm -r build
+
+      - name: Publish if the version is new
+        working-directory: packages/manta-cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "::notice::$NAME@$VERSION already on npm — nothing to publish (bump the version to release)."
+          else
+            echo "::notice::Publishing $NAME@$VERSION to npm."
+            npm publish --access public
+          fi
