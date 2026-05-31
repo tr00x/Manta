@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createBusServer } from '../server';
+import { resolveRepoRoot } from '../repo-root';
 
 // Exit codes:
 //   0 — clean shutdown (SIGTERM / SIGINT)
@@ -33,9 +33,11 @@ async function validateRepoRoot(repoRoot: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const repoRoot = process.env.MANTA_REPO_ROOT
-    ? path.resolve(process.env.MANTA_REPO_ROOT)
-    : process.cwd();
+  // C2c: resolve the repo root the SAME way the CLI does — honour
+  // MANTA_REPO_ROOT, else walk up to `.git`. The previous `process.cwd()`
+  // fallback split-brained `.manta/state` when the bus was launched from a
+  // subdirectory (CLI walks up, bus did not).
+  const repoRoot = resolveRepoRoot();
   await validateRepoRoot(repoRoot);
   const { server } = await createBusServer({ repoRoot });
   const transport = new StdioServerTransport();

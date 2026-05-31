@@ -23,6 +23,8 @@ export type { Clock } from './clock';
 export { systemClock, FakeClock } from './clock';
 export { busPaths } from './state/paths';
 export type { BusPaths } from './state/paths';
+export { resolveRepoRoot } from './repo-root';
+export type { ResolveRepoRootOptions } from './repo-root';
 export { Registry } from './state/registry';
 export { LocksStore } from './state/locks';
 export { ClaimsStore } from './state/claims';
