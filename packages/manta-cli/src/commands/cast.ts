@@ -15,7 +15,7 @@ import { buildCloneSnapshot } from '../spawner/snapshot-builder.js';
 import { runTickLoop } from '../tick-loop.js';
 import { CliError } from '../errors.js';
 import { verifyMantaBusRegistered } from './mcp-preflight.js';
-import { loadScoringConfig, runMergeReview, Orchestrator, makeProbe, fsPostMortemWriter, ForensicTimelineWriter, type BusContext as MergeReviewBusContext } from '@manta/orchestrator';
+import { loadScoringConfig, runMergeReview, Orchestrator, makeProbe, fsPostMortemWriter, ensureSelfDeathPostMortems, ForensicTimelineWriter, type BusContext as MergeReviewBusContext } from '@manta/orchestrator';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createMetricCollector, prepareWorktreeForGate } from './merge-review-collector.js';
@@ -897,6 +897,38 @@ export async function runCastCommand(
       }),
     );
     await timeline.seal(rt.ctx.clock.now());
+
+    // Z1: write post-mortems for clones that self-reported death via the bus.
+    // The orchestrator reaper skips clones already in DEAD state
+    // (death-detector.ts), so a clone that exits cleanly through
+    // manta-graceful-death (→ bus report_death → DEAD) is never post-mortem'd
+    // by a cycle. Enumerate this cast's DEAD clones and back-fill any missing
+    // post-mortem, reusing the same fsPostMortemWriter + runPostMortem the
+    // reaper uses. Idempotent against post-mortems the reaper already wrote.
+    {
+      const postMortemDir = join(rt.repoRoot, rt.thresholds.postMortemDir);
+      let existingFilenames: string[] = [];
+      try {
+        existingFilenames = await fsPromises.readdir(postMortemDir);
+      } catch {
+        /* directory not created yet — no prior post-mortems on disk */
+      }
+      const settlementPostMortems = await ensureSelfDeathPostMortems(rt.ctx, {
+        cloneIds,
+        writer: fsPostMortemWriter({
+          repoRoot: rt.repoRoot,
+          postMortemDir: rt.thresholds.postMortemDir,
+        }),
+        thresholds: rt.thresholds,
+        existingFilenames,
+      });
+      for (const pm of settlementPostMortems.written) {
+        opts.reporter.info('cast.settlement_post_mortem', {
+          cast: opts.castId,
+          path: pm.path,
+        });
+      }
+    }
 
     // Phase 3: Post-cast settlement
     if (!(opts.noChargeCheck ?? false)) {

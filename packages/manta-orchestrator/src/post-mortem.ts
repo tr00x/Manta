@@ -87,6 +87,76 @@ export async function runPostMortem(
   return { document, event, path: written.path };
 }
 
+export interface EnsureSelfDeathPostMortemsOptions {
+  /** Clone ids belonging to the cast being settled. */
+  cloneIds: string[];
+  writer: PostMortemWriter;
+  thresholds: Thresholds;
+  /**
+   * Post-mortem filenames already present in the post-mortem directory, used
+   * for idempotency. `runPostMortem` always (over)writes, so this set is what
+   * prevents a duplicate write — and a redundant `post_mortem` audit event —
+   * for a clone the reaper already post-mortem'd.
+   */
+  existingFilenames: string[];
+}
+
+export interface EnsureSelfDeathPostMortemsResult {
+  written: RunPostMortemResult[];
+  /** Clone ids skipped because they were not DEAD or already had a post-mortem. */
+  skipped: string[];
+}
+
+/**
+ * Z1 fix — post-mortems for self-reported deaths.
+ *
+ * A clone that exits cleanly via the manta-graceful-death skill calls the bus
+ * `report_death`, which sets its registry state to DEAD directly. The
+ * orchestrator reaper (`findDeadClones`) skips clones already in DEAD state, so
+ * it never runs a post-mortem for a gracefully self-died clone — and nothing
+ * else did either. That broke the "every cast → a post-mortem per clone"
+ * contract (and the recon-swarm e2e: 0 post-mortems where >= 2 were expected).
+ *
+ * Call this during post-cast settlement: for each of the cast's clones that is
+ * DEAD and lacks a post-mortem on disk, write one. Reuses `runPostMortem` so
+ * the document format and the emitted `post_mortem` event match the reaper
+ * exactly. Idempotent: a clone whose post-mortem already exists (the reaper
+ * detected it dead first, or a prior settlement ran) is skipped — the match is
+ * on the `-<castId>-<cloneId>.md` suffix so a file written on a previous UTC
+ * day still counts.
+ */
+export async function ensureSelfDeathPostMortems(
+  ctx: Pick<BusContext, 'registry' | 'events' | 'clock'>,
+  opts: EnsureSelfDeathPostMortemsOptions,
+): Promise<EnsureSelfDeathPostMortemsResult> {
+  const all = await ctx.registry.list();
+  const byId = new Map(all.map((r) => [r.clone_id, r]));
+  const existing = new Set(opts.existingFilenames);
+  const written: RunPostMortemResult[] = [];
+  const skipped: string[] = [];
+  for (const cloneId of opts.cloneIds) {
+    const record = byId.get(cloneId);
+    if (!record || record.state !== 'DEAD') {
+      skipped.push(cloneId);
+      continue;
+    }
+    const suffix = `-${castIdOf(record)}-${cloneId}.md`;
+    if ([...existing].some((f) => f.endsWith(suffix))) {
+      skipped.push(cloneId);
+      continue;
+    }
+    const pm = await runPostMortem(ctx, {
+      cloneId,
+      reason: record.death_reason ?? 'self-reported death (post-cast settlement)',
+      writer: opts.writer,
+      thresholds: opts.thresholds,
+    });
+    written.push(pm);
+    existing.add(pm.document.filename);
+  }
+  return { written, skipped };
+}
+
 interface RenderInput {
   record: CloneRecord;
   reason: string;
