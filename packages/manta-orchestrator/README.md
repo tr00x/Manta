@@ -19,7 +19,7 @@ const result = await o.runCycle();
 // result: deadClones, reapedLocks, reapedClaims, postMortems, events
 ```
 
-Call `runCycle` on a tick (Phase 0d CLI) or in a daemon (Phase 5).
+Call `runCycle` on a tick (e.g. from the `manta` CLI) or in a daemon loop.
 
 ## Triggers
 
@@ -30,14 +30,14 @@ A clone is declared DEAD when any of:
 
 Both can fire together; the `reason` string is composite.
 
-> **Phase 0 coverage of spec Sec 7.** The two triggers above collectively map to Sec 7's **TTL**, **Crash**, and **Killed** rows (a clone that ran out of time stops heartbeating; a crashed parent leaves orphans; an externally killed clone stops heartbeating). The **Failure (3 errors)** and **Drift** triggers come from inside the clone (the clone calls `manta.suicide_intent` then `manta.report_death`), and the **Success** path is owned by `manta-merge-review` (Phase 2 forking-realities). All three flow through the bus's existing `report_death` tool, so the orchestrator sees them as already-DEAD records and writes the post-mortem the same way.
+> **Death-trigger coverage.** The two triggers above cover the **TTL**, **Crash**, and **Killed** cases (a clone that ran out of time stops heartbeating; a crashed parent leaves orphans; an externally killed clone stops heartbeating). The **Failure (3 errors)** and **Drift** triggers come from inside the clone (it calls `manta.suicide_intent` then `manta.report_death`), and the **Success** path is owned by merge-review for forking-realities casts. All three flow through the bus's existing `report_death` tool, so the orchestrator sees them as already-DEAD records and writes the post-mortem the same way.
 
 ## Reapers
 
 - `lock-reaper` — calls `LocksStore.reapStale()`; emits one `lock_reap` event per reaped lease.
 - `claim-reaper` — calls `ClaimsStore.reapExpired()`; emits one `claim_reap` event per expired claim.
 
-> **State-ahead-of-audit window.** `LocksStore.reapStale()` and `ClaimsStore.reapExpired()` mutate the underlying state file *before* the orchestrator emits the corresponding `lock_reap` / `claim_reap` events. If the orchestrator process crashes between the store mutation and the events-log append, the next `runCycle` will see the lease/claim as already gone and emit nothing for it — leaving an audit-trail gap for that one window. This is documented symmetrically in `packages/manta-bus/ARCHITECTURE.md` under "Known invariants & limitations". The carve-out is intentional for Phase 0; `runCycle` is idempotent on already-reaped state, so the next tick self-heals (no double-mutation, no double-emission).
+> **State-ahead-of-audit window.** `LocksStore.reapStale()` and `ClaimsStore.reapExpired()` mutate the underlying state file *before* the orchestrator emits the corresponding `lock_reap` / `claim_reap` events. If the orchestrator process crashes between the store mutation and the events-log append, the next `runCycle` will see the lease/claim as already gone and emit nothing for it — leaving an audit-trail gap for that one window. The carve-out is intentional; `runCycle` is idempotent on already-reaped state, so the next tick self-heals (no double-mutation, no double-emission).
 
 ## Post-mortem
 
@@ -52,7 +52,7 @@ Post-mortems are atomic (temp-then-rename) and idempotent (safe to call twice �
 
 ## Status
 
-`getStatus()` returns a snapshot of clones, locks, claims, and the active thresholds. Used by `manta status` (Phase 0d).
+`getStatus()` returns a snapshot of clones, locks, claims, and the active thresholds. Used by `manta status`.
 
 ## Errors
 
@@ -74,11 +74,3 @@ try {
 ```
 
 `runCycle` is **fail-fast within a phase**: a thrown error is propagated wrapped in `OrchestratorError`, but earlier phases of the same cycle (e.g. `lock_reap` events, `claim_reap` events, partial post-mortem writes) may have already landed on disk. The cycle is idempotent on already-reaped state, so re-calling `runCycle` after handling the error is safe — the next pass simply skips already-DEAD clones, finds no fresh expirations, and exits clean.
-
-## Non-goals (deferred)
-
-- Daemon-mode runtime (Phase 5) — Phase 0 is library-only
-- Charge / cooldown / budget bookkeeping (Phase 3)
-- Best-of-N merge review (Phase 2 forking-realities)
-- Worktree teardown (Phase 0d manta-cli)
-- Notification routing / batching (Phase 11.0+ tiers)

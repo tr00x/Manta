@@ -1,6 +1,6 @@
 # manta
 
-Phase-0 CLI for Manta. Five commands: `cast`, `status`, `kill`, `abort`, `recover`. Mode support: `recon-swarm` only (other modes ship in later phases).
+CLI for Manta. Core commands: `cast`, `status`, `kill`, `abort`, `recover` (plus `inspect`, `tail`, `replay`, `promote`, `cost`, `charges`, `doctor`, and more). Modes: `recon-swarm`, `forking-realities`, `bug-hunt`, `refactor-wave`, `pair-programming`, `test-storm`, and `documentation-chase`, plus the opt-in `council` and `decoy` modes.
 
 ## Install
 
@@ -13,7 +13,7 @@ manta cast recon-swarm --task "…"
 
 > The **Claude Code plugin** is the primary v1 distribution mechanism (`/plugin marketplace add tr00x/Manta` → `/plugin install manta@manta` → `/manta:*` + skills + auto-bus). This npm CLI is the terminal / power-user path. See the repo-root `README.md` Install section.
 >
-> **Precondition:** `manta cast` runs from **inside a Manta-enabled git checkout** — a repo/worktree that carries the `skills/` directory (e.g. a clone of the Manta repo). Casting from an arbitrary empty directory is Phase 8 (clones need the `manta-as-clone` skill on disk and a git repo for the worktree).
+> **Precondition:** `manta cast` runs from **inside a Manta-enabled git checkout** — a repo/worktree that carries the `skills/` directory (e.g. a clone of the Manta repo). Casting from an arbitrary empty directory is not supported — clones need the `manta-as-clone` skill on disk and a git repo for the worktree.
 
 From a source checkout (working from the monorepo today), build once and run the bin directly:
 
@@ -38,10 +38,14 @@ Options:
 - `--task <task>` — task description (passed into each clone's task contract)
 - `--cycle-interval-ms <ms>` — orchestrator cycle interval (default 5000)
 - `--tick-budget-ms <ms>` — overall budget; the cast aborts after this (default 1_500_000 = 25 min)
-- `--budget-per-clone-usd <amt>` — dollar budget per clone (default 5)
-- `--budget-per-cast-usd <amt>` — cumulative dollar cap for the whole cast (default 15); rejects with `invalid_input` if `cloneCount × per-clone > per-cast`
+- `--max-parallel-clones <n>` — max clones a single cast may spawn at once, a parallelism cap (default from config, or 5)
+- `--max-casts-per-hour <n>` — max casts allowed to start in a rolling hour, a cast-rate cap that protects your subscription usage/rate limit (default from config, or 6)
+- `--max-tokens-estimate <n>` — optional per-cast usage ceiling (a token-estimate proxy, not dollars); rejects the cast if its cumulative per-clone estimate exceeds this
+- `--max-files-changed <n>` — per-clone hard cap on file writes (0 = read-only)
 
-Phase-0 caveat: only `recon-swarm` is supported. Other modes throw `invalid_input`.
+Manta runs on a Claude Code subscription, not pay-per-token, so the caps are usage-aware — parallelism, cast rate, and a token-estimate proxy — rather than dollar budgets.
+
+An unknown mode throws `invalid_input`. The `council` and `decoy` modes are opt-in and must be enabled in config/env before they can be cast.
 
 Pre-flight: before spawning, the cast verifies that `manta-bus` is registered as an MCP server with Claude Code (`claude mcp list`). Without that, `claude --print` clones cannot reach the bus and the cast would time out silently. The check is bypassed for tests via `verifyMcp: false` in the programmatic API.
 
@@ -98,18 +102,11 @@ await runCastCommand(rt, {
   cycleIntervalMs: 5_000,
   tickBudgetMs: 1_500_000,
   castId: 'cast-1',
-  budgetUsdPerClone: 5,
-  budgetUsdPerCast: 15,
+  maxFilesChanged: 0,     // 0 = read-only clones
+  maxParallelClones: 5,   // parallelism cap
+  maxCastsPerHour: 6,     // cast-rate cap (protects subscription usage)
   verifyMcp: false, // tests with fake runners
   runner: runFakeCloneScript({ scriptPath: '/path/to/fake-clone.mjs' }),
   reporter: createReporter({ sink: new StderrSink() }),
 });
 ```
-
-## Non-goals (deferred)
-
-- Modes beyond `recon-swarm` — Phase 2+
-- Charge / cooldown / budget enforcement — Phase 3
-- All other Sec 12 commands (`dry-run`, `inspect`, `tail`, `tell`, `pin`, `swap`, `pause`, `resume`, `recontract`, …) — Phase 1+
-- Daemon mode — Phase 5
-- Claude Code plugin-marketplace entry — Phase 8 (npm/npx via `npx manta@latest install` is the v1 distribution mechanism)

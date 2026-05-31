@@ -31,4 +31,4 @@ const restored = await deserializeSnapshot('/tmp/snap.json');
 
 ## Schema versioning
 
-Version constant: `CURRENT_SCHEMA_VERSION` (currently 1). Migration table in `src/version.ts`. When bumping, add a migration entry; old snapshots remain readable for at least 2 release cycles per CLAUDE.md PROD policy.
+Version constant: `CURRENT_SCHEMA_VERSION` (currently 1). Migration table in `src/version.ts`. When bumping, add a migration entry; old snapshots remain readable for at least 2 release cycles.
