@@ -35,9 +35,9 @@ __export(manta_statusline_exports, {
   formatDuration: () => formatDuration,
   formatStatusline: () => formatStatusline,
   isLive: () => isLive,
-  readCapUsd: () => readCapUsd,
   readClones: () => readClones,
-  readSpentUsd: () => readSpentUsd,
+  readTokenCap: () => readTokenCap,
+  readTokensEstimated: () => readTokensEstimated,
   resolveRepoRoot: () => resolveRepoRoot,
   runStatusline: () => runStatusline
 });
@@ -61,12 +61,12 @@ function formatStatusline(input) {
   }
   const segments = [];
   segments.push(live.map((c) => `${c.clone_id}${STATE_ARROW}${c.state}`).join(" "));
-  if (input.spentUsd != null && Number.isFinite(input.spentUsd)) {
-    let spend = `$${formatMoney(input.spentUsd)}`;
-    if (input.capUsd != null && Number.isFinite(input.capUsd)) {
-      spend += `/${formatCap(input.capUsd)}`;
+  if (input.tokensEstimated != null && Number.isFinite(input.tokensEstimated)) {
+    let usage = formatTokens(input.tokensEstimated);
+    if (input.tokenCap != null && Number.isFinite(input.tokenCap)) {
+      usage += `/${formatTokens(input.tokenCap)}`;
     }
-    segments.push(spend);
+    segments.push(usage);
   }
   const oldest = oldestRegisteredAt(live);
   if (oldest != null) {
@@ -89,11 +89,15 @@ function oldestRegisteredAt(clones) {
   }
   return min;
 }
-function formatMoney(usd) {
-  return usd.toFixed(2);
-}
-function formatCap(usd) {
-  return Number.isInteger(usd) ? String(usd) : usd.toFixed(2);
+function formatTokens(tokens) {
+  if (tokens >= 1e6) {
+    const m = tokens / 1e6;
+    return `${Number.isInteger(m) ? m : m.toFixed(1)}M`;
+  }
+  if (tokens >= 1e3) {
+    return `${Math.round(tokens / 1e3)}k`;
+  }
+  return String(Math.round(tokens));
 }
 function formatDuration(ms) {
   const totalSeconds = Math.floor(ms / 1e3);
@@ -154,18 +158,18 @@ function readClones(repoRoot) {
     return [];
   }
 }
-function readSpentUsd(repoRoot, nowMs) {
+function readTokensEstimated(repoRoot, nowMs) {
   try {
     const data = readJson(path.join(repoRoot, ".manta", "state", "daily-spend.json"));
     if (typeof data.date === "string" && data.date !== localDate(nowMs)) {
       return 0;
     }
-    return typeof data.spent_usd === "number" && Number.isFinite(data.spent_usd) ? data.spent_usd : null;
+    return typeof data.tokens_estimated === "number" && Number.isFinite(data.tokens_estimated) ? data.tokens_estimated : null;
   } catch {
     return null;
   }
 }
-function readCapUsd(repoRoot) {
+function readTokenCap(repoRoot) {
   const candidates = [
     path.join(repoRoot, ".manta", "state", "budget.json"),
     path.join(repoRoot, ".manta", "config", "budget.json")
@@ -173,8 +177,8 @@ function readCapUsd(repoRoot) {
   for (const file of candidates) {
     try {
       const data = readJson(file);
-      if (typeof data.daily_cap_usd === "number" && Number.isFinite(data.daily_cap_usd)) {
-        return data.daily_cap_usd;
+      if (typeof data.daily_token_cap === "number" && Number.isFinite(data.daily_token_cap)) {
+        return data.daily_token_cap;
       }
     } catch {
     }
@@ -189,8 +193,8 @@ function computeStatusline(startDir, nowMs) {
     }
     return formatStatusline({
       clones: readClones(repoRoot),
-      spentUsd: readSpentUsd(repoRoot, nowMs),
-      capUsd: readCapUsd(repoRoot),
+      tokensEstimated: readTokensEstimated(repoRoot, nowMs),
+      tokenCap: readTokenCap(repoRoot),
       nowMs
     });
   } catch {
@@ -222,9 +226,9 @@ if (invokedDirectly) {
   formatDuration,
   formatStatusline,
   isLive,
-  readCapUsd,
   readClones,
-  readSpentUsd,
+  readTokenCap,
+  readTokensEstimated,
   resolveRepoRoot,
   runStatusline
 });

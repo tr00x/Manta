@@ -20109,7 +20109,9 @@ var CloneAssignmentSchema = external_exports.object({
   task: external_exports.string().min(1).max(8e3).optional(),
   approach_hint: external_exports.string().max(8e3).optional(),
   scope: ScopeSchema.optional(),
-  budget_usd: external_exports.number().positive().optional(),
+  // Per-clone usage cap as a token ESTIMATE (subscription usage proxy), NOT
+  // dollars. Renamed from `budget_usd` in the 2026-05-31 budget repivot.
+  token_estimate: external_exports.number().positive().optional(),
   deadline_seconds: external_exports.number().int().positive().optional(),
   role: CloneRoleSchema.optional()
 }).strict();
@@ -20200,21 +20202,29 @@ var DailySpendEntrySchema = external_exports.object({
   cast_id: external_exports.string(),
   mode: ModeSchema,
   clone_count: external_exports.number().int().positive(),
-  estimated_cost_usd: external_exports.number().nonnegative(),
-  cost_type: external_exports.enum(["estimate", "actual"]),
+  estimated_tokens: external_exports.number().nonnegative(),
+  estimate_type: external_exports.enum(["estimate", "actual"]),
   started_at: external_exports.number().int().nonnegative()
 }).strict();
 var DailySpendStateSchema = external_exports.object({
   version: external_exports.literal(1),
   date: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  spent_usd: external_exports.number().nonnegative(),
+  tokens_estimated: external_exports.number().nonnegative(),
   entries: external_exports.array(DailySpendEntrySchema)
 }).strict();
 var BudgetConfigSchema = external_exports.object({
-  per_cast_usd: external_exports.number().positive(),
-  per_clone_usd: external_exports.union([external_exports.number().positive(), external_exports.literal("auto")]),
-  daily_cap_usd: external_exports.number().positive(),
-  cost_estimates: external_exports.record(ModeSchema, external_exports.number().nonnegative()),
+  // Usage-aware caps (token estimates, not dollars). `auto` per-clone =
+  // per-cast / clone_count.
+  token_estimate_per_cast: external_exports.number().positive(),
+  token_estimate_per_clone: external_exports.union([external_exports.number().positive(), external_exports.literal("auto")]),
+  daily_token_cap: external_exports.number().positive(),
+  // Parallelism cap: max clones a single cast may spawn concurrently.
+  max_parallel_clones: external_exports.number().int().positive(),
+  // Cast-rate cap: max casts allowed to start within a rolling hour. Backed
+  // by the charge ledger's cast_start events. The charge system remains the
+  // primary rate primitive; this is a hard per-hour ceiling on top of it.
+  max_casts_per_hour: external_exports.number().int().positive(),
+  token_estimates: external_exports.record(ModeSchema, external_exports.number().nonnegative()),
   auto_downgrade: external_exports.object({
     enabled: external_exports.boolean(),
     confirm: external_exports.boolean(),
@@ -20273,7 +20283,9 @@ var TriggerScopeSchema = external_exports.object({
 );
 var TriggerSafetySchema = external_exports.object({
   hourly_cap: external_exports.number().int().positive().default(3),
-  per_fire_budget_usd: external_exports.number().positive().default(3),
+  // Per-fire usage ceiling as a token ESTIMATE (subscription usage proxy),
+  // NOT dollars — renamed from `per_fire_budget_usd` in the 2026-05-31 repivot.
+  per_fire_token_cap: external_exports.number().positive().default(3),
   loop: external_exports.object({
     max_cause_chain_depth: external_exports.number().int().positive().max(8).default(3),
     refuse_if_self_in_chain: external_exports.boolean().default(true),
@@ -20285,7 +20297,9 @@ var TriggerActionSchema = external_exports.object({
   clones: external_exports.number().int().positive().max(8),
   task_template: external_exports.string().min(1),
   scope: TriggerScopeSchema,
-  budget: external_exports.object({ per_clone_usd: external_exports.number().positive(), per_cast_usd: external_exports.number().positive() }).strict()
+  // Per-clone / per-cast usage caps as token ESTIMATES (usage proxy), NOT
+  // dollars — renamed from `per_clone_usd`/`per_cast_usd` in the repivot.
+  budget: external_exports.object({ per_clone_token_estimate: external_exports.number().positive(), per_cast_token_estimate: external_exports.number().positive() }).strict()
 }).strict();
 var TriggerDefSchema = external_exports.object({
   version: external_exports.literal(1),
@@ -20304,9 +20318,9 @@ var TriggerDefSchema = external_exports.object({
   cooldown_s: external_exports.number().int().nonnegative().default(300),
   safety: TriggerSafetySchema,
   action: TriggerActionSchema
-}).strict().refine((t) => t.action.budget.per_cast_usd <= t.safety.per_fire_budget_usd, {
-  message: "action.budget.per_cast_usd must be <= safety.per_fire_budget_usd",
-  path: ["action", "budget", "per_cast_usd"]
+}).strict().refine((t) => t.action.budget.per_cast_token_estimate <= t.safety.per_fire_token_cap, {
+  message: "action.budget.per_cast_token_estimate must be <= safety.per_fire_token_cap",
+  path: ["action", "budget", "per_cast_token_estimate"]
 });
 
 // ../manta-bus/src/state/paths.ts
@@ -21420,27 +21434,35 @@ var DailySpendLedger = class {
           return {
             version: 1,
             date: today,
-            spent_usd: entry.estimated_cost_usd,
+            tokens_estimated: entry.estimated_tokens,
             entries: [fullEntry]
           };
         }
         return {
           ...current,
-          spent_usd: current.spent_usd + entry.estimated_cost_usd,
+          tokens_estimated: current.tokens_estimated + entry.estimated_tokens,
           entries: [...current.entries, fullEntry]
         };
       }
     );
   }
-  async getRemaining(dailyCapUsd) {
+  async getRemaining(dailyTokenCap) {
     const state = await this.read();
-    return Math.max(0, dailyCapUsd - state.spent_usd);
+    return Math.max(0, dailyTokenCap - state.tokens_estimated);
+  }
+  /**
+   * Number of casts started today (usage signal — replaces the old dollar
+   * spend total as the headline daily metric).
+   */
+  async castsToday() {
+    const state = await this.read();
+    return state.entries.length;
   }
   defaultState() {
     return {
       version: 1,
       date: this.localDate(),
-      spent_usd: 0,
+      tokens_estimated: 0,
       entries: []
     };
   }
@@ -21682,7 +21704,7 @@ var ArmedEntrySchema = external_exports.object({
   state: TriggerArmedStateSchema,
   armed_at: external_exports.number().int().nonnegative().nullable(),
   armed_by_dry_run_ok: external_exports.boolean(),
-  dry_run_estimate_usd: external_exports.number().nonnegative().nullable(),
+  dry_run_estimate_tokens: external_exports.number().nonnegative().nullable(),
   // §3.9 — disarm after 3 consecutive validation errors.
   consecutive_validation_errors: external_exports.number().int().nonnegative().default(0)
 }).strict();
@@ -21707,7 +21729,7 @@ function disarmedEntry() {
     state: "disarmed",
     armed_at: null,
     armed_by_dry_run_ok: false,
-    dry_run_estimate_usd: null,
+    dry_run_estimate_tokens: null,
     consecutive_validation_errors: 0
   };
 }
@@ -21763,7 +21785,7 @@ var TriggersArmedStore = class {
           state: "armed",
           armed_at: now,
           armed_by_dry_run_ok: true,
-          dry_run_estimate_usd: opts.dryRunEstimateUsd,
+          dry_run_estimate_tokens: opts.dryRunEstimateTokens,
           consecutive_validation_errors: 0
         };
         return file;
@@ -21772,7 +21794,7 @@ var TriggersArmedStore = class {
       () => this.appendEvent("trigger_armed", {
         name,
         armed_at: now,
-        dry_run_estimate_usd: opts.dryRunEstimateUsd
+        dry_run_estimate_tokens: opts.dryRunEstimateTokens
       })
     );
   }
@@ -21913,7 +21935,7 @@ var TriggerFireRecordSchema = external_exports.object({
   // present iff spawned
   parent_cast_id: CastIdSchema.nullable().optional(),
   cause_chain: external_exports.array(external_exports.string()).default([]),
-  cost_estimate_usd: external_exports.number().nonnegative().optional(),
+  token_estimate: external_exports.number().nonnegative().optional(),
   dedup_key_hash: external_exports.string().optional(),
   payload_excerpt: external_exports.record(external_exports.unknown()).optional()
 }).strict().superRefine((rec, ctx) => {

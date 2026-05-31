@@ -7437,7 +7437,9 @@ var init_schema = __esm({
       task: external_exports.string().min(1).max(8e3).optional(),
       approach_hint: external_exports.string().max(8e3).optional(),
       scope: ScopeSchema.optional(),
-      budget_usd: external_exports.number().positive().optional(),
+      // Per-clone usage cap as a token ESTIMATE (subscription usage proxy), NOT
+      // dollars. Renamed from `budget_usd` in the 2026-05-31 budget repivot.
+      token_estimate: external_exports.number().positive().optional(),
       deadline_seconds: external_exports.number().int().positive().optional(),
       role: CloneRoleSchema.optional()
     }).strict();
@@ -7528,21 +7530,29 @@ var init_schema = __esm({
       cast_id: external_exports.string(),
       mode: ModeSchema,
       clone_count: external_exports.number().int().positive(),
-      estimated_cost_usd: external_exports.number().nonnegative(),
-      cost_type: external_exports.enum(["estimate", "actual"]),
+      estimated_tokens: external_exports.number().nonnegative(),
+      estimate_type: external_exports.enum(["estimate", "actual"]),
       started_at: external_exports.number().int().nonnegative()
     }).strict();
     DailySpendStateSchema = external_exports.object({
       version: external_exports.literal(1),
       date: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-      spent_usd: external_exports.number().nonnegative(),
+      tokens_estimated: external_exports.number().nonnegative(),
       entries: external_exports.array(DailySpendEntrySchema)
     }).strict();
     BudgetConfigSchema = external_exports.object({
-      per_cast_usd: external_exports.number().positive(),
-      per_clone_usd: external_exports.union([external_exports.number().positive(), external_exports.literal("auto")]),
-      daily_cap_usd: external_exports.number().positive(),
-      cost_estimates: external_exports.record(ModeSchema, external_exports.number().nonnegative()),
+      // Usage-aware caps (token estimates, not dollars). `auto` per-clone =
+      // per-cast / clone_count.
+      token_estimate_per_cast: external_exports.number().positive(),
+      token_estimate_per_clone: external_exports.union([external_exports.number().positive(), external_exports.literal("auto")]),
+      daily_token_cap: external_exports.number().positive(),
+      // Parallelism cap: max clones a single cast may spawn concurrently.
+      max_parallel_clones: external_exports.number().int().positive(),
+      // Cast-rate cap: max casts allowed to start within a rolling hour. Backed
+      // by the charge ledger's cast_start events. The charge system remains the
+      // primary rate primitive; this is a hard per-hour ceiling on top of it.
+      max_casts_per_hour: external_exports.number().int().positive(),
+      token_estimates: external_exports.record(ModeSchema, external_exports.number().nonnegative()),
       auto_downgrade: external_exports.object({
         enabled: external_exports.boolean(),
         confirm: external_exports.boolean(),
@@ -7609,7 +7619,9 @@ var init_trigger_schema = __esm({
     );
     TriggerSafetySchema = external_exports.object({
       hourly_cap: external_exports.number().int().positive().default(3),
-      per_fire_budget_usd: external_exports.number().positive().default(3),
+      // Per-fire usage ceiling as a token ESTIMATE (subscription usage proxy),
+      // NOT dollars — renamed from `per_fire_budget_usd` in the 2026-05-31 repivot.
+      per_fire_token_cap: external_exports.number().positive().default(3),
       loop: external_exports.object({
         max_cause_chain_depth: external_exports.number().int().positive().max(8).default(3),
         refuse_if_self_in_chain: external_exports.boolean().default(true),
@@ -7621,7 +7633,9 @@ var init_trigger_schema = __esm({
       clones: external_exports.number().int().positive().max(8),
       task_template: external_exports.string().min(1),
       scope: TriggerScopeSchema,
-      budget: external_exports.object({ per_clone_usd: external_exports.number().positive(), per_cast_usd: external_exports.number().positive() }).strict()
+      // Per-clone / per-cast usage caps as token ESTIMATES (usage proxy), NOT
+      // dollars — renamed from `per_clone_usd`/`per_cast_usd` in the repivot.
+      budget: external_exports.object({ per_clone_token_estimate: external_exports.number().positive(), per_cast_token_estimate: external_exports.number().positive() }).strict()
     }).strict();
     TriggerDefSchema = external_exports.object({
       version: external_exports.literal(1),
@@ -7640,9 +7654,9 @@ var init_trigger_schema = __esm({
       cooldown_s: external_exports.number().int().nonnegative().default(300),
       safety: TriggerSafetySchema,
       action: TriggerActionSchema
-    }).strict().refine((t) => t.action.budget.per_cast_usd <= t.safety.per_fire_budget_usd, {
-      message: "action.budget.per_cast_usd must be <= safety.per_fire_budget_usd",
-      path: ["action", "budget", "per_cast_usd"]
+    }).strict().refine((t) => t.action.budget.per_cast_token_estimate <= t.safety.per_fire_token_cap, {
+      message: "action.budget.per_cast_token_estimate must be <= safety.per_fire_token_cap",
+      path: ["action", "budget", "per_cast_token_estimate"]
     });
   }
 });
@@ -10392,27 +10406,35 @@ var init_daily_spend = __esm({
               return {
                 version: 1,
                 date: today,
-                spent_usd: entry.estimated_cost_usd,
+                tokens_estimated: entry.estimated_tokens,
                 entries: [fullEntry]
               };
             }
             return {
               ...current,
-              spent_usd: current.spent_usd + entry.estimated_cost_usd,
+              tokens_estimated: current.tokens_estimated + entry.estimated_tokens,
               entries: [...current.entries, fullEntry]
             };
           }
         );
       }
-      async getRemaining(dailyCapUsd) {
+      async getRemaining(dailyTokenCap) {
         const state = await this.read();
-        return Math.max(0, dailyCapUsd - state.spent_usd);
+        return Math.max(0, dailyTokenCap - state.tokens_estimated);
+      }
+      /**
+       * Number of casts started today (usage signal — replaces the old dollar
+       * spend total as the headline daily metric).
+       */
+      async castsToday() {
+        const state = await this.read();
+        return state.entries.length;
       }
       defaultState() {
         return {
           version: 1,
           date: this.localDate(),
-          spent_usd: 0,
+          tokens_estimated: 0,
           entries: []
         };
       }
@@ -10432,7 +10454,7 @@ function disarmedEntry() {
     state: "disarmed",
     armed_at: null,
     armed_by_dry_run_ok: false,
-    dry_run_estimate_usd: null,
+    dry_run_estimate_tokens: null,
     consecutive_validation_errors: 0
   };
 }
@@ -10449,7 +10471,7 @@ var init_triggers_armed = __esm({
       state: TriggerArmedStateSchema,
       armed_at: external_exports.number().int().nonnegative().nullable(),
       armed_by_dry_run_ok: external_exports.boolean(),
-      dry_run_estimate_usd: external_exports.number().nonnegative().nullable(),
+      dry_run_estimate_tokens: external_exports.number().nonnegative().nullable(),
       // §3.9 — disarm after 3 consecutive validation errors.
       consecutive_validation_errors: external_exports.number().int().nonnegative().default(0)
     }).strict();
@@ -10518,7 +10540,7 @@ var init_triggers_armed = __esm({
               state: "armed",
               armed_at: now,
               armed_by_dry_run_ok: true,
-              dry_run_estimate_usd: opts.dryRunEstimateUsd,
+              dry_run_estimate_tokens: opts.dryRunEstimateTokens,
               consecutive_validation_errors: 0
             };
             return file;
@@ -10527,7 +10549,7 @@ var init_triggers_armed = __esm({
           () => this.appendEvent("trigger_armed", {
             name,
             armed_at: now,
-            dry_run_estimate_usd: opts.dryRunEstimateUsd
+            dry_run_estimate_tokens: opts.dryRunEstimateTokens
           })
         );
       }
@@ -10678,7 +10700,7 @@ var init_triggers_fires = __esm({
       // present iff spawned
       parent_cast_id: CastIdSchema.nullable().optional(),
       cause_chain: external_exports.array(external_exports.string()).default([]),
-      cost_estimate_usd: external_exports.number().nonnegative().optional(),
+      token_estimate: external_exports.number().nonnegative().optional(),
       dedup_key_hash: external_exports.string().optional(),
       payload_excerpt: external_exports.record(external_exports.unknown()).optional()
     }).strict().superRefine((rec, ctx) => {
@@ -41752,8 +41774,8 @@ var OpenFileSchema = external_exports.object({
 var BudgetSchema = external_exports.object({
   tokensTotal: external_exports.number().int().nonnegative(),
   tokensUsed: external_exports.number().int().nonnegative(),
-  dollarsTotal: external_exports.number().nonnegative(),
-  dollarsUsed: external_exports.number().nonnegative()
+  tokensEstimatedTotal: external_exports.number().nonnegative(),
+  tokensEstimatedUsed: external_exports.number().nonnegative()
 });
 var SnapshotSchema = external_exports.object({
   version: external_exports.literal(CURRENT_SCHEMA_VERSION),
@@ -42755,8 +42777,8 @@ async function listWorktrees(opts) {
 // src/spawner/snapshot-builder.ts
 init_cjs_shims();
 function buildCloneSnapshot(req) {
-  if (req.budgetUsd <= 0) {
-    throw new CliError(`invalid budget for clone ${req.cloneId}: must be > 0`, {
+  if (req.tokenEstimate <= 0) {
+    throw new CliError(`invalid token estimate for clone ${req.cloneId}: must be > 0`, {
       kind: "invalid_input"
     });
   }
@@ -42785,8 +42807,8 @@ function buildCloneSnapshot(req) {
     budget: {
       tokensTotal: req.budgetTokens ?? 0,
       tokensUsed: 0,
-      dollarsTotal: req.budgetUsd,
-      dollarsUsed: 0
+      tokensEstimatedTotal: req.tokenEstimate,
+      tokensEstimatedUsed: 0
     },
     ttlSeconds: deadlineSeconds,
     siblingCloneIds: req.siblingClones,
@@ -43175,23 +43197,25 @@ init_cjs_shims();
 var fs22 = __toESM(require("fs/promises"), 1);
 var path23 = __toESM(require("path"), 1);
 init_src();
-var DEFAULT_COST_ESTIMATES = {
-  "recon-swarm": 1.5,
-  "pair-programming": 1.5,
-  "documentation-chase": 1.5,
-  "forking-realities": 3,
-  "test-storm": 3,
-  "refactor-wave": 3,
-  "bug-hunt": 3,
-  "decoy": 3,
-  "council": 5,
-  "phantom-lance": 5
+var DEFAULT_TOKEN_ESTIMATES = {
+  "recon-swarm": 15e4,
+  "pair-programming": 15e4,
+  "documentation-chase": 15e4,
+  "forking-realities": 3e5,
+  "test-storm": 3e5,
+  "refactor-wave": 3e5,
+  "bug-hunt": 3e5,
+  "decoy": 3e5,
+  "council": 5e5,
+  "phantom-lance": 5e5
 };
 var BUDGET_DEFAULTS = {
-  perCastUsd: 15,
-  perCloneUsd: "auto",
-  dailyCapUsd: 50,
-  costEstimates: { ...DEFAULT_COST_ESTIMATES },
+  tokenEstimatePerCast: 15e5,
+  tokenEstimatePerClone: "auto",
+  dailyTokenCap: 5e6,
+  maxParallelClones: 5,
+  maxCastsPerHour: 6,
+  tokenEstimates: { ...DEFAULT_TOKEN_ESTIMATES },
   autoDowngrade: {
     enabled: true,
     confirm: true,
@@ -43214,20 +43238,22 @@ async function loadBudgetConfig(repoRoot) {
     const content = await fs22.readFile(configPath, "utf8");
     raw = JSON.parse(content);
   } catch {
-    return { ...BUDGET_DEFAULTS, costEstimates: { ...DEFAULT_COST_ESTIMATES } };
+    return { ...BUDGET_DEFAULTS, tokenEstimates: { ...DEFAULT_TOKEN_ESTIMATES } };
   }
   const parsed = BudgetConfigSchema.safeParse(raw);
   if (!parsed.success) {
-    return { ...BUDGET_DEFAULTS, costEstimates: { ...DEFAULT_COST_ESTIMATES } };
+    return { ...BUDGET_DEFAULTS, tokenEstimates: { ...DEFAULT_TOKEN_ESTIMATES } };
   }
   const data = parsed.data;
   return {
-    perCastUsd: data.per_cast_usd ?? BUDGET_DEFAULTS.perCastUsd,
-    perCloneUsd: data.per_clone_usd ?? BUDGET_DEFAULTS.perCloneUsd,
-    dailyCapUsd: data.daily_cap_usd ?? BUDGET_DEFAULTS.dailyCapUsd,
-    costEstimates: {
-      ...DEFAULT_COST_ESTIMATES,
-      ...data.cost_estimates ?? {}
+    tokenEstimatePerCast: data.token_estimate_per_cast ?? BUDGET_DEFAULTS.tokenEstimatePerCast,
+    tokenEstimatePerClone: data.token_estimate_per_clone ?? BUDGET_DEFAULTS.tokenEstimatePerClone,
+    dailyTokenCap: data.daily_token_cap ?? BUDGET_DEFAULTS.dailyTokenCap,
+    maxParallelClones: data.max_parallel_clones ?? BUDGET_DEFAULTS.maxParallelClones,
+    maxCastsPerHour: data.max_casts_per_hour ?? BUDGET_DEFAULTS.maxCastsPerHour,
+    tokenEstimates: {
+      ...DEFAULT_TOKEN_ESTIMATES,
+      ...data.token_estimates ?? {}
     },
     autoDowngrade: {
       enabled: data.auto_downgrade?.enabled ?? BUDGET_DEFAULTS.autoDowngrade.enabled,
@@ -43301,14 +43327,14 @@ function estimateCost(mode, cloneCount, config2, perCloneBudgetOverride) {
   if (cloneCount < 1) {
     throw new Error(`estimateCost: cloneCount must be >= 1, got ${cloneCount}`);
   }
-  const perClone = config2.costEstimates[mode] ?? 2;
-  const perCloneBudget = perCloneBudgetOverride ?? (config2.perCloneUsd === "auto" ? config2.perCastUsd / cloneCount : config2.perCloneUsd);
+  const perClone = config2.tokenEstimates[mode] ?? 2e5;
+  const perCloneBudget = perCloneBudgetOverride ?? (config2.tokenEstimatePerClone === "auto" ? config2.tokenEstimatePerCast / cloneCount : config2.tokenEstimatePerClone);
   return {
     mode,
     cloneCount,
-    perCloneCostUsd: perClone,
-    totalEstimatedUsd: perClone * cloneCount,
-    perCloneBudgetUsd: perCloneBudget
+    perCloneTokens: perClone,
+    totalEstimatedTokens: perClone * cloneCount,
+    perCloneTokenBudget: perCloneBudget
   };
 }
 
@@ -43323,10 +43349,10 @@ var CHEAPER_MODE_MAP = {
   "council": "forking-realities",
   "phantom-lance": "forking-realities"
 };
-function computeDowngradeOptions(mode, cloneCount, remainingBudgetUsd, config2) {
+function computeDowngradeOptions(mode, cloneCount, remainingTokenBudget, config2) {
   const originalEstimate = estimateCost(mode, cloneCount, config2);
   if (!config2.autoDowngrade.enabled) {
-    return { originalEstimate, remainingBudgetUsd, options: [] };
+    return { originalEstimate, remainingTokenBudget, options: [] };
   }
   const options2 = [];
   for (let n = cloneCount - 1; n >= config2.autoDowngrade.minClones; n--) {
@@ -43335,8 +43361,8 @@ function computeDowngradeOptions(mode, cloneCount, remainingBudgetUsd, config2) 
       label: `${mode} \xD7 ${n}`,
       mode,
       cloneCount: n,
-      estimatedCostUsd: est.totalEstimatedUsd,
-      viable: est.totalEstimatedUsd <= remainingBudgetUsd
+      estimatedTokens: est.totalEstimatedTokens,
+      viable: est.totalEstimatedTokens <= remainingTokenBudget
     });
   }
   const cheaperMode = CHEAPER_MODE_MAP[mode];
@@ -43347,18 +43373,18 @@ function computeDowngradeOptions(mode, cloneCount, remainingBudgetUsd, config2) 
         label: `${cheaperMode} \xD7 ${n}`,
         mode: cheaperMode,
         cloneCount: n,
-        estimatedCostUsd: est.totalEstimatedUsd,
-        viable: est.totalEstimatedUsd <= remainingBudgetUsd
+        estimatedTokens: est.totalEstimatedTokens,
+        viable: est.totalEstimatedTokens <= remainingTokenBudget
       });
     }
   }
-  return { originalEstimate, remainingBudgetUsd, options: options2 };
+  return { originalEstimate, remainingTokenBudget, options: options2 };
 }
 
 // src/budget/pre-spawn-gate.ts
 async function runPreSpawnGate(opts) {
   const chargeCost = MODE_CHARGE_COST[opts.mode];
-  const dailyCap = opts.dailyCapUsdOverride ?? opts.config.dailyCapUsd;
+  const dailyCap = opts.dailyTokenCapOverride ?? opts.config.dailyTokenCap;
   const costEstimate = estimateCost(opts.mode, opts.cloneCount, opts.config);
   if (!opts.noChargeCheck) {
     const { creditsApplied } = await opts.charges.applyPassiveRecovery();
@@ -43376,7 +43402,7 @@ async function runPreSpawnGate(opts) {
         passed: false,
         costEstimate,
         chargesAfterDeduct: chargeState.current_charges,
-        dailySpentAfter: (await opts.dailySpend.read()).spent_usd,
+        dailySpentAfter: (await opts.dailySpend.read()).tokens_estimated,
         dailyRemaining: await opts.dailySpend.getRemaining(dailyCap),
         committed: false
       };
@@ -43392,16 +43418,16 @@ async function runPreSpawnGate(opts) {
         passed: false,
         costEstimate,
         chargesAfterDeduct: chargeState.current_charges,
-        dailySpentAfter: (await opts.dailySpend.read()).spent_usd,
+        dailySpentAfter: (await opts.dailySpend.read()).tokens_estimated,
         dailyRemaining: await opts.dailySpend.getRemaining(dailyCap),
         committed: false
       };
     }
   }
   const dailySpendState = await opts.dailySpend.read();
-  const projectedSpend = dailySpendState.spent_usd + costEstimate.totalEstimatedUsd;
+  const projectedSpend = dailySpendState.tokens_estimated + costEstimate.totalEstimatedTokens;
   if (projectedSpend > dailyCap && !opts.force) {
-    const remaining = Math.max(0, dailyCap - dailySpendState.spent_usd);
+    const remaining = Math.max(0, dailyCap - dailySpendState.tokens_estimated);
     const downgradeAdvice = computeDowngradeOptions(
       opts.mode,
       opts.cloneCount,
@@ -43417,7 +43443,7 @@ async function runPreSpawnGate(opts) {
       passed: false,
       costEstimate,
       chargesAfterDeduct: opts.noChargeCheck ? 0 : (await opts.charges.read()).current_charges,
-      dailySpentAfter: dailySpendState.spent_usd,
+      dailySpentAfter: dailySpendState.tokens_estimated,
       dailyRemaining: remaining,
       downgradeAdvice,
       committed: false
@@ -43425,16 +43451,16 @@ async function runPreSpawnGate(opts) {
   }
   if (opts.dryRun) {
     const chargeState = opts.noChargeCheck ? null : await opts.charges.read();
-    const remaining = Math.max(0, dailyCap - dailySpendState.spent_usd);
+    const remaining = Math.max(0, dailyCap - dailySpendState.tokens_estimated);
     opts.reporter.info("gate.dry_run", {
       mode: opts.mode,
       cloneCount: opts.cloneCount,
       chargeCost,
-      estimatedCost: costEstimate.totalEstimatedUsd,
-      perCloneCost: costEstimate.perCloneCostUsd,
-      perCloneBudget: costEstimate.perCloneBudgetUsd,
+      estimatedCost: costEstimate.totalEstimatedTokens,
+      perCloneCost: costEstimate.perCloneTokens,
+      perCloneBudget: costEstimate.perCloneTokenBudget,
       dailyCap,
-      dailySpent: dailySpendState.spent_usd,
+      dailySpent: dailySpendState.tokens_estimated,
       dailyRemaining: remaining,
       charges: chargeState?.current_charges ?? "skipped",
       chargesMax: chargeState?.charges_max ?? "skipped"
@@ -43443,7 +43469,7 @@ async function runPreSpawnGate(opts) {
       passed: true,
       costEstimate,
       chargesAfterDeduct: chargeState?.current_charges ?? 0,
-      dailySpentAfter: dailySpendState.spent_usd,
+      dailySpentAfter: dailySpendState.tokens_estimated,
       dailyRemaining: remaining,
       committed: false
     };
@@ -43457,21 +43483,21 @@ async function runPreSpawnGate(opts) {
     cast_id: opts.castId,
     mode: opts.mode,
     clone_count: opts.cloneCount,
-    estimated_cost_usd: costEstimate.totalEstimatedUsd,
-    cost_type: "estimate"
+    estimated_tokens: costEstimate.totalEstimatedTokens,
+    estimate_type: "estimate"
   });
-  const dailyRemaining = Math.max(0, dailyCap - afterDailySpend.spent_usd);
+  const dailyRemaining = Math.max(0, dailyCap - afterDailySpend.tokens_estimated);
   opts.reporter.info("gate.committed", {
     cast: opts.castId,
     charges: chargesAfterDeduct,
-    dailySpent: afterDailySpend.spent_usd,
+    dailySpent: afterDailySpend.tokens_estimated,
     dailyRemaining
   });
   return {
     passed: true,
     costEstimate,
     chargesAfterDeduct,
-    dailySpentAfter: afterDailySpend.spent_usd,
+    dailySpentAfter: afterDailySpend.tokens_estimated,
     dailyRemaining,
     committed: true
   };
@@ -44221,7 +44247,7 @@ async function runCastCommand(rt2, opts) {
     );
   }
   const effective = {};
-  let totalBudgetUsd = 0;
+  let totalTokenEstimate = 0;
   for (const id of cloneIds) {
     const a = assignments[id] ?? {};
     const e = {
@@ -44232,18 +44258,39 @@ async function runCastCommand(rt2, opts) {
         forbiddenPaths: a.scope.forbidden_paths,
         maxFilesChanged: a.scope.max_files_changed
       } : castScope,
-      budgetUsd: a.budget_usd ?? opts.budgetUsdPerClone,
+      tokenEstimate: a.token_estimate ?? opts.internalTokenEstimatePerClone,
       deadlineMs: a.deadline_seconds != null ? a.deadline_seconds * 1e3 : DEFAULT_DEADLINE_MS
     };
     effective[id] = e;
-    totalBudgetUsd += e.budgetUsd;
+    totalTokenEstimate += e.tokenEstimate;
   }
-  if (totalBudgetUsd > opts.budgetUsdPerCast) {
-    const detail = cloneIds.map((id) => `${id}=$${effective[id].budgetUsd}`).join(" + ");
+  if (totalTokenEstimate > opts.internalTokenEstimatePerCast) {
+    const detail = cloneIds.map((id) => `${id}=${effective[id].tokenEstimate}`).join(" + ");
     throw new CliError(
-      `cumulative budget (${detail} = $${totalBudgetUsd}) exceeds --budget-per-cast-usd=$${opts.budgetUsdPerCast}. Reduce per-clone budgets, lower --budget-per-clone-usd, or raise --budget-per-cast-usd.`,
+      `cumulative per-clone usage estimate (${detail} = ${totalTokenEstimate}) exceeds the per-cast usage budget (${opts.internalTokenEstimatePerCast}). Lower the per-clone overrides in --tasks, or spawn fewer clones.`,
       { kind: "invalid_input" }
     );
+  }
+  const parallelismCap = opts.maxParallelClones ?? budgetConfig.maxParallelClones;
+  if (opts.cloneCount > parallelismCap) {
+    throw new CliError(
+      `parallelism cap exceeded: ${opts.cloneCount} clones requested but --max-parallel-clones=${parallelismCap}. Spawn fewer clones or raise the cap (Claude Code is subscription-based \u2014 running too many clones at once exhausts your usage/rate limit).`,
+      { kind: "invalid_input" }
+    );
+  }
+  const castRateCap = opts.maxCastsPerHour ?? budgetConfig.maxCastsPerHour;
+  if (!(opts.dryRun ?? false)) {
+    const oneHourAgo = Date.now() - 36e5;
+    const log = await rt2.ctx.charges.readLog();
+    const castsLastHour = log.filter(
+      (e) => e.type === "cast_start" && e.ts >= oneHourAgo
+    ).length;
+    if (castsLastHour >= castRateCap) {
+      throw new CliError(
+        `cast-rate cap reached: ${castsLastHour} cast(s) started in the last hour, limit is --max-casts-per-hour=${castRateCap}. Wait for the window to roll, or raise the cap. This protects your Claude Code subscription's usage/rate limit.`,
+        { kind: "budget_gate_failed" }
+      );
+    }
   }
   if (opts.mode === "refactor-wave" && assignments) {
     validateDisjointPartitions(assignments);
@@ -44256,9 +44303,7 @@ async function runCastCommand(rt2, opts) {
     mode: opts.mode,
     cloneCount: opts.cloneCount,
     castId: opts.castId,
-    budgetUsdPerClone: opts.budgetUsdPerClone,
-    budgetUsdPerCast: opts.budgetUsdPerCast,
-    dailyCapUsdOverride: opts.dailyCapUsdOverride,
+    dailyTokenCapOverride: opts.maxTokensEstimate ?? opts.dailyTokenCapOverride,
     force: opts.force ?? false,
     noChargeCheck: opts.noChargeCheck ?? false,
     dryRun: opts.dryRun ?? false,
@@ -44380,7 +44425,7 @@ async function runCastCommand(rt2, opts) {
         parentSessionId,
         resumeEnabled: cloneResumeEnabled,
         castId: opts.castId,
-        budgetUsd: e.budgetUsd,
+        tokenEstimate: e.tokenEstimate,
         sessionMode,
         sessionId
       });
@@ -45459,18 +45504,26 @@ function formatTime(ts2) {
 function truncateMode(mode, len = 15) {
   return mode.length > len ? mode.slice(0, len - 1) + "." : mode.padEnd(len);
 }
+function formatTokens(tokens) {
+  if (tokens >= 1e6) return `~${(tokens / 1e6).toFixed(1)}M tok`;
+  if (tokens >= 1e3) return `~${Math.round(tokens / 1e3)}k tok`;
+  return `~${Math.round(tokens)} tok`;
+}
 async function renderToday(rt2, opts) {
   const config2 = await loadBudgetConfig(rt2.repoRoot);
   const dailyState = await rt2.ctx.dailySpend.read();
   const chargeState = await rt2.ctx.charges.read();
-  const remaining = Math.max(0, config2.dailyCapUsd - dailyState.spent_usd);
-  const fraction = config2.dailyCapUsd > 0 ? dailyState.spent_usd / config2.dailyCapUsd : 0;
-  const pct = Math.round(fraction * 100);
+  const castsToday = dailyState.entries.length;
+  const clonesToday = dailyState.entries.reduce((n, e) => n + e.clone_count, 0);
+  const oneHourAgo = Date.now() - 36e5;
+  const log = await rt2.ctx.charges.readLog();
+  const castsLastHour = log.filter((e) => e.type === "cast_start" && e.ts >= oneHourAgo).length;
+  const rateRemaining = Math.max(0, config2.maxCastsPerHour - castsLastHour);
+  const rateFraction = config2.maxCastsPerHour > 0 ? castsLastHour / config2.maxCastsPerHour : 0;
   const lines = [];
-  lines.push(
-    `Daily budget: $${dailyState.spent_usd.toFixed(2)} / $${config2.dailyCapUsd.toFixed(2)} (${pct}%)`
-  );
-  lines.push(`${progressBar(fraction)} ${pct}%`);
+  lines.push(`Usage today: ${castsToday} cast${castsToday !== 1 ? "s" : ""}, ${clonesToday} clone${clonesToday !== 1 ? "s" : ""} spawned`);
+  lines.push(`Cast rate: ${castsLastHour}/${config2.maxCastsPerHour} this hour  ${progressBar(rateFraction)}`);
+  lines.push(`  ${rateRemaining} more cast${rateRemaining !== 1 ? "s" : ""} allowed before the hourly cap`);
   lines.push("");
   if (dailyState.entries.length === 0) {
     lines.push("No casts today.");
@@ -45480,18 +45533,19 @@ async function renderToday(rt2, opts) {
       const castId = e.cast_id.length > 20 ? e.cast_id.slice(0, 20) : e.cast_id.padEnd(20);
       const mode = truncateMode(e.mode);
       const clones = `${e.clone_count} clone${e.clone_count !== 1 ? "s" : ""}`.padEnd(9);
-      const cost = `~$${e.estimated_cost_usd.toFixed(2)}`.padEnd(8);
+      const usage = formatTokens(e.estimated_tokens).padEnd(10);
       const time3 = formatTime(e.started_at);
-      lines.push(`  ${castId}  ${mode}  ${clones}  ${cost}  ${time3}`);
+      lines.push(`  ${castId}  ${mode}  ${clones}  ${usage}  ${time3}`);
     }
   }
   lines.push("");
-  lines.push(`Remaining today: $${remaining.toFixed(2)}`);
-  lines.push(`Charges: ${chargeState.current_charges}/${chargeState.charges_max}`);
+  lines.push(`Token estimate today: ${formatTokens(dailyState.tokens_estimated)} (usage proxy, not dollars)`);
+  lines.push(`Charges: ${chargeState.current_charges}/${chargeState.charges_max}  (parallelism cap: ${config2.maxParallelClones} clones/cast)`);
   opts.reporter.info("cost.today", {
-    spent: dailyState.spent_usd,
-    remaining,
-    entries: dailyState.entries.length
+    casts: castsToday,
+    clones: clonesToday,
+    castsLastHour,
+    tokensEstimated: dailyState.tokens_estimated
   });
   return lines.join("\n");
 }
@@ -45501,38 +45555,36 @@ async function renderWeek(rt2, opts) {
   const oneWeekMs = 7 * 24 * 36e5;
   const weekStart = now - oneWeekMs;
   const dailyState = await rt2.ctx.dailySpend.read();
-  const dayTotals = /* @__PURE__ */ new Map();
+  const dayCasts = /* @__PURE__ */ new Map();
   for (const entry of dailyState.entries) {
     const dateKey = new Date(entry.started_at).toLocaleDateString("en-CA");
-    dayTotals.set(dateKey, (dayTotals.get(dateKey) ?? 0) + entry.estimated_cost_usd);
+    dayCasts.set(dateKey, (dayCasts.get(dateKey) ?? 0) + 1);
   }
-  const weekEvents = log.filter(
-    (e) => e.ts >= weekStart && e.type === "cast_start" && e.cost != null
-  );
+  const todayKey = new Date(now).toLocaleDateString("en-CA");
+  const weekEvents = log.filter((e) => e.ts >= weekStart && e.type === "cast_start");
   for (const ev of weekEvents) {
     const dateKey = new Date(ev.ts).toLocaleDateString("en-CA");
-    if (!dayTotals.has(dateKey)) {
-      dayTotals.set(dateKey, ev.cost ?? 0);
-    }
+    if (dateKey === todayKey) continue;
+    dayCasts.set(dateKey, (dayCasts.get(dateKey) ?? 0) + 1);
   }
   let weekTotal = 0;
-  for (const v2 of dayTotals.values()) weekTotal += v2;
+  for (const v2 of dayCasts.values()) weekTotal += v2;
   const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const dayParts = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(now - i * 24 * 36e5);
     const key = d.toLocaleDateString("en-CA");
     const name = dayNames[d.getDay()];
-    const amount = dayTotals.get(key) ?? 0;
-    dayParts.push(`${name} $${amount.toFixed(2)}`);
+    const count = dayCasts.get(key) ?? 0;
+    dayParts.push(`${name} ${count}`);
   }
-  const activeDays = dayTotals.size || 1;
+  const activeDays = dayCasts.size || 1;
   const avg = weekTotal / activeDays;
   const lines = [];
-  lines.push(`This week: $${weekTotal.toFixed(2)}`);
+  lines.push(`This week: ${weekTotal} cast${weekTotal !== 1 ? "s" : ""}`);
   lines.push(`  ${dayParts.join("  ")}`);
-  lines.push(`  Avg: $${avg.toFixed(2)}/day`);
-  opts.reporter.info("cost.week", { total: weekTotal, avg });
+  lines.push(`  Avg: ${avg.toFixed(1)} casts/active day`);
+  opts.reporter.info("cost.week", { totalCasts: weekTotal, avg });
   return lines.join("\n");
 }
 async function runCostCommand(rt2, opts) {
@@ -45805,12 +45857,14 @@ var import_node_path9 = require("path");
 init_src();
 function flattenConfig(c) {
   return [
-    { key: "per_cast_usd", display: String(c.perCastUsd) },
+    { key: "max_parallel_clones", display: String(c.maxParallelClones) },
+    { key: "max_casts_per_hour", display: String(c.maxCastsPerHour) },
+    { key: "token_estimate_per_cast", display: String(c.tokenEstimatePerCast) },
     {
-      key: "per_clone_usd",
-      display: c.perCloneUsd === "auto" ? "auto (computed: per_cast / N)" : String(c.perCloneUsd)
+      key: "token_estimate_per_clone",
+      display: c.tokenEstimatePerClone === "auto" ? "auto (computed: per_cast / N)" : String(c.tokenEstimatePerClone)
     },
-    { key: "daily_cap_usd", display: String(c.dailyCapUsd) },
+    { key: "daily_token_cap", display: String(c.dailyTokenCap) },
     {
       key: "auto_downgrade.enabled",
       display: String(c.autoDowngrade.enabled)
@@ -45838,9 +45892,11 @@ function flattenConfig(c) {
 }
 function resolvedValue(config2, key) {
   const map = {
-    per_cast_usd: config2.perCastUsd,
-    per_clone_usd: config2.perCloneUsd,
-    daily_cap_usd: config2.dailyCapUsd,
+    max_parallel_clones: config2.maxParallelClones,
+    max_casts_per_hour: config2.maxCastsPerHour,
+    token_estimate_per_cast: config2.tokenEstimatePerCast,
+    token_estimate_per_clone: config2.tokenEstimatePerClone,
+    daily_token_cap: config2.dailyTokenCap,
     "auto_downgrade.enabled": config2.autoDowngrade.enabled,
     "auto_downgrade.confirm": config2.autoDowngrade.confirm,
     "auto_downgrade.min_clones": config2.autoDowngrade.minClones,
@@ -51775,17 +51831,6 @@ function parsePositiveIntOption(raw) {
   }
   return n;
 }
-function parsePositiveFloatOption(raw) {
-  const trimmed = raw.trim();
-  if (!/^\d*\.?\d+$/.test(trimmed)) {
-    throw new InvalidArgumentError("expected a positive number");
-  }
-  const n = Number.parseFloat(trimmed);
-  if (!Number.isFinite(n) || n <= 0) {
-    throw new InvalidArgumentError("expected a positive number");
-  }
-  return n;
-}
 function parseNonNegativeIntOption(raw) {
   const trimmed = raw.trim();
   if (!/^\d+$/.test(trimmed)) {
@@ -51954,14 +51999,23 @@ async function main() {
     process.exitCode = 1;
     return;
   }
+  const INTERNAL_PER_CLONE_TOKEN_ESTIMATE = 3e5;
+  const INTERNAL_PER_CAST_TOKEN_ESTIMATE = 15e5;
   const program2 = new Command();
   program2.name("manta").description("Manta \u2014 self-cloning Claude Code pattern (Phase 0)").version("0.1.0");
   const reporter = createReporter({ sink: new StderrSink() });
-  program2.command("cast <mode>").description("Spawn N clones of the given mode (Phase 2a: recon-swarm, forking-realities)").option("-n, --clones <n>", "number of clones (1..5)", "2").option("-t, --task <task>", "task description", "unspecified").option("--cycle-interval-ms <ms>", "orchestrator cycle interval", parsePositiveIntOption, 5e3).option("--tick-budget-ms <ms>", "overall budget before abort", parsePositiveIntOption, 15e5).option("--budget-per-clone-usd <amt>", "dollar budget per clone", parsePositiveFloatOption, 5).option(
-    "--budget-per-cast-usd <amt>",
-    "cumulative dollar cap for the whole cast",
-    parsePositiveFloatOption,
-    15
+  program2.command("cast <mode>").description("Spawn N clones of the given mode (Phase 2a: recon-swarm, forking-realities)").option("-n, --clones <n>", "number of clones (1..5)", "2").option("-t, --task <task>", "task description", "unspecified").option("--cycle-interval-ms <ms>", "orchestrator cycle interval", parsePositiveIntOption, 5e3).option("--tick-budget-ms <ms>", "overall budget before abort", parsePositiveIntOption, 15e5).option(
+    "--max-parallel-clones <n>",
+    "max clones a single cast may spawn at once (parallelism cap). Default: from config or 5.",
+    parsePositiveIntOption
+  ).option(
+    "--max-casts-per-hour <n>",
+    "max casts allowed to start in a rolling hour (cast-rate cap, protects your subscription usage/rate limit). Default: from config or 6.",
+    parsePositiveIntOption
+  ).option(
+    "--max-tokens-estimate <n>",
+    "optional per-cast token-estimate ceiling (usage proxy, NOT dollars). Overrides the daily token-cap projection for this cast.",
+    parsePositiveIntOption
   ).option(
     "--max-files-changed <n>",
     "per-clone hard cap on file writes (0 = read-only). Bug #6: must be >0 for casts that produce on-disk deliverables (e.g. research markdown).",
@@ -51978,7 +52032,7 @@ async function main() {
   ).option(
     "--tasks <path>",
     "path to a YAML/JSON file with per-clone task overlays. Combines with --task: clones present in the file use the file's entry; clones absent fall back to --task. See docs/user/forking-realities.md for the schema."
-  ).option("--dry-run", "Show cost preview without spawning", false).option("--daily-cap-usd <amount>", "Override daily budget cap (default: from config or $50)", parsePositiveFloatOption).option("--force", "Force cast even if daily cap would be exceeded", false).option("--charge-check", "Enable charge system check (use --no-charge-check to skip)", true).option(
+  ).option("--dry-run", "Show usage preview without spawning", false).option("--force", "Force cast even if the daily usage cap would be exceeded", false).option("--charge-check", "Enable charge system check (use --no-charge-check to skip)", true).option(
     "--heartbeat-timeout-ms <ms>",
     "Override default 300s heartbeat-stale threshold. Use for heavy-generation tasks (plan-drafting, complex synthesis) where >5min thinking gaps between tool calls are normal \u2014 the PostToolUse hook can't fire during generation. Bug #52.",
     parsePositiveIntOption
@@ -52018,8 +52072,15 @@ async function main() {
           cloneCount: parseInt(options2.clones, 10),
           cycleIntervalMs: options2.cycleIntervalMs,
           tickBudgetMs: options2.tickBudgetMs,
-          budgetUsdPerClone: options2.budgetPerCloneUsd,
-          budgetUsdPerCast: options2.budgetPerCastUsd,
+          // Internal per-clone/per-cast usage budget (token-estimate proxy)
+          // handed to the spawner so each snapshot carries a positive cap.
+          // No longer user-tunable — Claude Code is subscription-based; the
+          // user-facing controls are --max-parallel-clones / --max-casts-per-hour.
+          internalTokenEstimatePerClone: INTERNAL_PER_CLONE_TOKEN_ESTIMATE,
+          internalTokenEstimatePerCast: INTERNAL_PER_CAST_TOKEN_ESTIMATE,
+          ...options2.maxParallelClones !== void 0 ? { maxParallelClones: options2.maxParallelClones } : {},
+          ...options2.maxCastsPerHour !== void 0 ? { maxCastsPerHour: options2.maxCastsPerHour } : {},
+          ...options2.maxTokensEstimate !== void 0 ? { maxTokensEstimate: options2.maxTokensEstimate } : {},
           scope: {
             allowedPaths: splitCsv(options2.allowedPaths),
             forbiddenPaths: splitCsv(options2.forbiddenPaths),
@@ -52037,8 +52098,7 @@ async function main() {
           reporter,
           dryRun: options2.dryRun,
           force: options2.force,
-          noChargeCheck: !options2.chargeCheck,
-          ...options2.dailyCapUsd !== void 0 ? { dailyCapUsdOverride: options2.dailyCapUsd } : {}
+          noChargeCheck: !options2.chargeCheck
         }),
         hasOverrides ? thresholdOverrides : void 0
       );
