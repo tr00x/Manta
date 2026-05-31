@@ -45,6 +45,7 @@ import {
 } from './option-parsers.js';
 import { createReporter, StderrSink } from '../output/reporter.js';
 import { isCliError } from '../errors.js';
+import { renderTopLevelError } from './error-render.js';
 import type { CommandResult } from '../commands/status.js';
 import type { Mode } from '@manta/snapshot';
 import type { CloneAssignment } from '@manta/bus';
@@ -1034,31 +1035,34 @@ async function main(): Promise<void> {
   await program.parseAsync(process.argv);
 }
 
+// C2b: route every top-level failure through the friendly renderer — clean
+// `[manta] <message>` for known CliError kinds, an actionable hint when the
+// `claude` binary is missing, and raw Node stack traces ONLY under
+// MANTA_DEBUG=1. The render logic lives in error-render.ts so it is
+// unit-testable without importing this bin (which runs main() on load).
 main().catch((err) => {
-  if (isCliError(err)) {
-    process.stderr.write(`[manta] ${err.kind}: ${err.message}\n`);
-    if (err.cause) {
-      const cause = err.cause as Error;
-      process.stderr.write(`[manta] cause: ${cause.message ?? cause}\n`);
-      if (cause.stack) process.stderr.write(`${cause.stack}\n`);
-    }
-    process.exitCode = err.exitCode;
-    return;
-  }
-  process.stderr.write(`[manta] unexpected error: ${(err as Error).message ?? err}\n`);
-  if ((err as Error).stack) process.stderr.write(`${(err as Error).stack}\n`);
-  process.exitCode = 99;
+  const { lines, exitCode } = renderTopLevelError(err, {
+    debug: process.env.MANTA_DEBUG === '1',
+  });
+  process.stderr.write(lines.join('\n') + '\n');
+  process.exitCode = exitCode;
 });
 
-// Crash hygiene: surface uncaught rejections as exit 99 rather than silent.
+// Crash hygiene: surface uncaught rejections rather than silent. The renderer
+// gives the same clean output; we keep a leading marker so an async leak is
+// distinguishable from a normal failure.
 // I-IMP-4 (Chunk-2 review): only override exitCode when it's currently
 // 0/falsy. A stray rejection that fires *after* main() already set
 // process.exitCode for a successful or typed-failure cast must not clobber
 // that — otherwise a green run reports 99. We don't unit-test process-level
 // signal handlers (fragile, low value for a one-line guard).
 process.on('unhandledRejection', (err) => {
+  const { lines } = renderTopLevelError(err, {
+    debug: process.env.MANTA_DEBUG === '1',
+  });
   process.stderr.write(
-    `[manta] unhandledRejection: ${(err as Error)?.message ?? err}\n`,
+    ['[manta] unhandled promise rejection (this is a bug — please report):', ...lines].join('\n') +
+      '\n',
   );
   if (!process.exitCode) process.exitCode = 99;
 });
