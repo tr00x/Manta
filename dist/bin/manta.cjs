@@ -42081,7 +42081,7 @@ var PRIMING_TEMPLATE = `You are a Manta clone (illusion of the main agent). Iden
 Startup sequence \u2014 do these in order, before any tool that mutates files (Read, Edit, Write):
 1. Use the Skill tool to load \`manta-as-clone\`.
 2. Read your snapshot from the path in env var \`MANTA_SNAPSHOT_PATH\` (it is a JSON file containing taskContract, scope, siblingClones, deadline, plus reference state). The CLI spawner has already created your registry record on the Bus.
-3. Call \`manta.heartbeat\` with { clone_id: "{CLONE_ID}", state: "WORKING" }. If it errors with \`not_found\`, abort \u2014 your spawner did not pre-register; do not try to self-register (Phase 0 design forbids it; see the manta-as-clone skill).
+3. Call \`manta.heartbeat\` with { clone_id: "{CLONE_ID}", state: "WORKING" }. If it errors with \`not_found\`, abort \u2014 your spawner did not pre-register; do not try to self-register (self-registration is not allowed; see the manta-as-clone skill).
 4. Call \`manta.task_contract.read\` with your clone_id and \`manta.ack_contract\` with a one-sentence interpretation of the contract.
 5. Begin the work described in the user prompt below, staying inside taskContract.scope.allowedPaths and outside taskContract.scope.forbiddenPaths (which always includes \`.manta/state\` and \`secrets/\`).
 {APPROACH_HINT_BLOCK}
@@ -42176,7 +42176,7 @@ OUTPUT RULES:
 1. Propose INDEPENDENTLY. Do NOT read sibling worktrees, do NOT message peers, do NOT try to coordinate \u2014 divergent proposals are the whole point (peer messaging is denied at the bus for this mode).
 2. Write a single proposal document on your branch (e.g. proposal-<your-id>.md) with these sections: Recommendation | Reasoning | Trade-offs / risks | Alternatives considered | Confidence (1-10 + why).
 3. Commit fully to ONE recommendation and defend it \u2014 do not hedge across every option. The crowd's value comes from each member taking a clear, reasoned stance.
-4. You may broadcast a self_certainty event with your confidence score, but never argue your version is better than a sibling's (anti-gossip, spec Sec 5.5). If you spot a blocker, broadcast event_type 'blocker' to the main.
+4. You may broadcast a self_certainty event with your confidence score, but never argue your version is better than a sibling's (anti-gossip). If you spot a blocker, broadcast event_type 'blocker' to the main.
 5. Commit your proposal + last-gasp-report.md, then graceful death. The main synthesizes all proposals; you never merge.
 `;
 function buildPrimingText(snapshot) {
@@ -43501,7 +43501,7 @@ function resolveUnlockedAghsModes(configUnlocked, env = process.env) {
   return out;
 }
 function aghsLockedMessage(mode) {
-  return `mode "${mode}" is an Aghanim's-locked advanced mode and is disabled by default (spec Sec 6.6). Unlock it before casting:
+  return `mode "${mode}" is an advanced mode and is disabled by default. Unlock it before casting:
   \u2022 config:  add "${mode}" to "aghs.unlocked" in .manta/config/budget.json, e.g. { "aghs": { "unlocked": ["${mode}"] } }
   \u2022 env:     run with MANTA_UNLOCK_AGHS=${mode} (or MANTA_UNLOCK_AGHS=all for every safe advanced mode)`;
 }
