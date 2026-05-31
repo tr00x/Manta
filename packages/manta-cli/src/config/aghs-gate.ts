@@ -84,8 +84,8 @@ export function resolveUnlockedAghsModes(
 
 export function aghsLockedMessage(mode: Mode): string {
   return (
-    `mode "${mode}" is an Aghanim's-locked advanced mode and is disabled by default ` +
-    `(spec Sec 6.6). Unlock it before casting:\n` +
+    `mode "${mode}" is an advanced mode and is disabled by default. ` +
+    `Unlock it before casting:\n` +
     `  • config:  add "${mode}" to "aghs.unlocked" in .manta/config/budget.json, e.g. ` +
     `{ "aghs": { "unlocked": ["${mode}"] } }\n` +
     `  • env:     run with MANTA_UNLOCK_AGHS=${mode} (or MANTA_UNLOCK_AGHS=all for every safe advanced mode)`
