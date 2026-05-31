@@ -130,6 +130,27 @@ function rejectPublishNonInteractiveEarly(argv: string[]): boolean {
   return rest.includes('--publish') && rest.includes('--non-interactive');
 }
 
+/**
+ * Pre-commander guard for `manta share <castId> --version` (H1). commander's
+ * global `-V/--version` (registered by program.version()) is resolved during
+ * parse and short-circuits ANY subcommand: for `share` — a publish-class
+ * command — `manta share <cast> --version 1.0.0` prints the CLI version and
+ * exits 0 WITHOUT running the share action. That is a silent fake success on a
+ * publish command (it ships nothing yet looks like it worked). The B5 fix
+ * renamed the package-version flag to `--pkg-version` to dodge the option-name
+ * collision, but the global flag still swallows a mistaken `--version`/`-V` on
+ * `share`. Reject it before commander parses so the user gets a loud exit-1
+ * pointing at `--pkg-version`, never a 0.1.0/exit-0 no-op. The bare
+ * `manta --version` (no subcommand) is untouched — only the post-`share` slice
+ * is inspected.
+ */
+function rejectShareVersionFlagEarly(argv: string[]): boolean {
+  const idx = argv.indexOf('share');
+  if (idx < 0) return false;
+  const rest = argv.slice(idx + 1);
+  return rest.includes('--version') || rest.includes('-V');
+}
+
 async function main(): Promise<void> {
   if (rejectHookOverrideEarly(process.argv)) {
     process.stderr.write(
@@ -145,6 +166,16 @@ async function main(): Promise<void> {
         'publishing always requires interactive human confirmation (Phase 7b trust model)\n',
     );
     process.exitCode = 2;
+    return;
+  }
+
+  if (rejectShareVersionFlagEarly(process.argv)) {
+    process.stderr.write(
+      '[manta] share: --version/-V is the global CLI version flag and cannot set the ' +
+        'package version (it would silently print the CLI version and exit without ' +
+        'building anything); use --pkg-version <semver> instead\n',
+    );
+    process.exitCode = 1;
     return;
   }
 

@@ -54,16 +54,41 @@ describe('share --pkg-version flag collision (B5) — built bin', () => {
     expect(stderr).toContain('share_cast_not_found');
   });
 
-  it('demonstrates the collision the rename fixes: the space-form `--version` still hits the global printer', async () => {
-    // This documents WHY `--version` could not be kept (even as an alias): the
-    // global `-V/--version` wins at parse time. `--version 1.0.0` prints the
-    // CLI version and exits 0; the share action never runs. Pinning this keeps
-    // anyone from "helpfully" re-adding a colliding `--version` alias.
-    const { stdout, exitCode } = await execa(
+  it('H1: `share <castId> --version 1.0.0` is rejected loudly, NOT a silent 0.1.0/exit-0 no-op', async () => {
+    // H1 regression. The global `-V/--version` wins at parse time, so a user who
+    // (reasonably) types `--version` to set the package version would otherwise
+    // get the CLI version printed and exit 0 — a publish-class command silently
+    // shipping nothing. The pre-commander guard now rejects it with exit 1 and
+    // points at `--pkg-version`. This pins the fix and stops anyone re-adding a
+    // colliding `--version` alias.
+    const { stdout, stderr, exitCode } = await execa(
       'node',
       [builtBin, 'share', 'cast-9999999999999', '--version', '1.0.0', '--name', '@manta-library/x'],
       { cwd: tmp, reject: false },
     );
+    expect(exitCode).toBe(1);
+    expect(stdout).not.toContain('0.1.0');
+    expect(stderr).toContain('--pkg-version');
+  });
+
+  it('H1: the short-form `-V` on `share` is rejected the same way', async () => {
+    const { stdout, stderr, exitCode } = await execa(
+      'node',
+      [builtBin, 'share', 'cast-9999999999999', '-V', '--name', '@manta-library/x'],
+      { cwd: tmp, reject: false },
+    );
+    expect(exitCode).toBe(1);
+    expect(stdout).not.toContain('0.1.0');
+    expect(stderr).toContain('--pkg-version');
+  });
+
+  it('the bare `manta --version` (no subcommand) still prints the CLI version and exits 0', async () => {
+    // The guard must only fence `--version` AFTER the `share` token; the global
+    // version flag stays fully functional for every other invocation.
+    const { stdout, exitCode } = await execa('node', [builtBin, '--version'], {
+      cwd: tmp,
+      reject: false,
+    });
     expect(exitCode).toBe(0);
     expect(stdout.trim()).toBe('0.1.0');
   });
