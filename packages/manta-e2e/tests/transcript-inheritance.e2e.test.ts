@@ -256,8 +256,16 @@ describe.skipIf(noClaude)('transcript inheritance end-to-end against real claude
     // ── Step 3 (THE CRUX): each clone's token.txt is the EXACT parent-only token. ──
     // The token was never in the task, priming, snapshot, or any file the clone could read —
     // only in the parent conversation. A match is only possible via transcript inheritance.
-    for (const id of ['A', 'B']) {
-      const tokenPath = path.join(repoCwd, '.manta/worktrees', `clone-${id}`, 'token.txt');
+    // Worktrees are cast-scoped (`clone-<castId>-<id>`) so concurrent casts can't
+    // collide; derive the path from each clone's own registry record.
+    for (const c of clones) {
+      const castId = c.metadata?.cast_id as string | undefined;
+      const tokenPath = path.join(
+        repoCwd,
+        '.manta/worktrees',
+        `clone-${castId}-${c.clone_id}`,
+        'token.txt',
+      );
       const body = (await fs.readFile(tokenPath, 'utf8')).trim();
       expect(body).toContain(TOKEN);
     }
@@ -266,8 +274,10 @@ describe.skipIf(noClaude)('transcript inheritance end-to-end against real claude
     const parentHashAfter = sha256File(await fs.readFile(parentJsonl));
     expect(parentHashAfter).toBe(parentHashBefore);
 
-    const forkDirA = path.join(claudeHome, 'projects', mangle(path.join(repoCwd, '.manta/worktrees', 'clone-A')));
-    const forkDirB = path.join(claudeHome, 'projects', mangle(path.join(repoCwd, '.manta/worktrees', 'clone-B')));
+    const castIdA = clones.find((c) => c.clone_id === 'A')?.metadata?.cast_id as string;
+    const castIdB = clones.find((c) => c.clone_id === 'B')?.metadata?.cast_id as string;
+    const forkDirA = path.join(claudeHome, 'projects', mangle(path.join(repoCwd, '.manta/worktrees', `clone-${castIdA}-A`)));
+    const forkDirB = path.join(claudeHome, 'projects', mangle(path.join(repoCwd, '.manta/worktrees', `clone-${castIdB}-B`)));
     const forksA = await listForkJsonl(forkDirA);
     const forksB = await listForkJsonl(forkDirB);
     expect(forksA.length).toBeGreaterThanOrEqual(1);
@@ -381,8 +391,12 @@ describe.skipIf(noClaude)('transcript inheritance end-to-end against real claude
     // The crux of the control: with inheritance disarmed the clone CANNOT produce the token.
     // It writes NONE (or at minimum, never the seeded token). A token here would mean the
     // positive result was luck/leakage, not inheritance.
+    // Worktrees are cast-scoped (`clone-<castId>-<id>`); resolve each by suffix.
+    const wtRoot = path.join(repoCwd, '.manta/worktrees');
+    const wtEntries = await fs.readdir(wtRoot);
     for (const id of ['A', 'B']) {
-      const tokenPath = path.join(repoCwd, '.manta/worktrees', `clone-${id}`, 'token.txt');
+      const dir = wtEntries.find((e) => e.startsWith('clone-') && e.endsWith(`-${id}`));
+      const tokenPath = path.join(wtRoot, dir!, 'token.txt');
       const body = (await fs.readFile(tokenPath, 'utf8')).trim();
       expect(body).not.toContain(TOKEN);
       expect(body).toContain('NONE');

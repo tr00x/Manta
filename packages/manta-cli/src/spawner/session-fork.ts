@@ -116,9 +116,44 @@ export async function forkParentSession(
   const destDir = path.join(claudeHome, 'projects', mangle(args.cloneCwd));
   await fs.mkdir(destDir, { recursive: true });
   const destPath = path.join(destDir, `${forkedSessionId}.jsonl`);
-  // Plain copy: opens the source exactly once for reading, never mutates it →
-  // byte-identical guarantee. `claude` opens only the fork copy thereafter.
-  await fs.copyFile(srcPath, destPath);
+
+  // REWRITE, not byte-copy (bug #56-class cold-boot root cause, 2026-05-31): a
+  // Claude Code transcript record carries its OWN `sessionId` (and `cwd`). A
+  // plain copy keeps the PARENT's `sessionId`/`cwd`, so `claude --print --resume
+  // <forkedSessionId>` opens the fork file, sees records whose `sessionId` does
+  // NOT equal the resume target, rejects them as not-this-session, and boots a
+  // FRESH empty session — the clone inherits nothing (verified live: the fork
+  // ended up containing only the clone's own session, zero parent content).
+  // Stamping each record with the fork's id + the clone's cwd makes `--resume`
+  // accept the fork as its own continuation, so the parent conversation is
+  // actually replayed into the clone's context.
+  let cloneCwdReal: string;
+  try {
+    cloneCwdReal = realpathSync(args.cloneCwd);
+  } catch {
+    cloneCwdReal = args.cloneCwd;
+  }
+  const raw = await fs.readFile(srcPath, 'utf8');
+  const rewritten = raw
+    .split('\n')
+    .map((line) => {
+      if (line.trim() === '') return line;
+      let rec: unknown;
+      try {
+        rec = JSON.parse(line);
+      } catch {
+        return line; // non-JSON line (shouldn't happen) — pass through untouched
+      }
+      if (rec !== null && typeof rec === 'object') {
+        const obj = rec as Record<string, unknown>;
+        if ('sessionId' in obj) obj.sessionId = forkedSessionId;
+        if ('cwd' in obj) obj.cwd = cloneCwdReal;
+        return JSON.stringify(obj);
+      }
+      return line;
+    })
+    .join('\n');
+  await fs.writeFile(destPath, rewritten, 'utf8');
 
   return { forkedSessionId };
 }
