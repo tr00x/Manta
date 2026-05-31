@@ -21,7 +21,7 @@ Your role once clones are running is **curator, not co-implementer**: you scope,
 
 **The end-to-end flow:**
 1. **Decide** — run `manta-cast-decide` first. If it says "solo", do it solo. Don't cast to feel productive.
-2. **Scope a contract** — give the cast a precise `--task` (or a per-clone `--tasks` file), a scope fence (`--allowed-paths` / `--forbidden-paths`), budgets (`--budget-per-clone-usd`, `--budget-per-cast-usd`), and `--max-files-changed` (>0 if clones must write deliverables; 0 = read-only).
+2. **Scope a contract** — give the cast a precise `--task` (or a per-clone `--tasks` file), a scope fence (`--allowed-paths` / `--forbidden-paths`), usage caps (`--max-parallel-clones`, `--max-casts-per-hour`, `--max-tokens-estimate` — Claude Code is a subscription, so the real limits are parallelism and rate, not dollars), and `--max-files-changed` (>0 if clones must write deliverables; 0 = read-only).
 3. **Launch** — `manta cast <mode> --task "…"`. The CLI prints a cast id. `manta cast` forks the orchestrator and the clones; treat the launch returning as "started", **not** "finished".
 4. **Observe** — `manta status` shows clone states (STARTING → WORKING → WINDING_DOWN → DEAD), heartbeats, locks, claims. Use `manta inspect <cloneId>` for one clone's contract/locks/events, `manta tail <cloneId>` to stream live, `manta replay <castId>` after the fact. Read broadcasts for cross-clone findings.
 5. **Wait for completion** — a cast is done when **every** clone is DEAD (or the orchestrator settles). Check `manta status` a few times, or wait on the orchestrator process — don't busy-poll.

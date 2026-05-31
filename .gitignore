@@ -96,3 +96,4 @@ docs/merge-reviews/
 docs/post-mortems/
 docs/zk/
 graphify-out/
+.manta/scope-guard-hook.cjs
