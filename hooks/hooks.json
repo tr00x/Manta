@@ -1,0 +1,17 @@
+{
+  "description": "Manta SessionStart priming — injects the orchestration contract (cast-decide gate, orchestrate playbook, serial-awareness) into the main agent so it never casts naively. Convention-discovered at the plugin root; not referenced from plugin.json.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/bin/manta-session-priming.cjs\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -28,6 +28,11 @@ export default defineConfig({
     // ${CLAUDE_PLUGIN_ROOT}/dist/bin/manta-statusline.cjs. Zero-dep (node
     // builtins only), but bundled here so the committed plugin tree ships it.
     'bin/manta-statusline': 'src/bin/manta-statusline.ts',
+    // SessionStart priming hook — hooks/hooks.json points Claude Code at
+    // ${CLAUDE_PLUGIN_ROOT}/dist/bin/manta-session-priming.cjs. Zero-dep static
+    // print of the orchestration contract; bundled here so the committed plugin
+    // tree ships it just like the statusline.
+    'bin/manta-session-priming': 'src/bin/manta-session-priming.ts',
   },
   outDir: 'plugin-dist',
   // Inline EVERYTHING — the plugin runtime has no node_modules to fall back on.

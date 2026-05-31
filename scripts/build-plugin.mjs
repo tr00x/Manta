@@ -41,7 +41,9 @@ const RUNTIME_MODULES = ['proper-lockfile', 'graceful-fs', 'retry', 'signal-exit
 // .mcp.json runs server.cjs; commands/*.md run manta.cjs — both via ${CLAUDE_PLUGIN_ROOT}.
 // manta-statusline.cjs is the Tier 0 conditional statusLine bin (root
 // settings.json → ${CLAUDE_PLUGIN_ROOT}/dist/bin/manta-statusline.cjs).
-const artifacts = ['manta.cjs', 'server.cjs', 'manta-statusline.cjs'];
+// manta-session-priming.cjs is the SessionStart priming hook bin (root
+// hooks/hooks.json → ${CLAUDE_PLUGIN_ROOT}/dist/bin/manta-session-priming.cjs).
+const artifacts = ['manta.cjs', 'server.cjs', 'manta-statusline.cjs', 'manta-session-priming.cjs'];
 
 for (const f of artifacts) {
   if (!existsSync(join(srcBin, f))) {
