@@ -7558,7 +7558,15 @@ var init_schema = __esm({
     }).partial().strict().extend({
       triggers: external_exports.object({
         global_hourly_cap: external_exports.number().int().positive().default(6)
-      }).strict().default({ global_hourly_cap: 6 })
+      }).strict().default({ global_hourly_cap: 6 }),
+      // Phase 8: Aghanim's Scepter unlock (spec Sec 6.6). `decoy`, `council`, and
+      // `phantom-lance` ship locked; the operator opts in per-repo by listing the
+      // modes here (the env var MANTA_UNLOCK_AGHS is the ephemeral equivalent).
+      // Validated against ModeSchema so a typo is a config error, not a silent
+      // no-unlock. Defaults to none (everything locked).
+      aghs: external_exports.object({
+        unlocked: external_exports.array(ModeSchema).default([])
+      }).strict().default({ unlocked: [] })
     });
   }
 });
@@ -41931,6 +41939,31 @@ WRITER: Implement the task, run tests, commit, then broadcast \`commit_ready\` w
 REVIEWER: Wait for writer's commit_ready broadcast, review the diff, run tests, broadcast \`review_complete\` with { verdict, comments, iteration }. Transition to IDLE.
 Iterate until convergence (reviewer broadcasts review_complete with verdict "approved") or iteration budget exhausted (max 5).
 `;
+var DECOY_BLOCK = `
+## Decoy Protocol (DRAFT work \u2014 main finalizes)
+You are a decoy clone. Load the \`manta-decoy\` skill for the full protocol.
+Your job is to produce a DRAFT, not a finished deliverable.
+The main agent will review, edit, and finalize your work \u2014 do NOT polish to completion.
+
+OUTPUT RULES:
+1. Produce a draft deliverable (code sketch, doc outline, design proposal) on your branch.
+2. Mark it UNMISTAKABLY as a draft: start the file with "> DRAFT \u2014 produced by a decoy clone. Not final. The main agent reviews/edits/approves before this is used." and use TODO/??? markers where you made assumptions or left gaps for the main to resolve.
+3. Favor breadth and speed over perfection \u2014 a complete-enough sketch the main can polish beats a half-finished perfect fragment. Surface open questions explicitly rather than guessing silently.
+4. Do NOT run a full polish/lint/format pass and do NOT claim production-readiness \u2014 that is the main's job. Your branch is raw material.
+5. Commit your draft + last-gasp-report.md, then graceful death. The main pulls your branch and finalizes; you never merge.
+`;
+var COUNCIL_BLOCK = `
+## Council Protocol (INDEPENDENT proposal \u2014 wisdom of crowds)
+You are a council clone. Load the \`manta-council\` skill for the full protocol.
+You and your siblings each propose a solution to the SAME question, independently. The main agent reads all proposals and aggregates \u2014 there is NO auto-merge and NO scoring between you.
+
+OUTPUT RULES:
+1. Propose INDEPENDENTLY. Do NOT read sibling worktrees, do NOT message peers, do NOT try to coordinate \u2014 divergent proposals are the whole point (peer messaging is denied at the bus for this mode).
+2. Write a single proposal document on your branch (e.g. proposal-<your-id>.md) with these sections: Recommendation | Reasoning | Trade-offs / risks | Alternatives considered | Confidence (1-10 + why).
+3. Commit fully to ONE recommendation and defend it \u2014 do not hedge across every option. The crowd's value comes from each member taking a clear, reasoned stance.
+4. You may broadcast a self_certainty event with your confidence score, but never argue your version is better than a sibling's (anti-gossip, spec Sec 5.5). If you spot a blocker, broadcast event_type 'blocker' to the main.
+5. Commit your proposal + last-gasp-report.md, then graceful death. The main synthesizes all proposals; you never merge.
+`;
 function buildPrimingText(snapshot) {
   const hint = snapshot.taskContract.approachHint;
   const approachBlock = hint != null && hint.length > 0 ? `
@@ -41942,6 +41975,10 @@ ${DAEMON_MODE_BLOCK.replaceAll("{CLONE_ID}", snapshot.taskContract.cloneId)}` : 
 ${PAIR_PROTOCOL_BLOCK}` : "";
   const docChaseBlock = snapshot.taskContract.mode === "documentation-chase" ? `
 ${DOC_CHASE_BLOCK}` : "";
+  const decoyBlock = snapshot.taskContract.mode === "decoy" ? `
+${DECOY_BLOCK}` : "";
+  const councilBlock = snapshot.taskContract.mode === "council" ? `
+${COUNCIL_BLOCK}` : "";
   const modeSpecificBlock = snapshot.taskContract.mode === "bug-hunt" ? `
 ${BUG_HUNT_BLOCK}` : snapshot.taskContract.mode === "refactor-wave" ? `
 ${MODULE_BOUNDARY_BLOCK}` : "";
@@ -41950,7 +41987,7 @@ Before your final commit, broadcast your confidence in the solution:
 manta.broadcast({ clone_id: "{CLONE_ID}", event_type: "self_certainty", payload: { score: <1-10>, rationale: "<one sentence>" } })
 This is used as a tertiary tie-breaker when composite scores are within noise tolerance.
 `.replaceAll("{CLONE_ID}", snapshot.taskContract.cloneId) : "";
-  return PRIMING_TEMPLATE.replaceAll("{CLONE_ID}", snapshot.taskContract.cloneId).replaceAll("{CAST_ID}", snapshot.castId).replaceAll("{MODE}", snapshot.taskContract.mode).replaceAll("{APPROACH_HINT_BLOCK}", approachBlock).replaceAll("{MODE_SPECIFIC_BLOCK}", modeSpecificBlock + daemonBlock + pairBlock + docChaseBlock).replaceAll("{SELF_CERTAINTY_BLOCK}", selfCertaintyBlock);
+  return PRIMING_TEMPLATE.replaceAll("{CLONE_ID}", snapshot.taskContract.cloneId).replaceAll("{CAST_ID}", snapshot.castId).replaceAll("{MODE}", snapshot.taskContract.mode).replaceAll("{APPROACH_HINT_BLOCK}", approachBlock).replaceAll("{MODE_SPECIFIC_BLOCK}", modeSpecificBlock + daemonBlock + pairBlock + docChaseBlock + decoyBlock + councilBlock).replaceAll("{SELF_CERTAINTY_BLOCK}", selfCertaintyBlock);
 }
 function buildInitialPrompt(snapshot) {
   return `Task: ${snapshot.taskContract.task}
@@ -42649,6 +42686,12 @@ var fs21 = __toESM(require("fs"), 1);
 var path22 = __toESM(require("path"), 1);
 init_execa();
 var SAFE_NAME = /^[A-Za-z0-9._-]+$/;
+function cloneWorktreeName(castId, cloneId) {
+  return `clone-${castId}-${cloneId}`;
+}
+function cloneWorktreePath(repoRoot, castId, cloneId) {
+  return path22.join(repoRoot, ".manta", "worktrees", cloneWorktreeName(castId, cloneId));
+}
 async function worktreeHasUncommittedChanges(wtPath) {
   try {
     const r = await execa("git", ["status", "--porcelain"], { cwd: wtPath });
@@ -43161,7 +43204,8 @@ var BUDGET_DEFAULTS = {
     idleRecoveryMinutes: 30,
     cooldownHours: 24
   },
-  triggersGlobalHourlyCap: 6
+  triggersGlobalHourlyCap: 6,
+  aghsUnlocked: []
 };
 async function loadBudgetConfig(repoRoot) {
   const configPath = path23.join(repoRoot, ".manta", "config", "budget.json");
@@ -43197,8 +43241,54 @@ async function loadBudgetConfig(repoRoot) {
       idleRecoveryMinutes: data.charges?.idle_recovery_minutes ?? BUDGET_DEFAULTS.charges.idleRecoveryMinutes,
       cooldownHours: data.charges?.cooldown_hours ?? BUDGET_DEFAULTS.charges.cooldownHours
     },
-    triggersGlobalHourlyCap: data.triggers?.global_hourly_cap ?? BUDGET_DEFAULTS.triggersGlobalHourlyCap
+    triggersGlobalHourlyCap: data.triggers?.global_hourly_cap ?? BUDGET_DEFAULTS.triggersGlobalHourlyCap,
+    aghsUnlocked: [...data.aghs?.unlocked ?? []]
   };
+}
+
+// src/config/aghs-gate.ts
+init_cjs_shims();
+var AGHS_LOCKED_MODES = /* @__PURE__ */ new Set([
+  "decoy",
+  "council",
+  "phantom-lance"
+]);
+var WILDCARD_UNLOCK_MODES = ["decoy", "council"];
+var WILDCARD_TOKENS = /* @__PURE__ */ new Set(["all", "1", "true", "yes", "*"]);
+function isAghsLocked(mode) {
+  return AGHS_LOCKED_MODES.has(mode);
+}
+function parseAghsUnlockEnv(raw) {
+  const out = /* @__PURE__ */ new Set();
+  if (raw == null) return out;
+  const tokens = raw.split(/[,\s]+/).map((t) => t.trim().toLowerCase()).filter((t) => t.length > 0);
+  for (const tok of tokens) {
+    if (WILDCARD_TOKENS.has(tok)) {
+      for (const m2 of WILDCARD_UNLOCK_MODES) out.add(m2);
+      continue;
+    }
+    if (AGHS_LOCKED_MODES.has(tok)) {
+      out.add(tok);
+    }
+  }
+  return out;
+}
+function resolveUnlockedAghsModes(configUnlocked, env = process.env) {
+  const out = parseAghsUnlockEnv(env.MANTA_UNLOCK_AGHS);
+  for (const m2 of configUnlocked) {
+    if (AGHS_LOCKED_MODES.has(m2)) out.add(m2);
+  }
+  return out;
+}
+function aghsLockedMessage(mode) {
+  return `mode "${mode}" is an Aghanim's-locked advanced mode and is disabled by default (spec Sec 6.6). Unlock it before casting:
+  \u2022 config:  add "${mode}" to "aghs.unlocked" in .manta/config/budget.json, e.g. { "aghs": { "unlocked": ["${mode}"] } }
+  \u2022 env:     run with MANTA_UNLOCK_AGHS=${mode} (or MANTA_UNLOCK_AGHS=all for every safe advanced mode)`;
+}
+function assertAghsUnlocked(mode, unlocked) {
+  if (!isAghsLocked(mode)) return;
+  if (unlocked.has(mode)) return;
+  throw new CliError(aghsLockedMessage(mode), { kind: "invalid_input" });
 }
 
 // src/budget/pre-spawn-gate.ts
@@ -43924,7 +44014,14 @@ var BUILTIN_MODES = /* @__PURE__ */ new Set([
   "refactor-wave",
   "pair-programming",
   "test-storm",
-  "documentation-chase"
+  "documentation-chase",
+  // Phase 8: Aghanim's-locked safe modes (spec Sec 2 #9/#10, Sec 6.6). Present
+  // in BUILTIN_MODES so the dispatcher recognises them, but gated by
+  // assertAghsUnlocked below — a cast is rejected unless the operator opted in
+  // via config/env. `phantom-lance` (#8) is intentionally absent: it stays
+  // locked at the "not supported" check (separate, riskier cast).
+  "decoy",
+  "council"
 ]);
 var DAEMON_MODES = /* @__PURE__ */ new Set([
   "pair-programming",
@@ -44053,6 +44150,11 @@ async function runCastCommand(rt2, opts) {
     opts = { ...opts, mode: libraryEntry.basedOn };
   }
   void libraryModeName;
+  const budgetConfig = await loadBudgetConfig(rt2.repoRoot);
+  assertAghsUnlocked(
+    opts.mode,
+    resolveUnlockedAghsModes(budgetConfig.aghsUnlocked, process.env)
+  );
   if (!Number.isInteger(opts.cloneCount) || opts.cloneCount < 1 || opts.cloneCount > 5) {
     throw new CliError(
       `cloneCount must be an integer in 1..5; got ${opts.cloneCount}`,
@@ -44080,6 +44182,18 @@ async function runCastCommand(rt2, opts) {
   if (opts.mode === "test-storm" && (opts.cloneCount < 2 || opts.cloneCount > 3)) {
     throw new CliError(
       "test-storm mode requires 2-3 clones (spec Sec 2)",
+      { kind: "invalid_input" }
+    );
+  }
+  if (opts.mode === "decoy" && opts.cloneCount > 2) {
+    throw new CliError(
+      "decoy mode supports at most 2 clones (spec Sec 2 #10)",
+      { kind: "invalid_input" }
+    );
+  }
+  if (opts.mode === "council" && (opts.cloneCount < 3 || opts.cloneCount > 5)) {
+    throw new CliError(
+      "council mode requires 3-5 clones (spec Sec 2 #9 \u2014 5 independent proposers ideal, 3 minimum for a meaningful crowd)",
       { kind: "invalid_input" }
     );
   }
@@ -44138,7 +44252,6 @@ async function runCastCommand(rt2, opts) {
     const preflight = opts.preflight ?? (() => verifyMantaBusRegistered());
     await preflight();
   }
-  const budgetConfig = await loadBudgetConfig(rt2.repoRoot);
   const gateResult = await runPreSpawnGate({
     mode: opts.mode,
     cloneCount: opts.cloneCount,
@@ -44169,7 +44282,7 @@ async function runCastCommand(rt2, opts) {
   const handles = [];
   const worktrees = [];
   const sessionMode = DAEMON_MODES.has(opts.mode) ? "daemon" : "batch";
-  const castPolicy = opts.mode === "forking-realities" || opts.mode === "refactor-wave" ? { peer_messaging: "denied", auto_merge_threshold: null, session_mode: sessionMode } : { peer_messaging: "allowed", auto_merge_threshold: null, session_mode: sessionMode };
+  const castPolicy = opts.mode === "forking-realities" || opts.mode === "refactor-wave" || opts.mode === "council" ? { peer_messaging: "denied", auto_merge_threshold: null, session_mode: sessionMode } : { peer_messaging: "allowed", auto_merge_threshold: null, session_mode: sessionMode };
   const castRoster = cloneIds.map((id) => ({
     clone_id: id,
     assignment: assignments[id] ?? null
@@ -44186,6 +44299,16 @@ async function runCastCommand(rt2, opts) {
     effective[cloneIds[1]].approachHint = effective[cloneIds[1]].approachHint ?? "tester";
     if (cloneIds.length > 2) {
       effective[cloneIds[2]].approachHint = effective[cloneIds[2]].approachHint ?? "fuzzer";
+    }
+  }
+  if (opts.mode === "decoy") {
+    for (const id of cloneIds) {
+      effective[id].approachHint = effective[id].approachHint ?? "drafter";
+    }
+  }
+  if (opts.mode === "council") {
+    for (const id of cloneIds) {
+      effective[id].approachHint = effective[id].approachHint ?? "proposer";
     }
   }
   try {
@@ -44207,7 +44330,9 @@ async function runCastCommand(rt2, opts) {
       } else {
         wt2 = await addWorktree({
           repoRoot: rt2.repoRoot,
-          name: `clone-${cloneId}`,
+          // bug #64: cast-scoped name so a clone letter freed by one cast and
+          // reused by another can never alias the same dir on disk.
+          name: cloneWorktreeName(opts.castId, cloneId),
           branch: `manta/${opts.castId}/${cloneId}`
         });
         worktrees.push(wt2);
@@ -44502,7 +44627,7 @@ async function runCastCommand(rt2, opts) {
           cloneIds.map(async (id) => {
             const expectedBranch = `manta/${opts.castId}/${id}`;
             const wt2 = allWorktrees.find((w2) => w2.branch === expectedBranch);
-            const wtPath = wt2?.path ?? `${rt2.repoRoot}/.manta/worktrees/clone-${id}`;
+            const wtPath = wt2?.path ?? cloneWorktreePath(rt2.repoRoot, opts.castId, id);
             const collected = await collector.collect(id, wtPath, "main");
             const certEvent = allEvents.find(
               (e) => e.clone_id === id && e.type === "broadcast" && e.payload?.event_type === "self_certainty"
@@ -44579,7 +44704,7 @@ async function runMergeAllPipeline(rt2, opts, cloneIds) {
     const wt2 = allWorktrees.find((w2) => w2.branch === expectedBranch);
     return {
       cloneId: c.clone_id,
-      worktreePath: wt2?.path ?? `${rt2.repoRoot}/.manta/worktrees/clone-${c.clone_id}`,
+      worktreePath: wt2?.path ?? cloneWorktreePath(rt2.repoRoot, opts.castId, c.clone_id),
       exitTime: c.died_at ?? Date.now()
     };
   });
@@ -44965,7 +45090,7 @@ async function runPromoteCommand(rt2, opts) {
   const graveyarded = [];
   for (const loserId of losers) {
     const loserBranch = `manta/${opts.castId}/${loserId}`;
-    const worktreePath = `${rt2.repoRoot}/.manta/worktrees/clone-${loserId}`;
+    const worktreePath = cloneWorktreePath(rt2.repoRoot, opts.castId, loserId);
     try {
       const { graveyardPath } = await moveWorktreeToGraveyard({
         repoRoot: rt2.repoRoot,
@@ -44982,7 +45107,7 @@ async function runPromoteCommand(rt2, opts) {
       });
     }
   }
-  const winnerWorktree = `${rt2.repoRoot}/.manta/worktrees/clone-${opts.cloneId}`;
+  const winnerWorktree = cloneWorktreePath(rt2.repoRoot, opts.castId, opts.cloneId);
   try {
     await removeWorktree({
       repoRoot: rt2.repoRoot,
@@ -45189,6 +45314,17 @@ async function runTailCommand(rt2, opts) {
       { kind: "invalid_input" }
     );
   }
+  try {
+    await rt2.ctx.registry.get(opts.cloneId);
+  } catch (err) {
+    if (err instanceof BusNotFoundError) {
+      throw new CliError(`no such clone "${opts.cloneId}"`, {
+        kind: "not_found",
+        cause: err
+      });
+    }
+    throw err;
+  }
   const lines = [];
   const ctrl = new AbortController();
   const onLine = (line) => {
@@ -45209,9 +45345,6 @@ async function runTailCommand(rt2, opts) {
 async function runTailLoop(opts) {
   let cursor = "";
   const deadline = opts.rt.ctx.clock.now() + opts.durationMs;
-  let cloneSeenOnce = false;
-  const notFoundGraceMs = 1e4;
-  const notFoundDeadline = opts.rt.ctx.clock.now() + notFoundGraceMs;
   for (; ; ) {
     if (opts.signal.aborted) break;
     if (opts.rt.ctx.clock.now() >= deadline) break;
@@ -45224,22 +45357,16 @@ async function runTailLoop(opts) {
     }
     try {
       const record2 = await opts.rt.ctx.registry.get(opts.cloneId);
-      cloneSeenOnce = true;
       if (record2.state === "DEAD") {
         opts.onLine(`--- clone ${opts.cloneId} is DEAD: ${record2.death_reason ?? "unknown"} ---`);
         break;
       }
     } catch (err) {
       if (err instanceof BusNotFoundError) {
-        if (!cloneSeenOnce && opts.rt.ctx.clock.now() >= notFoundDeadline) {
-          throw new CliError(`clone "${opts.cloneId}" not found after ${notFoundGraceMs / 1e3}s`, {
-            kind: "not_found",
-            cause: err
-          });
-        }
-      } else {
-        throw err;
+        opts.onLine(`--- clone ${opts.cloneId} is gone (registry record removed) ---`);
+        break;
       }
+      throw err;
     }
     await sleep(opts.intervalMs, opts.signal);
   }
@@ -45299,6 +45426,24 @@ async function runAuditCommand(rt2, opts) {
 
 // src/commands/cost.ts
 init_cjs_shims();
+function normalizeCostPeriod(raw) {
+  if (raw === void 0) return "today";
+  switch (raw.trim().toLowerCase()) {
+    case "":
+    case "today":
+    case "day":
+    case "daily":
+      return "today";
+    case "week":
+    case "weekly":
+      return "week";
+    default:
+      throw new CliError(
+        `unknown cost period "${raw}"; expected "today" (default) or "weekly"`,
+        { kind: "invalid_input" }
+      );
+  }
+}
 function progressBar(fraction, width = 20) {
   const filled = Math.round(Math.min(fraction, 1) * width);
   return "\u2588".repeat(filled) + "\u2591".repeat(width - filled);
@@ -50607,7 +50752,7 @@ function defaultDeps() {
         return "";
       }
     },
-    resolveCloneWorktree: ({ repoRoot, cloneId }) => path34.join(repoRoot, ".manta", "worktrees", `clone-${cloneId}`),
+    resolveCloneWorktree: ({ repoRoot, castId, cloneId }) => cloneWorktreePath(repoRoot, castId, cloneId),
     publishRunner: {
       whoami: async () => {
         try {
@@ -51781,6 +51926,12 @@ function rejectPublishNonInteractiveEarly(argv) {
   const rest = argv.slice(idx);
   return rest.includes("--publish") && rest.includes("--non-interactive");
 }
+function rejectShareVersionFlagEarly(argv) {
+  const idx = argv.indexOf("share");
+  if (idx < 0) return false;
+  const rest = argv.slice(idx + 1);
+  return rest.includes("--version") || rest.includes("-V");
+}
 async function main() {
   if (rejectHookOverrideEarly(process.argv)) {
     process.stderr.write(
@@ -51794,6 +51945,13 @@ async function main() {
       "[manta] share: --publish cannot be combined with --non-interactive; publishing always requires interactive human confirmation (Phase 7b trust model)\n"
     );
     process.exitCode = 2;
+    return;
+  }
+  if (rejectShareVersionFlagEarly(process.argv)) {
+    process.stderr.write(
+      "[manta] share: --version/-V is the global CLI version flag and cannot set the package version (it would silently print the CLI version and exit without building anything); use --pkg-version <semver> instead\n"
+    );
+    process.exitCode = 1;
     return;
   }
   const program2 = new Command();
@@ -51963,8 +52121,8 @@ async function main() {
       })
     );
   });
-  program2.command("cost [period]").description("Show daily/weekly spend summary").action(async (period) => {
-    const p2 = period === "week" ? "week" : "today";
+  program2.command("cost [period]").description('Show spend summary. period: "today" (default) or "weekly"').action(async (period) => {
+    const p2 = normalizeCostPeriod(period);
     await runWithRuntime((rt2) => runCostCommand(rt2, { period: p2, reporter }));
   });
   program2.command("charges").description("Show charge system state \u2014 current charges, cooldown, mode availability").action(async () => {

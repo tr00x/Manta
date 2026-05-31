@@ -20230,7 +20230,15 @@ var BudgetConfigSchema = external_exports.object({
 }).partial().strict().extend({
   triggers: external_exports.object({
     global_hourly_cap: external_exports.number().int().positive().default(6)
-  }).strict().default({ global_hourly_cap: 6 })
+  }).strict().default({ global_hourly_cap: 6 }),
+  // Phase 8: Aghanim's Scepter unlock (spec Sec 6.6). `decoy`, `council`, and
+  // `phantom-lance` ship locked; the operator opts in per-repo by listing the
+  // modes here (the env var MANTA_UNLOCK_AGHS is the ephemeral equivalent).
+  // Validated against ModeSchema so a typo is a config error, not a silent
+  // no-unlock. Defaults to none (everything locked).
+  aghs: external_exports.object({
+    unlocked: external_exports.array(ModeSchema).default([])
+  }).strict().default({ unlocked: [] })
 });
 
 // ../manta-bus/src/trigger-schema.ts
