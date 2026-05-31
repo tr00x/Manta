@@ -8247,8 +8247,8 @@ var require_graceful_fs = __commonJS({
       fs41.createReadStream = createReadStream2;
       fs41.createWriteStream = createWriteStream2;
       var fs$readFile = fs41.readFile;
-      fs41.readFile = readFile22;
-      function readFile22(path39, options2, cb) {
+      fs41.readFile = readFile23;
+      function readFile23(path39, options2, cb) {
         if (typeof options2 === "function")
           cb = options2, options2 = null;
         return go$readFile(path39, options2, cb);
@@ -8264,8 +8264,8 @@ var require_graceful_fs = __commonJS({
         }
       }
       var fs$writeFile = fs41.writeFile;
-      fs41.writeFile = writeFile14;
-      function writeFile14(path39, data, options2, cb) {
+      fs41.writeFile = writeFile15;
+      function writeFile15(path39, data, options2, cb) {
         if (typeof options2 === "function")
           cb = options2, options2 = null;
         return go$writeFile(path39, data, options2, cb);
@@ -8300,8 +8300,8 @@ var require_graceful_fs = __commonJS({
       }
       var fs$copyFile = fs41.copyFile;
       if (fs$copyFile)
-        fs41.copyFile = copyFile4;
-      function copyFile4(src, dest, flags, cb) {
+        fs41.copyFile = copyFile3;
+      function copyFile3(src, dest, flags, cb) {
         if (typeof flags === "function") {
           cb = flags;
           flags = 0;
@@ -10361,10 +10361,10 @@ var init_charge_store = __esm({
         return result;
       }
       async readLog() {
-        const { readFile: readFile22 } = await import("fs/promises");
+        const { readFile: readFile23 } = await import("fs/promises");
         let raw;
         try {
-          raw = await readFile22(this.paths.chargesLog, "utf8");
+          raw = await readFile23(this.paths.chargesLog, "utf8");
         } catch (err) {
           if (err && typeof err === "object" && "code" in err && err.code === "ENOENT") {
             return [];
@@ -42891,7 +42891,30 @@ async function forkParentSession(args) {
   const destDir = path22.join(claudeHome, "projects", mangle(args.cloneCwd));
   await fs21.mkdir(destDir, { recursive: true });
   const destPath = path22.join(destDir, `${forkedSessionId}.jsonl`);
-  await fs21.copyFile(srcPath, destPath);
+  let cloneCwdReal;
+  try {
+    cloneCwdReal = (0, import_node_fs3.realpathSync)(args.cloneCwd);
+  } catch {
+    cloneCwdReal = args.cloneCwd;
+  }
+  const raw = await fs21.readFile(srcPath, "utf8");
+  const rewritten = raw.split("\n").map((line) => {
+    if (line.trim() === "") return line;
+    let rec;
+    try {
+      rec = JSON.parse(line);
+    } catch {
+      return line;
+    }
+    if (rec !== null && typeof rec === "object") {
+      const obj = rec;
+      if ("sessionId" in obj) obj.sessionId = forkedSessionId;
+      if ("cwd" in obj) obj.cwd = cloneCwdReal;
+      return JSON.stringify(obj);
+    }
+    return line;
+  }).join("\n");
+  await fs21.writeFile(destPath, rewritten, "utf8");
   return { forkedSessionId };
 }
 
