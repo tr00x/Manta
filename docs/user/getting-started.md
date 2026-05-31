@@ -73,7 +73,7 @@ Expected: 3/3 passing.
 
 ## 5. Run a real recon-swarm cast
 
-> **Precondition (v1):** `manta cast` must run from **inside a Manta-enabled git checkout** — a repo/worktree that carries the `skills/` directory and is a git repo (the cast does `git worktree add`, and each clone's first action is to load the `manta-as-clone` skill from disk). A from-source checkout (this walkthrough) satisfies it. After `npx manta@latest install` into an *arbitrary* empty dir the bin works but `manta cast` does not — casting from an arbitrary directory is Phase 8.
+> **Precondition (v1):** `manta cast` must run from **inside a Manta-enabled git checkout** — a repo/worktree that carries the `skills/` directory and is a git repo (the cast does `git worktree add`, and each clone's first action is to load the `manta-as-clone` skill from disk). A from-source checkout (this walkthrough) satisfies it. After `npx manta@latest install` into an *arbitrary* empty dir the bin works but `manta cast` does not — casting from an arbitrary directory isn't supported.
 
 In a repo of your choice (or use the sample fixture in `packages/manta-e2e/tests/fixtures/sample-repo/`):
 
@@ -109,7 +109,7 @@ The CLI:
 - `manta abort` — mark every live clone DEAD with post-mortems.
 - `manta kill <id>` — same for a single clone.
 
-If a worktree won't go away or a lock is stuck, see `docs/manta-bugs.md` first; if it's not there, file it.
+If a worktree won't go away or a lock is stuck, open a GitHub issue with the cast id and `manta status` output.
 
 ### Troubleshooting: clone process started but never heartbeats
 
@@ -188,4 +188,4 @@ list, inputs, and binary resolution.
 > root and re-run. (Subdirectory upward-resolution for the other commands is a post-`0.1.0` nicety, not a
 > bug.)
 
-See `docs/superpowers/specs/2026-05-06-manta-pattern-design.md` for the full roadmap.
+See the [README](../../README.md) for the big picture and the [mode guides](.) for each cast mode.

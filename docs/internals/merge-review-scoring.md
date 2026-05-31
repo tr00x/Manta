@@ -9,7 +9,7 @@
 | Complexity delta | 0.20 | Lower cyclomatic complexity in changed code = more maintainable. Log-scaled. |
 | TypeCheck (tsc errors) | 0.15 | Zero type errors is table-stakes; the weight rewards cleaner type usage. |
 | Lint (eslint) | 0.15 | Eslint errors weighted 5x warnings. Clean lint = fewer review nits. |
-| Perf bonus | +0.10 | Additive bonus when benchmark data exists. Phase 2 ships with `null` (no benchmark infra). |
+| Perf bonus | +0.10 | Additive bonus when benchmark data exists. Currently ships with `null` (no benchmark infra). |
 
 Weights sum to 1.00 (excluding perf bonus which is additive). Stored in `.manta/config/scoring.json`; missing file → defaults above.
 
@@ -76,4 +76,4 @@ The schema validates via Zod at load time. Invalid config → hard error (not si
 
 ## Auto-merge threshold
 
-`CastPolicy.auto_merge_threshold` on the cast manifest (single source of truth). Phase 2 sets it to `null` → always `manual_review_required`. Phase 5+ tunes based on telemetry.
+`CastPolicy.auto_merge_threshold` on the cast manifest (single source of truth). It currently defaults to `null` → always `manual_review_required`. A future release may tune it based on telemetry.

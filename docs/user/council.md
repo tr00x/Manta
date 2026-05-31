@@ -79,4 +79,3 @@ council (nothing is auto-merged). Cherry-pick or write up the conclusion yoursel
 - `docs/user/forking-realities.md` — the *scored, auto-merged* sibling pattern.
 - `docs/user/decoy.md` — the other Aghs mode (draft-for-review).
 - `skills/manta-council/SKILL.md` — the clone-side behavior contract.
-- `docs/superpowers/specs/2026-05-06-manta-pattern-design.md` Sec 2 #9 — the spec.

@@ -1,6 +1,6 @@
-# Manta Library — install + uninstall + lockfile + ModeRegistry (Phase 7a)
+# Manta Library — install + uninstall + lockfile + ModeRegistry
 
-> **Status:** Phase 7a complete. `manta install` (full flag matrix), `manta uninstall`, `manta library list/show/outdated/doctor`, the lockfile, the `ModeRegistry` seam, and per-cast hash-pin verification all ship in Phase 7a. `manta share` is Phase 7b. `manta trigger` is Phase 7c. Hook distribution is Phase 8.
+> **What ships today:** `manta install` (full flag matrix), `manta uninstall`, `manta library list/show/outdated/doctor`, the lockfile, the `ModeRegistry` seam, and per-cast hash-pin verification. `manta share` (publish a cast as a package) is documented in [`manta-share.md`](./manta-share.md). Auto-cast triggers and hook distribution are not yet shipped.
 
 ## What is Manta Library?
 
@@ -8,11 +8,9 @@ Manta Library is the package ecosystem for Manta — like VS Code extensions for
 
 The point of a library is to share a curated workflow without copying it. If you've found a useful refactor pattern, a domain-specific dispatch shape, or a research template, ship it as a library package; teammates `manta install` it once and run it the same way you do.
 
-For the design history and precedent comparison, see `docs/research/phase-7-manta-library.md`.
-
 ## Installing a package
 
-Phase 7a Chunk 1 ships the install pipeline for three spec forms:
+Manta installs packages from three spec forms:
 
 ```sh
 # npm registry, scoped under @manta-library/
@@ -35,8 +33,8 @@ The command:
 3. Reads `manta-package.json` from the unpacked tree and checks `mantaVersionCompat` against the CLI version. Compat mismatch fails immediately with exit 16 and a recovery message.
 4. Stages the unpacked tree into `~/.manta/library/.staging/<random>/`.
 5. Validates the staged package via `@manta/skill-validator validatePackage` — manifest schema, validator reports per skill/command, and a contributes-vs-disk cross-check. Drive-by skills (on disk but undeclared) and dangling entries (declared but missing) both fail with exit 14.
-6. Verifies no other install of the same name+version already exists. If one does, fails with exit 15. (Override coming in Chunk 2 as `--force`.)
-7. Refuses to install any `manifest.contributes.hooks` payload — hooks distribution is deferred to Phase 8. Manifests declaring hooks log a warning but continue without copying.
+6. Verifies no other install of the same name+version already exists. If one does, fails with exit 15. (Pass `--force` to overwrite.)
+7. Refuses to install any `manifest.contributes.hooks` payload — hook distribution is not yet shipped. Manifests declaring hooks log a warning but continue without copying.
 8. Atomically renames the staging dir to `~/.manta/library/<scope>/<name>/<version>/`.
 9. Computes the install dir's content-tree hash (`directoryDigest`) and records both `integrity` (tarball hash, npm-compatible `sha256-<base64>`) and `directoryDigest` in the per-repo lockfile.
 10. Updates `~/.manta/library/index.json` with the new install entry.
@@ -101,9 +99,9 @@ All installed packages live under your user home:
         └── 1.4.0/
 ```
 
-Two repos under the same homedir can pin different versions of the same package without stepping on each other — the path includes the version. Removing one version leaves others intact (uninstall lands in Chunk 2).
+Two repos under the same homedir can pin different versions of the same package without stepping on each other — the path includes the version. Removing one version leaves others intact.
 
-`~/.manta/library/index.json` records the global install set: every entry has `packageName`, `version`, on-disk `path`, the contributed surface, `installedAt`, and `integrity` (tarball hash). This is the source of truth `manta library list` (Chunk 2) reads.
+`~/.manta/library/index.json` records the global install set: every entry has `packageName`, `version`, on-disk `path`, the contributed surface, `installedAt`, and `integrity` (tarball hash). This is the source of truth `manta library list` reads.
 
 ## Compatibility checking
 
@@ -175,7 +173,7 @@ Common exit codes:
 
 ## `manta install` flag matrix
 
-Chunk 2 ships the full install command surface. Every flag is a deliberate trade-off; defaults are conservative.
+The full install command surface. Every flag is a deliberate trade-off; defaults are conservative.
 
 | Flag | Behaviour | Notes |
 |---|---|---|
@@ -185,7 +183,7 @@ Chunk 2 ships the full install command surface. Every flag is a deliberate trade
 | `--dry-run` | Run the install pipeline through steps 1–6 (parse, resolve, fetch, extract, compat, validate) but skip the staged commit and lockfile/index writes. Print the would-be summary, exit 0. | Used by `manta library doctor` and by CI replay to confirm a tarball still validates after the CLI upgraded. |
 | `--json` | Emit the success summary as a single JSON line with `{ name, version, integrity, contributedModes, contributedSkills, contributedCommands, contributedTemplates, lockfilePath, installPath }`. On error, emit `{ error: { code, message, hint? } }`. | Pipe to `jq`; pair with `--dry-run` to query what an install would do. |
 | `--no-validate` | Skip the `validatePackage` call. Prints a loud warning: `[manta] install: --no-validate; manifest is parsed but content is not validated.` | Reserved for CI replay of a tarball that was already validated upstream. Not advertised — production installs should always validate. |
-| `--no-hooks` | **Default `true` in Phase 7a.** Refuses to copy any `manifest.contributes.hooks` payload. `--no-hooks=false` is rejected at flag parse with `hooks distribution is deferred to Phase 8; --no-hooks cannot be disabled`. | The flag ships with hard-refuse semantics now so Phase 7c can flip the default without a CLI API break. |
+| `--no-hooks` | **Defaults to `true`.** Refuses to copy any `manifest.contributes.hooks` payload. `--no-hooks=false` is rejected at flag parse with `hook distribution is not supported; --no-hooks cannot be disabled`. | The flag ships with hard-refuse semantics now so the default can be flipped later without a CLI API break. |
 
 ## `manta library` observability subcommands
 
@@ -218,21 +216,21 @@ Library packages cannot ship arbitrary JavaScript; the threat model is closed by
 
 The cast manifest on disk records the host dispatcher mode (`mode: 'recon-swarm'`). A reporter event `cast.library_mode_resolved` captures the library origin (`libraryMode`, `basedOn`, `packageName`, `packageVersion`) so post-mortems and the bus can audit both layers.
 
-## Phase 7a limitations
+## Limitations
 
-- **Hooks (`PreToolUse`, `PostToolUse`, …) are not installed.** Manifests may declare `contributes.hooks[]` but `manta install` refuses to copy them. Hook distribution is deferred to Phase 8 once the sandboxing design is in place. `--no-hooks=false` is a flag-parse-time error in Phase 7a; the flag exists with the right name and exit semantics so Phase 7c can flip the default without breaking the CLI contract.
-- **Library packages cannot ship dispatcher code.** A library mode parameterises an existing built-in dispatcher named by `basedOn`. There is no `createDispatcher` hook in the Phase 7a manifest schema. The threat model is closed by the `basedOn` enum (seven built-ins); see `docs/internals/mode-registry.md` for the rationale and the deferred richer-registry sketch.
-- **`manta share` (publish a cast as a library package) is Phase 7b.** The Phase 7a sanitizer module (`@manta/orchestrator/sanitize/metadata-allowlist`) is the seed; Phase 7b enumerates the full redaction pipeline.
-- **`manta trigger add` (auto-cast triggers) is Phase 7c.**
-- **Custom HTTP registry / code signing / runtime sandbox are Phase 8+.** The npm registry under the `@manta-library/*` scope plus the git+https fallback are the only distribution surfaces shipped here.
-- **`manta library search` + curated GitHub index** are Phase 8 — Phase 7a ships discovery surfaces (list/show/outdated/doctor) but not directory-style browsing.
+- **Hooks (`PreToolUse`, `PostToolUse`, …) are not installed.** Manifests may declare `contributes.hooks[]` but `manta install` refuses to copy them. Hook distribution is not yet shipped — it needs a sandboxing design first. `--no-hooks=false` is a flag-parse-time error; the flag exists with the right name and exit semantics so the default can be flipped later without breaking the CLI contract.
+- **Library packages cannot ship dispatcher code.** A library mode parameterises an existing built-in dispatcher named by `basedOn`. There is no `createDispatcher` hook in the manifest schema. The threat model is closed by the `basedOn` enum (seven built-ins); see `docs/internals/mode-registry.md` for the rationale and the deferred richer-registry sketch.
+- **`manta share` (publish a cast as a library package)** is documented in [`manta-share.md`](./manta-share.md). It reuses the metadata sanitizer that ships with install.
+- **Auto-cast triggers (`manta trigger add`)** are not yet shipped.
+- **Custom HTTP registry / code signing / runtime sandbox** are not yet shipped. The npm registry under the `@manta-library/*` scope plus the git+https fallback are the only distribution surfaces today.
+- **`manta library search` + curated GitHub index** are not yet shipped — the current discovery surfaces are `list`/`show`/`outdated`/`doctor`, not directory-style browsing.
 
 ## Troubleshooting
 
 | Symptom | Exit | What it means | What to do |
 |---|---|---|---|
 | `install_spec_parse_failed: cannot parse spec "..."` | 1 | The spec form isn't one of the three supported shapes. | Use `@scope/name@range`, `git+https://...#ref`, or `./local.tgz`. |
-| `install_network_failed: cannot fetch ...` | 1 | `npm pack` or `git clone` shelled out and failed. | Check `npm ping` and your network. Phase 7a requires `npm` in `$PATH` for npm-spec installs. Re-run with `--offline` against a local tarball if you have one. |
+| `install_network_failed: cannot fetch ...` | 1 | `npm pack` or `git clone` shelled out and failed. | Check `npm ping` and your network. npm-spec installs require `npm` in `$PATH`. Re-run with `--offline` against a local tarball if you have one. |
 | `network_required_for_spec_kind` | 11 | `--offline` was given but the spec needs the network. | Vendor a tarball and install from `./vendored.tgz`, or drop `--offline`. |
 | `install_manifest_invalid: ...` | 1 | The tarball's `manta-package.json` is missing, not JSON, or fails the schema. | Inspect the tarball with `tar tzf <path>` and validate the manifest by hand against `MantaPackageManifestSchema` in `@manta/skill-validator`. |
 | `checksum_mismatch` | 13 | `--integrity sha256-<base64>` was given and the fetched tarball did not match. | Confirm the expected hash; if it is right, treat the source as compromised and report to the package author. |
@@ -249,5 +247,4 @@ The cast manifest on disk records the host dispatcher mode (`mode: 'recon-swarm'
 
 - **Building a library package:** the package layout mirrors the validator's `validatePackage` contract — top-level `manta-package.json` plus `skills/<name>/SKILL.md`, `commands/<name>.md`, `modes/<name>/mode.json`, `templates/<name>`. Drive-by files (on disk but undeclared) are rejected; declare everything in `contributes`.
 - **`ModeRegistry` architecture note:** [`docs/internals/mode-registry.md`](../internals/mode-registry.md) covers the `basedOn` host-dispatcher inheritance model, the cast-manifest dual recording, and where to extend when richer library-mode semantics are wanted.
-- **Phase 7b:** `manta share` builds a `.mantapkg.tar.gz` from a finalised cast, reusing the manifest schema and the bug #18 metadata sanitizer that landed alongside Phase 7a.
-- **Phase 7c:** `manta trigger add/list <event> <action>` ships the auto-cast trigger taxonomy.
+- **`manta share`:** builds a `.mantapkg.tar.gz` from a finalised cast, reusing the manifest schema and the metadata sanitizer. See [`manta-share.md`](./manta-share.md).

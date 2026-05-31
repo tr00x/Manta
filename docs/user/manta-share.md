@@ -4,7 +4,7 @@
 publishable `*.manta-pkg.tar.gz` bundle: a sanitized, checksummed, schema-valid
 package that anyone can install with [`manta install`](./manta-library.md).
 
-It is the *producer* side of the Manta Library. `manta install` (Phase 7a) is
+It is the *producer* side of the Manta Library. `manta install` is
 the consumer; `manta share` is what you run after a cast has shipped something
 worth sharing — a new mode, skill, command, or template.
 
@@ -94,7 +94,7 @@ silently leak.
 |---|---|
 | **Snapshot** | Drops `parentSessionId`, `parentPid`, `budget`, `sessionId`, and the raw `recentMessages` transcript (highest-risk). Redacts `parentWorktree` → `<worktree>` and `cloneWorktree` → `<worktree>/clone-<id>`. Relativises `openFiles[].path`; drops any path outside the repo. |
 | **Task contract** | Secret-scans `task` and `approachHint` (**fatal** on match). Relativises `scope.allowedPaths` / `forbiddenPaths`; drops out-of-repo paths. |
-| **Post-mortem markdown** | Redacts the `Worktree:` header to `<worktree>`, drops the `Parent PID:` line, rewrites epoch-ms timestamps to relative offsets. The `## Metadata` and `## Event timeline` blocks are already allowlisted at render time, so they pass through intact. Full-text secret scan (fatal) + stray-path warnings. |
+| **Post-mortem markdown** | Redacts the `Worktree:` header to `<worktree>`, drops the `Parent PID:` line, rewrites epoch-ms timestamps to relative offsets. The `## Metadata` and `## Event timeline` blocks are already filtered to a safe field set at render time, so they pass through intact. Full-text secret scan (fatal) + stray-path warnings. |
 | **ZK notes** | Rewrites `created_at` to the bundle ISO time. Secret-scans the title (fatal) and body (fatal). Path references in the body **warn** but are not auto-redacted (prose may be inseparable from the reference — you accept the warning). |
 | **Event timeline** | Re-applies the per-type allowlist projection (same one the post-mortem renderer uses) over the raw `events.jsonl`, filtered to the winning clone, with wallclock times relativised. Unknown event types collapse to `<payload omitted>`. |
 | **Worktree diff** | Secret-scans the full diff (**fatal** on match). This is the rule most likely to fire on a real credential. |
@@ -128,7 +128,7 @@ the rest on failure:
 
 1. **Static scan** — any bundled JS is scanned for malicious patterns; a hard
    block (e.g. `child_process.execSync`, reading `~/.aws`) refuses the publish.
-   (Phase 7b bundles ship no JS, so this is usually a no-op.)
+   (Manta-built bundles ship no JS, so this is usually a no-op.)
 2. **Checksum re-verify** — the bundle's `checksum.json` is recomputed and
    compared; any mismatch (tamper/corruption) refuses.
 3. **npm login** — `npm whoami`; not logged in refuses.
@@ -167,10 +167,10 @@ re-inspection.
 
 ## What is *not* shipped (deferred)
 
-| Surface | Deferred to | Why |
+| Surface | Status | Why |
 |---|---|---|
-| Code signing / signature verification | Phase 8+ | No key registry / revocation / rotation infra exists; "optional signing" without it is theater. |
-| Author reputation (install counts, time-to-issue) | Phase 8+ | Needs a telemetry backend + a privacy story we do not have. |
+| Code signing / signature verification | Not yet shipped | No key registry / revocation / rotation infra exists; "optional signing" without it is theater. |
+| Author reputation (install counts, time-to-issue) | Not yet shipped | Needs a telemetry backend + a privacy story we do not have. |
 | Runtime sandbox for cast-time mode execution | Indefinite | The dispatched clone has full shell access by design; sandboxing only the dispatcher is theater. |
 | Auto-**publish** (a trigger fires `npm publish`) | **Never (policy)** | Violates informed consent. A trigger may build a bundle; a human always pulls the publish trigger. |
 
@@ -182,5 +182,3 @@ re-inspection.
   bundle feeds.
 - [`docs/internals/share-sanitization.md`](../internals/share-sanitization.md) —
   the architecture of the sanitization pipeline and the integrity model.
-- `docs/research/phase-7-community-share-trust.md` — the ground-truth trust
-  model (§0), bundle anatomy (§1), and threat model (§2).

@@ -1,8 +1,7 @@
 # forking-realities — multiple realities, one task
 
-`forking-realities` is the second mode allowlisted on `manta cast` (after
-`recon-swarm`). The shape: spawn N clones (1..5 — the Phase 0 ceiling for
-all modes; spec Sec 6.4 recommends ≤ 3 for forking-realities) against the
+`forking-realities` spawns N clones (1..5; ≤ 3 works best for
+forking-realities) against the
 **same task** but with **different per-clone overlays** — typically a
 different `approach_hint` so each clone explores a distinct strategy.
 After the cast, the operator picks the winner by reading each clone's
@@ -20,12 +19,11 @@ can filter sibling visibility.
 For the closed-set allow/reject table, see
 [docs/internals/forking-realities-isolation.md](../internals/forking-realities-isolation.md).
 
-Known limitations (Phase 2b):
-- Lock owner-id leak on shared-path contention. Spec Sec 5.7 PreToolUse
-  hooks land in Phase 5+; until then, skill discipline is the primary
-  defense.
+Known limitations:
+- Lock owner-id leak on shared-path contention. Skill discipline is the
+  primary defense; filesystem-level enforcement hooks are not yet shipped.
 - Filesystem-level isolation is skill-only. A clone could `cd ../clone-B`
-  if it ignored skill discipline. Phase 5+ may add filesystem hooks.
+  if it ignored skill discipline.
 
 ## Merge review
 
@@ -43,7 +41,7 @@ configuration (e.g., strict tsconfig bumps the typeCheck weight). Weights
 can also be tuned manually via `.manta/config/scoring.json`.
 
 The merge-review document includes:
-- **Verdict**: `manual_review_required` (Phase 2 default), `auto_merge_eligible`,
+- **Verdict**: `manual_review_required` (the default), `auto_merge_eligible`,
   `no_candidates_passed_gate`, or `dominance_inversion_flagged`.
 - **Score table**: per-candidate normalized scores and composite ranking.
 - **Tie-break explanation**: axis priority → Pareto dominance → self-certainty → defer.
@@ -63,14 +61,14 @@ knowledge overrides the scoring engine's recommendation.
 ## When to use it
 
 - You have a single well-defined task and ≥ 2 plausible approaches.
-- The approaches are large enough to justify a full clone (per spec Sec 6.4
-  N ≤ 3; >3 is research territory, not implementation).
+- The approaches are large enough to justify a full clone (N ≤ 3 is the
+  sweet spot; >3 is research territory, not implementation).
 - You want each clone to commit on its own branch so you can `git diff` the
   results before merging.
 
 If only one approach is obvious, use `recon-swarm` and a single clone.
 If you want multiple agents collaborating on one branch, that's not
-forking-realities at all — that's `pair-programming` (Phase 6+).
+forking-realities at all — that's `pair-programming`.
 
 ## Run a cast
 
@@ -99,8 +97,8 @@ cast-level `--task`.
 
 ## `--tasks` schema
 
-YAML or JSON; clone_ids are ASCII slugs (matching the spawn roster — Phase 0
-ceiling = 5, default `A`/`B`/`C`/`D`/`E`). Each entry is a partial
+YAML or JSON; clone_ids are ASCII slugs (matching the spawn roster — up to
+5 clones, default `A`/`B`/`C`/`D`/`E`). Each entry is a partial
 `CloneAssignment` (the schema lives in `packages/manta-bus/src/schema.ts`
 under `CloneAssignmentSchema`):
 
@@ -167,13 +165,13 @@ After a successful `manta cast forking-realities`:
   into `main` (or `git diff`s several before deciding).
 - **Per-clone worktrees** at `.manta/worktrees/clone-<cloneId>/`. These
   stay on disk after the cast for post-mortem inspection (deleted only
-  by `manta abort` or explicit Phase 7 commands).
+  by `manta abort` or explicit cleanup commands).
 - **Per-clone last-gasp reports** at `.manta/worktrees/clone-<cloneId>/last-gasp-report.md`.
   Read these before picking the winner — the clone wrote the report knowing
   it was about to die.
 - **Registry records** with `metadata.cast_mode = "forking-realities"` and
-  `metadata.cast_id = "<castId>"`. The Phase 2b sibling-message filter
-  joins on these without re-reading the manifest.
+  `metadata.cast_id = "<castId>"`. The sibling-message filter joins on these
+  without re-reading the manifest.
 
 After a cast, the merge-review is auto-generated. The operator reads
 `docs/merge-reviews/<castId>.md`, inspects branches via `git diff`, and
@@ -189,5 +187,5 @@ alongside the existing `commander` / `execa` / `zod` dependencies.
 
 - `docs/user/cast-manifest.md` — the per-cast on-disk manifest format.
 - `docs/user/recon-swarm.md` — the simpler mode (no per-clone overlay).
-- `docs/superpowers/specs/2026-05-06-manta-pattern-design.md` Sec 6.4 — the
-  full spec for forking-realities, including Phase 2c merge-review.
+- `docs/internals/merge-review-scoring.md` — how the merge-review scores
+  candidates and picks a winner.

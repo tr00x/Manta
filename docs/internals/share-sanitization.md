@@ -1,14 +1,12 @@
 # Internals: `manta share` sanitization + integrity architecture
 
-This note documents *how* `manta share` (Phase 7b) produces a leak-free,
-verifiable bundle, and why the design survives schema evolution. The
-user-facing command reference is [`docs/user/manta-share.md`](../user/manta-share.md);
-the ground-truth trust model is `docs/research/phase-7-community-share-trust.md`
-(§0 trust model, §1 bundle anatomy, §1.4 sanitization table, §2 threat model).
+This note documents *how* `manta share` produces a leak-free, verifiable
+bundle, and why the design survives schema evolution. The user-facing command
+reference is [`docs/user/manta-share.md`](../user/manta-share.md).
 
-All file:line citations below were verified against HEAD on 2026-05-29 (after
-Phase 7b Chunks 1–2 merged). Re-verify before editing — per CLAUDE.md's #1
-blocker class, cross-package field-name drift is the leading defect source.
+The file:line citations below point at the current source. Re-verify before
+editing — cross-package field-name drift is the leading defect source in this
+codebase.
 
 ---
 
@@ -23,8 +21,7 @@ through) and `.strict()` would reject it if a sanitizer naïvely forwarded it.
 
 The alternative — a denylist of "things to strip" — fails open: a new sensitive
 field nobody added to the denylist ships in the clear. Default-deny fails
-closed. This is the core security property of the pipeline and the full fix for
-bug #18 layer (b).
+closed. This is the core security property of the pipeline.
 
 ---
 
@@ -48,18 +45,18 @@ The secret-format regex set is centralised in `share/secret-scanner.ts`
 finding's masked sample (`first 4 chars + "…"`) never re-leaks the token into a
 report.
 
-### 2.1 The post-mortem correction (research §1.4 was wrong)
+### 2.1 Why the post-mortem needs no recursive payload scan
 
-Research §1.4 assumed `events[].payload` needs a recursive path-scan at share
-time. **Verified false**: `renderEventPayload`
+You might assume `events[].payload` needs a recursive path-scan at share time.
+It does not: `renderEventPayload`
 (`packages/manta-orchestrator/src/post-mortem.ts:156`) **already** applies a
-per-type allowlist projection with default-deny (the bug #29 + bug #46 fixes —
-the renderer's own comment cites "Post-mortems are then bundled by `manta share`
-(Phase 7), so a leak here ships externally" as the motivation). And
-`redactPostMortemMetadata` (`packages/manta-orchestrator/src/sanitize/metadata-allowlist.ts:17`,
-bug #18 layer a) already allowlists the metadata block at render time.
+per-type allowlist projection with default-deny — the renderer's own comment
+cites "Post-mortems are then bundled by `manta share`, so a leak here ships
+externally" as the motivation. And `redactPostMortemMetadata`
+(`packages/manta-orchestrator/src/sanitize/metadata-allowlist.ts:17`) already
+restricts the metadata block to a safe field set at render time.
 
-So Phase 7b operates on the **rendered markdown on disk** and only needs:
+So `manta share` operates on the **rendered markdown on disk** and only needs:
 - header-line redaction (the `Worktree:` / `Parent PID:` / epoch-ms lines the
   renderer still emits raw), and
 - a defense-in-depth full-text secret + stray-path scan.
@@ -70,49 +67,49 @@ timeline.
 
 ### 2.2 Event projection drift guard
 
-Because Phase 7b re-implements the per-type allowlist (rather than touch the
-frozen orchestrator file to share a table), `sanitize-events.ts` carries a
-drift-guard test: for every event type it projects, the allowlisted key set must
+Because `manta share` re-implements the per-type allowlist (rather than touch
+the orchestrator file to share a table), `sanitize-events.ts` carries a
+drift-guard test: for every event type it projects, the allowed key set must
 equal the one `renderEventPayload` uses. If the orchestrator's renderer changes
 its projection, the test fails — preventing the two from silently diverging.
 
 ---
 
-## 3. The `castOrigin` manifest extension + 7c provenance contract
+## 3. The `castOrigin` manifest extension + provenance contract
 
-A shared bundle's manifest is the shipped flat `MantaPackageManifestSchema`
+A shared bundle's manifest is the flat `MantaPackageManifestSchema`
 (`packages/manta-skill-validator/src/manifest-schema.ts:140`) **plus** a
-`castOrigin` block recording lineage. We do **not** rewrite the frozen 7a schema;
-we *intersect*:
+`castOrigin` block recording lineage. We do **not** rewrite the install-side
+manifest schema; we *intersect*:
 
 ```
 SharedBundleManifestSchema = MantaPackageManifestSchema.and({ castOrigin: CastOriginSchema })
 ```
 
-The one unavoidable edit to a frozen 7a file is additive and safe:
+The one unavoidable edit to the install-side schema is additive and safe:
 `manifest-schema.ts:159` adds `castOrigin: CastOriginSchema.optional()` so the
 install path tolerates the extra key on a shared bundle while still accepting
-pre-7b bundles that omit it. A regression test pins that `castOrigin: null`
-(present-but-null) is rejected — the optional field must be *absent* in pre-7b
+plain library bundles that omit it. A regression test pins that `castOrigin: null`
+(present-but-null) is rejected — the optional field must be *absent* in plain
 bundles, not null.
 
-### 3.1 Provenance field mapping (Phase 7c, frozen)
+### 3.1 Provenance field mapping (auto-cast triggers)
 
-Phase 7c widens `CastManifestSchema`
-(`packages/manta-bus/src/schema.ts:354`) with an optional `metadata.trigger`
+When auto-cast triggers land, `CastManifestSchema`
+(`packages/manta-bus/src/schema.ts:354`) gains an optional `metadata.trigger`
 block. `build-cast-origin.ts` reads it **read-only** and maps it 1:1 into
 `castOrigin.provenance` (wire = snake_case, manifest = camelCase):
 
-| 7c wire field (`CastManifest.metadata`) | `castOrigin.provenance` field |
+| Trigger wire field (`CastManifest.metadata`) | `castOrigin.provenance` field |
 |---|---|
 | `trigger.trigger_name` | `triggerName` |
 | `trigger.fired_at` (ms epoch) | `firedAtOffsetMs` (= `fired_at − cast.created_at`) |
 | `trigger.parent_cast_id` | `parentCastId` |
 | `cause_chain` (full, **not** stripped — it is the audit trail) | `causeChain` |
 
-Phase 7b does **not** depend on 7c landing first: `metadata?.trigger` is read
-defensively; when absent (user-fired cast, or pre-7c manifest),
-`castOrigin.provenance` is `null`.
+`manta share` does **not** depend on triggers existing: `metadata?.trigger` is
+read defensively; when absent (user-fired cast, or a manifest with no trigger
+block), `castOrigin.provenance` is `null`.
 
 ---
 
@@ -125,20 +122,20 @@ witnesses:
    over every file except itself. `verifyBundleChecksums(unpackedDir)` recomputes
    and compares — used by the publish preflight (gate 2) and re-usable by a
    future `manta library preview`.
-2. **`directoryDigest`** — reuses the **shipped** `computeDirDigest`
-   (`packages/manta-cli/src/library/dir-digest.ts:30`), the same primitive Phase
-   7a's `verifyLibraryIntegrity` (`packages/manta-cli/src/library/integrity.ts`)
+2. **`directoryDigest`** — reuses `computeDirDigest`
+   (`packages/manta-cli/src/library/dir-digest.ts:30`), the same primitive
+   `verifyLibraryIntegrity` (`packages/manta-cli/src/library/integrity.ts`)
    checks at cast time. One shared algorithm end-to-end; no new hashing code.
 
 **Determinism:** the tarball is built with `tar` portable mode, a fixed `mtime`
 (`castOrigin.bundledAt`), and a sorted entry list, so two assembles of identical
-artifacts are byte-identical. A Chunk 2 test asserts this.
+artifacts are byte-identical. A test asserts this.
 
 **Honest limit:** without signing, `checksum.json` catches *accidental*
 corruption and shifts the tamper surface from "edit one payload silently" to
 "rewrite the whole tarball" — but an attacker who controls the tarball can
 recompute the checksums. It is integrity, not authenticity. Code signing is
-deferred to Phase 8+ because it needs a key registry / revocation / rotation /
+not yet shipped because it needs a key registry / revocation / rotation /
 lost-key recovery story that does not exist; "optional signing" without that
 infra is theater.
 
@@ -157,19 +154,19 @@ static scan → checksum re-verify → npm whoami → scope ownership
 Every shell-out is behind an injected `PublishRunner` (whoami / listScopePackages
 / publish) and `Confirmer` seam — tests inject fakes; the real defaults
 (`commands/share.ts` `defaultDeps`) are execa-backed `npm` + a stdin readline
-prompter. The static scanner (`static-scanner.ts`, research §2 mitigation d) is a
-line-oriented regex pass; it is cheap and defeated by obfuscation (documented and
-accepted per §0 — AST analysis via `acorn` is a Phase 8 hardening). Phase 7b
-modes are `basedOn` built-ins and ship no JS, so the scan usually finds nothing,
-but it ships now for forward-compat.
+prompter. The static scanner (`static-scanner.ts`) is a line-oriented regex
+pass; it is cheap and defeated by obfuscation (a documented, accepted limit —
+AST analysis via `acorn` is a possible future hardening). Shared modes are
+`basedOn` built-ins and ship no JS, so the scan usually finds nothing, but it
+ships now for forward-compat.
 
 ---
 
 ## 6. The auto-share trust boundary (build-yes / publish-no)
 
-The single most important policy in Phase 7b:
+The single most important policy in `manta share`:
 
-- **Bundle generation MAY be trigger-fired.** A Phase 7c trigger may invoke
+- **Bundle generation MAY be trigger-fired.** An auto-cast trigger may invoke
   `manta share <cast-id> --non-interactive` to produce a *local* reviewable
   artifact. Non-interactive mode forbids `$EDITOR`, forbids `--accept-warnings`
   (any warning is fatal), and requires the secret + static scans to pass clean.
@@ -179,7 +176,7 @@ The single most important policy in Phase 7b:
   pulls the publish trigger.
 
 This is enforced at **two code levels** (never in skill text — skill text is a
-soft prior, per CLAUDE.md):
+soft prior, not a hard contract):
 
 1. **CLI pre-commander guard** (`bin/manta.ts` `rejectPublishNonInteractiveEarly`):
    `--publish` + `--non-interactive` in argv → stderr message + `process.exitCode = 2`,

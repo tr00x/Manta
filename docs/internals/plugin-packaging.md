@@ -1,7 +1,7 @@
 # Plugin packaging — how Manta ships as a Claude Code plugin
 
-**Status:** v1 (RB#3, 2026-05-30). Decision recorded in `docs/release-v1-board.md` "RB#3 — DECISION";
-mechanics reverse-engineered in `docs/audits/2026-05-30-plugin-distribution-mechanics.md`.
+**Status:** shipping in v1. The plugin packaging mechanics below were verified against live Claude Code
+plugins and the official plugin docs.
 
 ## Why a plugin (not just npm)
 
@@ -57,7 +57,7 @@ A plugin installs by **git clone** into `~/.claude/plugins/cache/<marketplace>/<
    `packages/manta-cli/tsup.plugin.config.ts` with `noExternal: [/.*/]` — that inlines every runtime
    dep. Its output (`packages/manta-cli/plugin-dist/`, git-ignored) is copied to `dist/bin/` by
    `scripts/build-plugin.mjs`. The npm build (`tsup.config.ts`) is untouched, so the install-from-tarball
-   e2e (RB#2 Chunk 4) stays valid.
+   e2e test stays valid.
 
 Release step: `pnpm build && pnpm build:plugin`, then commit `dist/bin/`.
 
@@ -131,5 +131,6 @@ regardless of name.
 
 The MCP `server.cjs` is fully standalone (verified: boots + answers `tools/list` with no `node_modules`).
 The command bin `manta.cjs` has a dynamic `require.resolve('proper-lockfile')` that escapes the bundle, so
-lock-using commands (`cast`/`abort`/`kill`/`recover`) still need `node_modules` at runtime — **bug #65**,
-a publish-blocker for the command path, root-caused to `@manta/bus` runtime (out of RB#3 scope → RB#4).
+lock-using commands (`cast`/`abort`/`kill`/`recover`) still need `node_modules` at runtime. This is a
+known publish-blocker for the command path, root-caused to the `@manta/bus` runtime and tracked
+separately.

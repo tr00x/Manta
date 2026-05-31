@@ -76,4 +76,3 @@ starting point, not a scored winner.)
 - `docs/user/council.md` — the other Aghs mode (independent proposals).
 - `docs/user/documentation-chase.md` — when you want finished docs, not a draft.
 - `skills/manta-decoy/SKILL.md` — the clone-side behavior contract.
-- `docs/superpowers/specs/2026-05-06-manta-pattern-design.md` Sec 2 #10 — the spec.

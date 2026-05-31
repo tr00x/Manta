@@ -37,8 +37,7 @@ The wire shape is defined in `packages/manta-bus/src/schema.ts` under
 ```
 
 For a `forking-realities` cast, each clone's `assignment` carries its
-per-clone task / approach hint / scope / budget overlay (Chunk 2 of Phase
-2a wires the operator surface for this).
+per-clone task / approach hint / scope / budget overlay.
 
 ## Idempotency
 
@@ -57,13 +56,13 @@ clone-A fails to spawn (clone-B's call covers it).
 
 ## Who reads it
 
-* **Bus filter (Phase 2b)** — joins on `cast_mode` from the registry plus
+* **Bus filter** — joins on `cast_mode` from the registry plus
   `policy.peer_messaging` from the manifest to decide whether a sibling
   `manta.message` is delivered.
-* **Orchestrator (Phase 2c)** — uses the roster to know when a cast is
+* **Orchestrator** — uses the roster to know when a cast is
   finalised (every clone in the roster is `DEAD` or has shipped a
   `report_death`).
-* **CLI replay / audit (Phase 2d)** — `manta replay <castId>` and audit
+* **CLI replay / audit** — `manta replay <castId>` and audit
   tooling read the manifest to reconstruct what was spawned.
 
 ## Operator notes
@@ -73,5 +72,4 @@ clone-A fails to spawn (clone-B's call covers it).
 * **Inspect a cast** — `cat .manta/state/casts/<castId>.json | jq .`
   shows the full record.
 * **Lifecycle.** The manifest persists after the cast completes. It is not
-  rotated or archived in Phase 2; future `manta exhume` (Phase 7) handles
-  retention.
+  rotated or archived automatically; retention is managed manually.
