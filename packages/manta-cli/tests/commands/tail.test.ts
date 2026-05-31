@@ -4,6 +4,7 @@ import { createRuntime } from '../../src/runtime.js';
 import { createReporter, MemorySink } from '../../src/output/reporter.js';
 import { makeRepoFixture, type RepoFixture } from '../helpers/repoFixture.js';
 import type { BusEvent } from '@manta/bus';
+import { isCliError } from '../../src/errors.js';
 
 describe('tail command', () => {
   let fx: RepoFixture | undefined;
@@ -144,6 +145,35 @@ describe('tail command', () => {
     for (const line of nonEmpty) {
       expect(() => JSON.parse(line) as BusEvent).not.toThrow();
     }
+  });
+
+  it('M2: rejects a nonexistent cloneId up front with a not_found CliError (exit 1), no ~10s hang', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({ repoRoot: fx.root });
+    // No clone registered. The CLI's real minimum duration is 10s; before the
+    // up-front check this streamed nothing for ~10s then exited 0. It must now
+    // fail fast and loudly.
+    const { reporter } = mkReporter();
+    const start = Date.now();
+    let caught: unknown;
+    try {
+      await runTailCommand(rt, {
+        cloneId: 'NOPE',
+        durationMs: 10_000,
+        intervalMs: 2_000,
+        raw: false,
+        reporter,
+      });
+    } catch (err) {
+      caught = err;
+    }
+    const elapsed = Date.now() - start;
+    expect(isCliError(caught)).toBe(true);
+    expect((caught as { kind: string }).kind).toBe('not_found');
+    expect((caught as { exitCode: number }).exitCode).toBe(1);
+    expect((caught as Error).message).toContain('NOPE');
+    // Fail-fast: nowhere near the 10s duration / old 10s grace window.
+    expect(elapsed).toBeLessThan(2000);
   });
 
   it('only shows events for the specified cloneId', async () => {

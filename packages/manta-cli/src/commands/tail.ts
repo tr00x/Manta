@@ -30,6 +30,29 @@ export async function runTailCommand(
       { kind: 'invalid_input' },
     );
   }
+
+  // M2: validate the clone exists in the registry UP FRONT and fail fast. The
+  // previous design only checked existence inside the poll loop, guarded by a
+  // 10s grace window (notFoundDeadline) — but that deadline raced the main
+  // duration deadline, and the top-of-loop `now >= deadline` break is evaluated
+  // first. With the CLI's 10s minimum duration the two deadlines coincide, so
+  // the loop broke (exit 0) before the not-found throw ever fired:
+  // `manta tail <nonexistentCloneId>` streamed nothing for ~10s then reported
+  // success. The spawner registers a clone on the bus BEFORE launching it, so
+  // any id a user can name is already registered; a miss is a genuine "no such
+  // clone", not a startup race. Reject it with exit 1.
+  try {
+    await rt.ctx.registry.get(opts.cloneId);
+  } catch (err) {
+    if (err instanceof BusNotFoundError) {
+      throw new CliError(`no such clone "${opts.cloneId}"`, {
+        kind: 'not_found',
+        cause: err,
+      });
+    }
+    throw err;
+  }
+
   const lines: string[] = [];
   const ctrl = new AbortController();
 
@@ -66,9 +89,6 @@ async function runTailLoop(opts: TailLoopOptions): Promise<void> {
   // sees all history; advancing by id keeps same-ms events (bug #42).
   let cursor = '';
   const deadline = opts.rt.ctx.clock.now() + opts.durationMs;
-  let cloneSeenOnce = false;
-  const notFoundGraceMs = 10_000;
-  const notFoundDeadline = opts.rt.ctx.clock.now() + notFoundGraceMs;
 
   for (;;) {
     if (opts.signal.aborted) break;
@@ -87,22 +107,19 @@ async function runTailLoop(opts: TailLoopOptions): Promise<void> {
 
     try {
       const record = await opts.rt.ctx.registry.get(opts.cloneId);
-      cloneSeenOnce = true;
       if (record.state === 'DEAD') {
         opts.onLine(`--- clone ${opts.cloneId} is DEAD: ${record.death_reason ?? 'unknown'} ---`);
         break;
       }
     } catch (err) {
       if (err instanceof BusNotFoundError) {
-        if (!cloneSeenOnce && opts.rt.ctx.clock.now() >= notFoundDeadline) {
-          throw new CliError(`clone "${opts.cloneId}" not found after ${notFoundGraceMs / 1000}s`, {
-            kind: 'not_found',
-            cause: err,
-          });
-        }
-      } else {
-        throw err;
+        // Existence was already validated before the loop (runTailCommand). A
+        // mid-stream miss means the record was reaped while we watched — there
+        // is nothing left to stream, so stop cleanly rather than spin.
+        opts.onLine(`--- clone ${opts.cloneId} is gone (registry record removed) ---`);
+        break;
       }
+      throw err;
     }
 
     await sleep(opts.intervalMs, opts.signal);
