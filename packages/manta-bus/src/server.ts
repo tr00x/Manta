@@ -27,6 +27,7 @@ import { createWorkHandlers } from './tools/work';
 import { createLockHandlers } from './tools/locks';
 import { createCommunicationHandlers } from './tools/communication';
 import { createMemoryHandlers } from './tools/memory';
+import { createUserTools, USER_TOOL_NAMES } from './tools/user-tools';
 import {
   BusConflictError,
   BusForkingIsolationError,
@@ -58,7 +59,11 @@ export interface BusServerHandle {
 interface ToolEntry {
   name: string;
   description: string;
-  inputSchema: { type: 'object'; additionalProperties: boolean };
+  // Widened from the bare `{type,additionalProperties}` shape so the
+  // user/orchestrator tools (user-tools.ts) can advertise rich per-parameter
+  // JSON Schemas the orchestrator can introspect. The clone-coordination tools
+  // keep the minimal `jsonSchema()` descriptor (validation is Zod-side).
+  inputSchema: Record<string, unknown>;
   handle: (args: unknown) => Promise<unknown>;
 }
 
@@ -281,6 +286,12 @@ export async function createBusServer(opts: CreateBusServerOptions): Promise<Bus
       inputSchema: jsonSchema(),
       handle: (args) => work.enqueue(args),
     },
+    // User/orchestrator-facing tools (Phase 8 — native alternative to the
+    // /manta:* slash commands). Each spawns the proven `manta` CLI binary as a
+    // child process — @manta/bus must NOT import @manta/cli (circular dep), so
+    // the binary is the seam. See tools/user-tools.ts for the cast-blocking
+    // gotcha and binary-resolution rationale.
+    ...createUserTools({ repoRoot: opts.repoRoot }),
   ];
   const toolMap = new Map(tools.map((t) => [t.name, t]));
 
@@ -393,6 +404,12 @@ const CALLER_FIELDS_BY_TOOL: Readonly<Record<string, readonly string[] | null>> 
   'manta.request_task': ['clone_id'],
   'manta.feedback': null,
   'manta.enqueue_work': null,
+  // User/orchestrator tools are main-driven — there is no calling clone on the
+  // wire (the call comes from the human's orchestrator, not a registered
+  // clone), so auto-touch must be a no-op (same policy as retask/pause/
+  // feedback). Spread from USER_TOOL_NAMES so a newly added user tool cannot
+  // silently miss this map and accidentally auto-touch some clone.
+  ...Object.fromEntries(USER_TOOL_NAMES.map((n) => [n, null] as const)),
 };
 
 /**

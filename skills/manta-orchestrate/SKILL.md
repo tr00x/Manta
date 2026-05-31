@@ -38,6 +38,8 @@ Your role once clones are running is **curator, not co-implementer**: you scope,
 - **Mind the budget.** Every cast costs charges + money + some of your own context. Check `manta charges` / `manta cost`. A forking cast where one clone does heavy work can starve a sibling on the shared tick-budget.
 - **Single-clone tasks: pass the task inline** (`--task "$(cat task.txt)"`) rather than a per-clone `--tasks` file — clone-letter keys in the file must match the allocated roster, which you don't control.
 
+**Native MCP tools (alternative to shelling out).** The Manta Bus MCP server exposes user/orchestrator tools so you can drive Manta with **native tool calls** instead of `Bash`-ing the `/manta:*` slash commands: `manta_cast`, `manta_status`, `manta_cost`, `manta_inspect`, `manta_abort`, `manta_kill`. They run the same `manta` CLI under the hood (the bus spawns the binary — no logic duplication), return structured data, and **complement** (do not replace) the slash commands. `manta_cast` is non-blocking — it returns the cast id once clones start spawning, so the launch tool call doesn't hang for the whole cast; then observe with `manta_status`. Full reference: `docs/user/mcp-tools.md`. Everything in this playbook (decide → scope → launch → observe → ceremony → recover) applies identically whether you launch via the slash command or the native tool.
+
 ## Forbidden
 
 - **Launching parallel casts simultaneously.** Serial only — see the collision gotcha above.
