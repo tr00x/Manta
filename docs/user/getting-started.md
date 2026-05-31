@@ -1,6 +1,6 @@
-# Manta — Getting Started (Phase 0)
+# Manta — Getting Started
 
-> **Prerequisites:** Node ≥ 20, pnpm ≥ 9, git, an installed and authenticated `claude` CLI. macOS or Linux. Phase 0 ships only the `recon-swarm` mode.
+> **Prerequisites:** Node ≥ 20, pnpm ≥ 9, git, an installed and authenticated `claude` CLI. macOS or Linux. All 9 cast modes ship: `recon-swarm`, `bug-hunt`, `refactor-wave`, `forking-realities`, `pair-programming`, `test-storm`, `documentation-chase`, plus the Aghs-locked `council` and `decoy` (opt-in). This walkthrough uses `recon-swarm` as the gentle first cast.
 
 ## 1. Clone & install
 
@@ -59,7 +59,7 @@ If you skip this, the CLI's pre-flight (`runCastCommand` calls `verifyMantaBusRe
 node packages/manta-skill-validator/dist/bin/manta-validate-skills.cjs --root .
 ```
 
-Expected: `9 file(s), 0 error(s), 0 warning(s)`.
+Expected: `29 file(s), 0 error(s), 0 warning(s)` (16 skills + 13 slash commands).
 
 ## 4. Run the pre-flight smoke
 
@@ -127,11 +127,17 @@ If `manta status` shows clones spawned but never moving past `STARTING`:
 3. Inspect `.manta/state/registry.json`; if a clone record is missing entirely, the spawner failed to pre-register (file an issue with the cast-id from `.manta/casts/`).
 4. If you re-run a cast after a previous failure, run `manta recover` first to clean orphaned registry records — `Registry.register` throws on duplicate `clone_id`.
 
-## 8. What's not in Phase 0
+## 8. Known limitations (v1)
 
-- Modes other than `recon-swarm` (forking-realities, refactor-wave, bug-hunt, …) — Phase 2+.
-- The other 30+ slash commands (`/manta:inspect`, `/manta:tail`, …) — Phase 1+.
-- Charges / cooldowns / fragility — Phase 3.
+What ships now: all 9 cast modes, 13 `/manta:*` slash commands, the usage-aware
+charge/cooldown system, native MCP orchestrator tools (§ "Native MCP tools"), and
+full observability (status / inspect / tail / replay / post-mortems). The honest
+edges:
+
+- **`manta cast` must run from inside a Manta-enabled git checkout** (carries `skills/`, is a git repo) — see the precondition in §5. Casting from an arbitrary empty directory is not supported.
+- **`council` and `decoy` are Aghs-locked** — opt in via `.manta/config/budget.json` (`aghs.unlocked: [...]`) or the `MANTA_UNLOCK_AGHS` env var. `phantom-lance` (recursive self-cast) is intentionally **not** shipped.
+- **Windows is untested** — macOS / Linux only.
+- **`/manta:*` slash commands collide when cwd = the Manta repo itself** (upstream Claude Code [#14929](https://github.com/anthropics/claude-code/issues/14929)) — see the note under the plugin quickstart below. The `manta` CLI works regardless of cwd.
 
 ## Quickstart via the Claude Code plugin (recommended)
 
