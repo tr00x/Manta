@@ -161,4 +161,12 @@ internals: `docs/internals/plugin-packaging.md`. This walkthrough above is the f
 > `claude --plugin-dir /path/to/Manta`, or set `"enabledPlugins": { "manta@manta-dev": false }` in
 > `~/.claude/settings.json` and use `claude --plugin-dir .`. The `manta` CLI works regardless of cwd.
 
+> **`[manta] not a git repo root`?** Manta's state (registry, charges, worktrees) is **per-repo**, keyed
+> on the git root — so the stateful CLI commands (`status`, `cost`, `charges`, `cast`, `cleanup`, …) must
+> be run from the **repo root**, not a subdirectory. This is by design (per-repo isolation: a cast in
+> project A never leaks into project B). The exception is `manta doctor`, which walks up to find `.git`
+> so it can health-check from anywhere. If a command errors with `not a git repo root`, `cd` to the repo
+> root and re-run. (Subdirectory upward-resolution for the other commands is a post-`0.1.0` nicety, not a
+> bug.)
+
 See `docs/superpowers/specs/2026-05-06-manta-pattern-design.md` for the full roadmap.
