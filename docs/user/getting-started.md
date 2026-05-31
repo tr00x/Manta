@@ -25,7 +25,7 @@ If you installed the plugin (see "Quickstart via the Claude Code plugin" at the 
 
 ### b) Installed from npm — `manta install`
 
-If you got Manta via npm (`npm i -g manta`, or `npx manta`), run:
+If you got Manta via npm (`npm i -g @tr00x/manta`, or `npx @tr00x/manta`), run:
 
 ```
 manta install
@@ -73,7 +73,7 @@ Expected: 3/3 passing.
 
 ## 5. Run a real recon-swarm cast
 
-> **Precondition (v1):** `manta cast` must run from **inside a Manta-enabled git checkout** — a repo/worktree that carries the `skills/` directory and is a git repo (the cast does `git worktree add`, and each clone's first action is to load the `manta-as-clone` skill from disk). A from-source checkout (this walkthrough) satisfies it. After `npx manta@latest install` into an *arbitrary* empty dir the bin works but `manta cast` does not — casting from an arbitrary directory isn't supported.
+> **Precondition (v1):** `manta cast` must run from **inside a Manta-enabled git checkout** — a repo/worktree that carries the `skills/` directory and is a git repo (the cast does `git worktree add`, and each clone's first action is to load the `manta-as-clone` skill from disk). A from-source checkout (this walkthrough) satisfies it. After `npx @tr00x/manta@latest install` into an *arbitrary* empty dir the bin works but `manta cast` does not — casting from an arbitrary directory isn't supported.
 
 In a repo of your choice (or use the sample fixture in `packages/manta-e2e/tests/fixtures/sample-repo/`):
 
