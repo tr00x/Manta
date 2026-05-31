@@ -163,6 +163,17 @@ internals: `docs/internals/plugin-packaging.md`. This walkthrough above is the f
 > `claude --plugin-dir /path/to/Manta`, or set `"enabledPlugins": { "manta@manta-dev": false }` in
 > `~/.claude/settings.json` and use `claude --plugin-dir .`. The `manta` CLI works regardless of cwd.
 
+## Native MCP tools (drive Manta from your orchestrator)
+
+Prefer programmatic, structured tool calls over shelling out to `/manta:*`? The
+Manta Bus MCP server also exposes **user/orchestrator tools** — `manta_cast`,
+`manta_status`, `manta_cost`, `manta_inspect`, `manta_abort`, `manta_kill` — so a
+Claude Code orchestrator can drive Manta natively. They run the same `manta` CLI
+under the hood and **complement** (do not replace) the slash commands. `manta_cast`
+is non-blocking: it returns the cast id once clones start spawning, then you watch
+with `manta_status`. See **[docs/user/mcp-tools.md](./mcp-tools.md)** for the full
+list, inputs, and binary resolution.
+
 > **`[manta] not a git repo root`?** Manta's state (registry, charges, worktrees) is **per-repo**, keyed
 > on the git root — so the stateful CLI commands (`status`, `cost`, `charges`, `cast`, `cleanup`, …) must
 > be run from the **repo root**, not a subdirectory. This is by design (per-repo isolation: a cast in
