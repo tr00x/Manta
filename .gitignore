@@ -102,8 +102,11 @@ graphify-out/
 video/
 docs/research/
 docs/audit-v1/
-docs/superpowers/plans/
+docs/superpowers/
 docs/merge-all-reports/
 docs/plan-reviews/
 docs/acceptance/
 docs/release-v1-board.md
+docs/manta-bugs.md
+docs/internals/claude-code-pitfalls.md
+CLAUDE.md
