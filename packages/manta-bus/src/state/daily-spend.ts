@@ -36,29 +36,38 @@ export class DailySpendLedger {
           return {
             version: 1,
             date: today,
-            spent_usd: entry.estimated_cost_usd,
+            tokens_estimated: entry.estimated_tokens,
             entries: [fullEntry],
           };
         }
         return {
           ...current,
-          spent_usd: current.spent_usd + entry.estimated_cost_usd,
+          tokens_estimated: current.tokens_estimated + entry.estimated_tokens,
           entries: [...current.entries, fullEntry],
         };
       },
     );
   }
 
-  async getRemaining(dailyCapUsd: number): Promise<number> {
+  async getRemaining(dailyTokenCap: number): Promise<number> {
     const state = await this.read();
-    return Math.max(0, dailyCapUsd - state.spent_usd);
+    return Math.max(0, dailyTokenCap - state.tokens_estimated);
+  }
+
+  /**
+   * Number of casts started today (usage signal — replaces the old dollar
+   * spend total as the headline daily metric).
+   */
+  async castsToday(): Promise<number> {
+    const state = await this.read();
+    return state.entries.length;
   }
 
   private defaultState(): DailySpendState {
     return {
       version: 1,
       date: this.localDate(),
-      spent_usd: 0,
+      tokens_estimated: 0,
       entries: [],
     };
   }

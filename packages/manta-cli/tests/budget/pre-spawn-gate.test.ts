@@ -34,8 +34,6 @@ function makeOpts(overrides: Partial<PreSpawnGateOptions> = {}): PreSpawnGateOpt
     mode: 'recon-swarm',
     cloneCount: 3,
     castId: 'cast-test-1',
-    budgetUsdPerClone: 5,
-    budgetUsdPerCast: 15,
     force: false,
     noChargeCheck: false,
     dryRun: false,
@@ -115,7 +113,7 @@ describe('runPreSpawnGate', () => {
 
   it('daily cap exceeded → computes downgrade advice', async () => {
     const opts = makeOpts({
-      config: makeConfig({ dailyCapUsd: 3 }),
+      config: makeConfig({ dailyTokenCap: 3 }),
     });
     const result = await runPreSpawnGate(opts);
     expect(result.passed).toBe(false);
@@ -125,7 +123,7 @@ describe('runPreSpawnGate', () => {
 
   it('daily cap exceeded + force=true → passes anyway', async () => {
     const opts = makeOpts({
-      config: makeConfig({ dailyCapUsd: 3 }),
+      config: makeConfig({ dailyTokenCap: 3 }),
       force: true,
     });
     const result = await runPreSpawnGate(opts);

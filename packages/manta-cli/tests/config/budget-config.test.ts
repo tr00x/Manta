@@ -17,9 +17,9 @@ afterEach(async () => {
 describe('loadBudgetConfig', () => {
   it('returns defaults when no config file exists', async () => {
     const config = await loadBudgetConfig(tmpDir);
-    expect(config.perCastUsd).toBe(BUDGET_DEFAULTS.perCastUsd);
-    expect(config.perCloneUsd).toBe('auto');
-    expect(config.dailyCapUsd).toBe(BUDGET_DEFAULTS.dailyCapUsd);
+    expect(config.tokenEstimatePerCast).toBe(BUDGET_DEFAULTS.tokenEstimatePerCast);
+    expect(config.tokenEstimatePerClone).toBe('auto');
+    expect(config.dailyTokenCap).toBe(BUDGET_DEFAULTS.dailyTokenCap);
     expect(config.autoDowngrade.enabled).toBe(true);
     expect(config.autoDowngrade.confirm).toBe(true);
     expect(config.autoDowngrade.minClones).toBe(1);
@@ -45,18 +45,18 @@ describe('loadBudgetConfig', () => {
   it('all fields in ResolvedBudgetConfig are required (not undefined)', async () => {
     const config = await loadBudgetConfig(tmpDir);
     const keys: (keyof ResolvedBudgetConfig)[] = [
-      'perCastUsd', 'perCloneUsd', 'dailyCapUsd',
-      'costEstimates', 'autoDowngrade', 'charges', 'triggersGlobalHourlyCap',
+      'tokenEstimatePerCast', 'tokenEstimatePerClone', 'dailyTokenCap',
+      'tokenEstimates', 'autoDowngrade', 'charges', 'triggersGlobalHourlyCap',
     ];
     for (const key of keys) {
       expect(config[key]).toBeDefined();
     }
   });
 
-  it('costEstimates has defaults for known modes', async () => {
+  it('tokenEstimates has defaults for known modes', async () => {
     const config = await loadBudgetConfig(tmpDir);
-    expect(config.costEstimates['recon-swarm']).toBe(1.50);
-    expect(config.costEstimates['forking-realities']).toBe(3.00);
+    expect(config.tokenEstimates['recon-swarm']).toBe(150_000);
+    expect(config.tokenEstimates['forking-realities']).toBe(300_000);
   });
 
   it('merges partial config from file', async () => {
@@ -64,12 +64,12 @@ describe('loadBudgetConfig', () => {
     await fs.mkdir(configDir, { recursive: true });
     await fs.writeFile(
       path.join(configDir, 'budget.json'),
-      JSON.stringify({ daily_cap_usd: 100, per_cast_usd: 25 }),
+      JSON.stringify({ daily_token_cap: 100, token_estimate_per_cast: 25 }),
     );
     const config = await loadBudgetConfig(tmpDir);
-    expect(config.dailyCapUsd).toBe(100);
-    expect(config.perCastUsd).toBe(25);
-    expect(config.perCloneUsd).toBe('auto');
+    expect(config.dailyTokenCap).toBe(100);
+    expect(config.tokenEstimatePerCast).toBe(25);
+    expect(config.tokenEstimatePerClone).toBe('auto');
     expect(config.charges.max).toBe(5);
   });
 
@@ -100,16 +100,16 @@ describe('loadBudgetConfig', () => {
     expect(config.charges.min).toBe(-1);
   });
 
-  it('merges cost_estimates partial', async () => {
+  it('merges token_estimates partial', async () => {
     const configDir = path.join(tmpDir, '.manta', 'config');
     await fs.mkdir(configDir, { recursive: true });
     await fs.writeFile(
       path.join(configDir, 'budget.json'),
-      JSON.stringify({ cost_estimates: { 'recon-swarm': 2.00 } }),
+      JSON.stringify({ token_estimates: { 'recon-swarm': 2.00 } }),
     );
     const config = await loadBudgetConfig(tmpDir);
-    expect(config.costEstimates['recon-swarm']).toBe(2.00);
-    expect(config.costEstimates['forking-realities']).toBe(3.00);
+    expect(config.tokenEstimates['recon-swarm']).toBe(2.00);
+    expect(config.tokenEstimates['forking-realities']).toBe(3.00);
   });
 
   it('ignores malformed config file and returns defaults', async () => {
@@ -117,17 +117,17 @@ describe('loadBudgetConfig', () => {
     await fs.mkdir(configDir, { recursive: true });
     await fs.writeFile(path.join(configDir, 'budget.json'), 'not json');
     const config = await loadBudgetConfig(tmpDir);
-    expect(config.perCastUsd).toBe(BUDGET_DEFAULTS.perCastUsd);
+    expect(config.tokenEstimatePerCast).toBe(BUDGET_DEFAULTS.tokenEstimatePerCast);
   });
 
-  it('perCloneUsd can be numeric from config', async () => {
+  it('tokenEstimatePerClone can be numeric from config', async () => {
     const configDir = path.join(tmpDir, '.manta', 'config');
     await fs.mkdir(configDir, { recursive: true });
     await fs.writeFile(
       path.join(configDir, 'budget.json'),
-      JSON.stringify({ per_clone_usd: 8 }),
+      JSON.stringify({ token_estimate_per_clone: 8 }),
     );
     const config = await loadBudgetConfig(tmpDir);
-    expect(config.perCloneUsd).toBe(8);
+    expect(config.tokenEstimatePerClone).toBe(8);
   });
 });

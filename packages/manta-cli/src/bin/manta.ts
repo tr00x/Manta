@@ -43,7 +43,6 @@ import { runClaudeCli } from '../spawner/clone-spawner.js';
 import { parseTasksFile } from '../spawner/tasks-file.js';
 import {
   parsePositiveIntOption,
-  parsePositiveFloatOption,
   parseNonNegativeIntOption,
 } from './option-parsers.js';
 import { createReporter, StderrSink } from '../output/reporter.js';
@@ -179,6 +178,15 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Internal per-clone / per-cast usage budget handed to the spawner so every
+  // clone snapshot carries a positive resource cap. These are a token-estimate
+  // proxy, NOT dollars, and NOT user-tunable — Claude Code is subscription-
+  // based; the user-facing controls are --max-parallel-clones / --max-casts-
+  // per-hour. Kept as plain constants so the spawner contract (snapshot budget)
+  // stays satisfied without resurrecting the removed dollar flags.
+  const INTERNAL_PER_CLONE_BUDGET = 5;
+  const INTERNAL_PER_CAST_BUDGET = 15;
+
   const program = new Command();
   program
     .name('manta')
@@ -192,19 +200,30 @@ async function main(): Promise<void> {
     .description('Spawn N clones of the given mode (Phase 2a: recon-swarm, forking-realities)')
     .option('-n, --clones <n>', 'number of clones (1..5)', '2')
     .option('-t, --task <task>', 'task description', 'unspecified')
-    // Bug #60 class: timing/money flags gate safety behaviour, so a NaN from a
-    // bare parseInt/parseFloat silently disarms the guard. Validate at the CLI
-    // boundary with strict coercers. Defaults are numbers (not strings) because
+    // Bug #60 class: timing/usage flags gate safety behaviour, so a NaN from a
+    // bare parseInt silently disarms the guard. Validate at the CLI boundary
+    // with strict coercers. Defaults are numbers (not strings) because
     // commander only runs the coercer on USER-supplied values, never the
     // default — so the default must already be the post-coercion type.
     .option('--cycle-interval-ms <ms>', 'orchestrator cycle interval', parsePositiveIntOption, 5000)
     .option('--tick-budget-ms <ms>', 'overall budget before abort', parsePositiveIntOption, 1_500_000)
-    .option('--budget-per-clone-usd <amt>', 'dollar budget per clone', parsePositiveFloatOption, 5)
+    // Usage-aware caps (budget repivot). Claude Code is subscription-based, not
+    // pay-per-token — the real constraints are PARALLELISM and cast RATE, not a
+    // dollar budget. NaN-reject preserved via parsePositiveIntOption (bug #60).
     .option(
-      '--budget-per-cast-usd <amt>',
-      'cumulative dollar cap for the whole cast',
-      parsePositiveFloatOption,
-      15,
+      '--max-parallel-clones <n>',
+      'max clones a single cast may spawn at once (parallelism cap). Default: from config or 5.',
+      parsePositiveIntOption,
+    )
+    .option(
+      '--max-casts-per-hour <n>',
+      'max casts allowed to start in a rolling hour (cast-rate cap, protects your subscription usage/rate limit). Default: from config or 6.',
+      parsePositiveIntOption,
+    )
+    .option(
+      '--max-tokens-estimate <n>',
+      'optional per-cast token-estimate ceiling (usage proxy, NOT dollars). Overrides the daily token-cap projection for this cast.',
+      parsePositiveIntOption,
     )
     .option(
       '--max-files-changed <n>',
@@ -226,9 +245,8 @@ async function main(): Promise<void> {
       '--tasks <path>',
       "path to a YAML/JSON file with per-clone task overlays. Combines with --task: clones present in the file use the file's entry; clones absent fall back to --task. See docs/user/forking-realities.md for the schema.",
     )
-    .option('--dry-run', 'Show cost preview without spawning', false)
-    .option('--daily-cap-usd <amount>', 'Override daily budget cap (default: from config or $50)', parsePositiveFloatOption)
-    .option('--force', 'Force cast even if daily cap would be exceeded', false)
+    .option('--dry-run', 'Show usage preview without spawning', false)
+    .option('--force', 'Force cast even if the daily usage cap would be exceeded', false)
     .option('--charge-check', 'Enable charge system check (use --no-charge-check to skip)', true)
     .option(
       '--heartbeat-timeout-ms <ms>',
@@ -261,17 +279,17 @@ async function main(): Promise<void> {
           clones: string;
           task: string;
           tasks?: string;
-          // Coerced to number by parsePositiveIntOption/parsePositiveFloatOption/
-          // parseNonNegativeIntOption at the .option() boundary (bug #60 class).
+          // Coerced to number by parsePositiveIntOption/parseNonNegativeIntOption
+          // at the .option() boundary (bug #60 class).
           cycleIntervalMs: number;
           tickBudgetMs: number;
-          budgetPerCloneUsd: number;
-          budgetPerCastUsd: number;
+          maxParallelClones?: number;
+          maxCastsPerHour?: number;
+          maxTokensEstimate?: number;
           maxFilesChanged: number;
           allowedPaths: string;
           forbiddenPaths: string;
           dryRun: boolean;
-          dailyCapUsd?: number;
           force: boolean;
           chargeCheck: boolean;
           heartbeatTimeoutMs?: number;
@@ -312,8 +330,15 @@ async function main(): Promise<void> {
             cloneCount: parseInt(options.clones, 10),
             cycleIntervalMs: options.cycleIntervalMs,
             tickBudgetMs: options.tickBudgetMs,
-            budgetUsdPerClone: options.budgetPerCloneUsd,
-            budgetUsdPerCast: options.budgetPerCastUsd,
+            // Internal per-clone/per-cast usage budget (token-estimate proxy)
+            // handed to the spawner so each snapshot carries a positive cap.
+            // No longer user-tunable — Claude Code is subscription-based; the
+            // user-facing controls are --max-parallel-clones / --max-casts-per-hour.
+            budgetUsdPerClone: INTERNAL_PER_CLONE_BUDGET,
+            budgetUsdPerCast: INTERNAL_PER_CAST_BUDGET,
+            ...(options.maxParallelClones !== undefined ? { maxParallelClones: options.maxParallelClones } : {}),
+            ...(options.maxCastsPerHour !== undefined ? { maxCastsPerHour: options.maxCastsPerHour } : {}),
+            ...(options.maxTokensEstimate !== undefined ? { maxTokensEstimate: options.maxTokensEstimate } : {}),
             scope: {
               allowedPaths: splitCsv(options.allowedPaths),
               forbiddenPaths: splitCsv(options.forbiddenPaths),
@@ -332,7 +357,6 @@ async function main(): Promise<void> {
             dryRun: options.dryRun,
             force: options.force,
             noChargeCheck: !options.chargeCheck,
-            ...(options.dailyCapUsd !== undefined ? { dailyCapUsdOverride: options.dailyCapUsd } : {}),
           }),
           hasOverrides ? thresholdOverrides : undefined,
         );

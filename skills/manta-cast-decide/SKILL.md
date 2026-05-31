@@ -1,6 +1,6 @@
 ---
 name: manta-cast-decide
-description: Pre-cast self-check for the main agent. Do I actually need clones? Do I have the budget and cooldown? Which mode?
+description: Pre-cast self-check for the main agent. Do I actually need clones? Am I within my subscription's usage/rate limit and cooldown? Which mode?
 audience: main
 version: 0.0.1
 related: []
@@ -10,7 +10,7 @@ related: []
 
 ## Purpose
 
-You're the main agent. The user gave you a task. Before you `/manta cast`, run this skill: every cast costs charges, money, and your own context. Many "feels parallel" tasks are actually serial and a single agent will do them faster + cheaper.
+You're the main agent. The user gave you a task. Before you `/manta cast`, run this skill: every cast burns charges, eats into your Claude Code subscription's usage/rate limit, and costs your own context. Claude Code is a **subscription** (Pro/Max), not pay-per-token — so the constraint is never dollars; it's how much of your **usage/rate budget** you spend and how many clones you run **in parallel**. Many "feels parallel" tasks are actually serial and a single agent will do them faster with less usage.
 
 ## Allowed
 
@@ -21,11 +21,12 @@ You're the main agent. The user gave you a task. Before you `/manta cast`, run t
   4. Is it a **multi-layer bug** with unknown root cause? → bug-hunt (Phase 2+).
   - If none match: do it solo. Skip the cast.
 - **Cooldown** (50 s between casts per spec Sec 6.1) is **operator discipline** in Phase 0 — there is no automatic gate. Read `/manta status`; if the previous cast hasn't settled (any clone still WORKING), wait. Phase 3 ships enforcement via the charge ledger.
-- **Cost gates** in Phase 0 are interim:
-  - `--budget-per-clone-usd` (default $5) caps per-clone spend.
-  - `--budget-per-cast-usd` (default $15) caps cumulative spend; the CLI rejects `cloneCount × per-clone > per-cast` before spawning.
-  - These prevent the dumbest accidents but do **not** track actual spend (no token-counting yet) and do **not** enforce a daily cap. A daily-spend env gate (`MANTA_DAILY_BUDGET_USD`) lands in Phase 1; the full charge ledger lands in Phase 3.
-- **Run dry-run** (Phase 1+ feature, deferred).
+- **Usage/rate self-check** — the real question is "am I within my subscription's usage budget?", never "can I afford the dollars?" (there are none). Ask:
+  - **Rate**: how many casts have I started this hour? `--max-casts-per-hour` (default 6) is a hard ceiling, and the charge ledger gates frequency on top of it. If you're near the cap or in cooldown, wait — exhausting your Claude Code usage limit blocks you for *hours*.
+  - **Parallelism**: how many clones at once? `--max-parallel-clones` (default 5) caps it. More clones in parallel drains your rate limit faster; spawn the fewest that actually parallelize.
+  - **Token estimate** (optional): `--max-tokens-estimate` sets a per-cast usage-estimate ceiling. It's a rough proxy for subscription usage, **not** a dollar figure.
+  - Inspect current usage with `manta cost` (casts/clones/rate this window) and `manta charges` (charges + cooldown). Nothing here is denominated in dollars.
+- **Run dry-run** (`--dry-run`) to preview usage without spawning.
 
 ## Forbidden
 

@@ -9,12 +9,12 @@ function makeConfig(overrides: Partial<ResolvedBudgetConfig> = {}): ResolvedBudg
 describe('computeDowngradeOptions', () => {
   it('3 clones forking-realities, $6 remaining → suggests 2 clones ($6.00 ✓)', () => {
     const advice = computeDowngradeOptions('forking-realities', 3, 6, makeConfig());
-    expect(advice.originalEstimate.totalEstimatedUsd).toBe(9.00);
-    expect(advice.remainingBudgetUsd).toBe(6);
+    expect(advice.originalEstimate.totalEstimatedTokens).toBe(9.00);
+    expect(advice.remainingTokenBudget).toBe(6);
     const twoClone = advice.options.find((o) => o.mode === 'forking-realities' && o.cloneCount === 2);
     expect(twoClone).toBeDefined();
     expect(twoClone!.viable).toBe(true);
-    expect(twoClone!.estimatedCostUsd).toBe(6.00);
+    expect(twoClone!.estimatedTokens).toBe(6.00);
   });
 
   it('3 clones forking-realities, $4 remaining → suggests 1 clone ($3.00 ✓) + recon-swarm 2 clones ($3.00 ✓)', () => {
@@ -22,7 +22,7 @@ describe('computeDowngradeOptions', () => {
     const oneClone = advice.options.find((o) => o.mode === 'forking-realities' && o.cloneCount === 1);
     expect(oneClone).toBeDefined();
     expect(oneClone!.viable).toBe(true);
-    expect(oneClone!.estimatedCostUsd).toBe(3.00);
+    expect(oneClone!.estimatedTokens).toBe(3.00);
 
     const reconSwarm3 = advice.options.find((o) => o.mode === 'recon-swarm' && o.cloneCount === 3);
     expect(reconSwarm3).toBeDefined();
@@ -31,7 +31,7 @@ describe('computeDowngradeOptions', () => {
     const reconSwarm2 = advice.options.find((o) => o.mode === 'recon-swarm' && o.cloneCount === 2);
     expect(reconSwarm2).toBeDefined();
     expect(reconSwarm2!.viable).toBe(true);
-    expect(reconSwarm2!.estimatedCostUsd).toBe(3.00);
+    expect(reconSwarm2!.estimatedTokens).toBe(3.00);
   });
 
   it('1 clone, $0 remaining → no viable options', () => {
@@ -69,6 +69,6 @@ describe('computeDowngradeOptions', () => {
     const advice = computeDowngradeOptions('forking-realities', 2, 10, makeConfig());
     expect(advice.originalEstimate.mode).toBe('forking-realities');
     expect(advice.originalEstimate.cloneCount).toBe(2);
-    expect(advice.originalEstimate.totalEstimatedUsd).toBe(6.00);
+    expect(advice.originalEstimate.totalEstimatedTokens).toBe(6.00);
   });
 });

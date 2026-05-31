@@ -26,8 +26,8 @@ describe('charge/budget integration', () => {
       cast_id: 'cast-happy-1',
       mode: 'recon-swarm',
       clone_count: 3,
-      estimated_cost_usd: config.costEstimates['recon-swarm']! * 3,
-      cost_type: 'estimate',
+      estimated_tokens: config.tokenEstimates['recon-swarm']! * 3,
+      estimate_type: 'estimate',
     });
 
     const afterDeduct = await rt.ctx.charges.read();
@@ -48,7 +48,7 @@ describe('charge/budget integration', () => {
 
     const dailyState = await rt.ctx.dailySpend.read();
     expect(dailyState.entries.length).toBe(1);
-    expect(dailyState.spent_usd).toBeCloseTo(4.5);
+    expect(dailyState.tokens_estimated).toBeCloseTo(4.5);
   });
 
   it('scenario 2: charge exhaustion — forking-realities needs 2, have 1', async () => {
@@ -73,14 +73,14 @@ describe('charge/budget integration', () => {
       cast_id: 'c-big',
       mode: 'forking-realities',
       clone_count: 10,
-      estimated_cost_usd: 48.0,
-      cost_type: 'estimate',
+      estimated_tokens: 48.0,
+      estimate_type: 'estimate',
     });
 
-    const remaining = await rt.ctx.dailySpend.getRemaining(config.dailyCapUsd);
+    const remaining = await rt.ctx.dailySpend.getRemaining(config.dailyTokenCap);
     expect(remaining).toBe(2.0);
 
-    const estCost = config.costEstimates['recon-swarm']! * 3;
+    const estCost = config.tokenEstimates['recon-swarm']! * 3;
     expect(estCost).toBeGreaterThan(remaining);
   });
 

@@ -171,8 +171,8 @@ describe('DailySpendEntrySchema', () => {
     cast_id: 'cast-123',
     mode: 'recon-swarm' as const,
     clone_count: 3,
-    estimated_cost_usd: 4.5,
-    cost_type: 'estimate' as const,
+    estimated_tokens: 4.5,
+    estimate_type: 'estimate' as const,
     started_at: 1700000000000,
   };
 
@@ -184,13 +184,13 @@ describe('DailySpendEntrySchema', () => {
     expect(() => DailySpendEntrySchema.parse({ ...validEntry, clone_count: 0 })).toThrow();
   });
 
-  it('rejects negative estimated_cost_usd', () => {
-    expect(() => DailySpendEntrySchema.parse({ ...validEntry, estimated_cost_usd: -1 })).toThrow();
+  it('rejects negative estimated_tokens', () => {
+    expect(() => DailySpendEntrySchema.parse({ ...validEntry, estimated_tokens: -1 })).toThrow();
   });
 
-  it('accepts cost_type actual', () => {
-    const e = { ...validEntry, cost_type: 'actual' as const };
-    expect(DailySpendEntrySchema.parse(e).cost_type).toBe('actual');
+  it('accepts estimate_type actual', () => {
+    const e = { ...validEntry, estimate_type: 'actual' as const };
+    expect(DailySpendEntrySchema.parse(e).estimate_type).toBe('actual');
   });
 
   it('rejects extra keys (strict)', () => {
@@ -202,7 +202,7 @@ describe('DailySpendStateSchema', () => {
   const validState = {
     version: 1,
     date: '2026-05-26',
-    spent_usd: 12.5,
+    tokens_estimated: 12.5,
     entries: [],
   };
 
@@ -215,8 +215,8 @@ describe('DailySpendStateSchema', () => {
     expect(() => DailySpendStateSchema.parse({ ...validState, date: 'May 26' })).toThrow();
   });
 
-  it('rejects negative spent_usd', () => {
-    expect(() => DailySpendStateSchema.parse({ ...validState, spent_usd: -1 })).toThrow();
+  it('rejects negative tokens_estimated', () => {
+    expect(() => DailySpendStateSchema.parse({ ...validState, tokens_estimated: -1 })).toThrow();
   });
 
   it('accepts state with entries', () => {
@@ -226,8 +226,8 @@ describe('DailySpendStateSchema', () => {
         cast_id: 'cast-1',
         mode: 'recon-swarm',
         clone_count: 2,
-        estimated_cost_usd: 3.0,
-        cost_type: 'estimate',
+        estimated_tokens: 3.0,
+        estimate_type: 'estimate',
         started_at: 1700000000000,
       }],
     };
@@ -250,7 +250,7 @@ describe('BudgetConfigSchema', () => {
   });
 
   it('defaults aghs.unlocked to [] (all Aghs modes locked) when no aghs key', () => {
-    const parsed = BudgetConfigSchema.parse({ per_cast_usd: 5 });
+    const parsed = BudgetConfigSchema.parse({ token_estimate_per_cast: 5 });
     expect(parsed.aghs.unlocked).toEqual([]);
   });
 
@@ -268,7 +268,7 @@ describe('BudgetConfigSchema', () => {
   });
 
   it('defaults triggers.global_hourly_cap to 6 when no triggers key', () => {
-    const parsed = BudgetConfigSchema.parse({ per_cast_usd: 5 });
+    const parsed = BudgetConfigSchema.parse({ token_estimate_per_cast: 5 });
     expect(parsed.triggers.global_hourly_cap).toBe(6);
   });
 
@@ -287,22 +287,22 @@ describe('BudgetConfigSchema', () => {
     ).toThrow();
   });
 
-  it('accepts per_clone_usd: "auto"', () => {
-    const c = { per_clone_usd: 'auto' as const };
-    expect(BudgetConfigSchema.parse(c).per_clone_usd).toBe('auto');
+  it('accepts token_estimate_per_clone: "auto"', () => {
+    const c = { token_estimate_per_clone: 'auto' as const };
+    expect(BudgetConfigSchema.parse(c).token_estimate_per_clone).toBe('auto');
   });
 
-  it('accepts per_clone_usd as positive number', () => {
-    const c = { per_clone_usd: 5.0 };
-    expect(BudgetConfigSchema.parse(c).per_clone_usd).toBe(5.0);
+  it('accepts token_estimate_per_clone as positive number', () => {
+    const c = { token_estimate_per_clone: 5.0 };
+    expect(BudgetConfigSchema.parse(c).token_estimate_per_clone).toBe(5.0);
   });
 
-  it('rejects per_clone_usd: 0 (must be positive)', () => {
-    expect(() => BudgetConfigSchema.parse({ per_clone_usd: 0 })).toThrow();
+  it('rejects token_estimate_per_clone: 0 (must be positive)', () => {
+    expect(() => BudgetConfigSchema.parse({ token_estimate_per_clone: 0 })).toThrow();
   });
 
-  it('rejects negative daily_cap_usd', () => {
-    expect(() => BudgetConfigSchema.parse({ daily_cap_usd: -10 })).toThrow();
+  it('rejects negative daily_token_cap', () => {
+    expect(() => BudgetConfigSchema.parse({ daily_token_cap: -10 })).toThrow();
   });
 
   it('accepts partial charges sub-object', () => {
@@ -317,15 +317,15 @@ describe('BudgetConfigSchema', () => {
 
   it('accepts full config', () => {
     const full = {
-      per_cast_usd: 15,
-      per_clone_usd: 5,
-      daily_cap_usd: 50,
-      cost_estimates: { 'recon-swarm': 1.5, 'forking-realities': 3.0 },
+      token_estimate_per_cast: 15,
+      token_estimate_per_clone: 5,
+      daily_token_cap: 50,
+      token_estimates: { 'recon-swarm': 1.5, 'forking-realities': 3.0 },
       auto_downgrade: { enabled: true, confirm: true, min_clones: 1 },
       charges: { initial: 3, max: 5, min: -1, idle_recovery_minutes: 30, cooldown_hours: 24 },
     };
     const parsed = BudgetConfigSchema.parse(full);
-    expect(parsed.per_cast_usd).toBe(15);
+    expect(parsed.token_estimate_per_cast).toBe(15);
     expect(parsed.charges?.max).toBe(5);
   });
 

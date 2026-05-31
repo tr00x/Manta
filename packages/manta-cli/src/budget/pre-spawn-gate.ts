@@ -9,9 +9,7 @@ export interface PreSpawnGateOptions {
   mode: Mode;
   cloneCount: number;
   castId: string;
-  budgetUsdPerClone: number;
-  budgetUsdPerCast: number;
-  dailyCapUsdOverride?: number | undefined;
+  dailyTokenCapOverride?: number | undefined;
   force: boolean;
   noChargeCheck: boolean;
   dryRun: boolean;
@@ -35,7 +33,7 @@ export async function runPreSpawnGate(
   opts: PreSpawnGateOptions,
 ): Promise<PreSpawnGateResult> {
   const chargeCost = MODE_CHARGE_COST[opts.mode];
-  const dailyCap = opts.dailyCapUsdOverride ?? opts.config.dailyCapUsd;
+  const dailyCap = opts.dailyTokenCapOverride ?? opts.config.dailyTokenCap;
   const costEstimate = estimateCost(opts.mode, opts.cloneCount, opts.config);
 
   // Step 1: Passive recovery
@@ -58,7 +56,7 @@ export async function runPreSpawnGate(
         passed: false,
         costEstimate,
         chargesAfterDeduct: chargeState.current_charges,
-        dailySpentAfter: (await opts.dailySpend.read()).spent_usd,
+        dailySpentAfter: (await opts.dailySpend.read()).tokens_estimated,
         dailyRemaining: await opts.dailySpend.getRemaining(dailyCap),
         committed: false,
       };
@@ -77,7 +75,7 @@ export async function runPreSpawnGate(
         passed: false,
         costEstimate,
         chargesAfterDeduct: chargeState.current_charges,
-        dailySpentAfter: (await opts.dailySpend.read()).spent_usd,
+        dailySpentAfter: (await opts.dailySpend.read()).tokens_estimated,
         dailyRemaining: await opts.dailySpend.getRemaining(dailyCap),
         committed: false,
       };
@@ -90,10 +88,10 @@ export async function runPreSpawnGate(
 
   // Step 5: Daily cap check
   const dailySpendState = await opts.dailySpend.read();
-  const projectedSpend = dailySpendState.spent_usd + costEstimate.totalEstimatedUsd;
+  const projectedSpend = dailySpendState.tokens_estimated + costEstimate.totalEstimatedTokens;
 
   if (projectedSpend > dailyCap && !opts.force) {
-    const remaining = Math.max(0, dailyCap - dailySpendState.spent_usd);
+    const remaining = Math.max(0, dailyCap - dailySpendState.tokens_estimated);
     const downgradeAdvice = computeDowngradeOptions(
       opts.mode,
       opts.cloneCount,
@@ -111,7 +109,7 @@ export async function runPreSpawnGate(
       passed: false,
       costEstimate,
       chargesAfterDeduct: opts.noChargeCheck ? 0 : (await opts.charges.read()).current_charges,
-      dailySpentAfter: dailySpendState.spent_usd,
+      dailySpentAfter: dailySpendState.tokens_estimated,
       dailyRemaining: remaining,
       downgradeAdvice,
       committed: false,
@@ -121,17 +119,17 @@ export async function runPreSpawnGate(
   // Step 6: Dry-run output
   if (opts.dryRun) {
     const chargeState = opts.noChargeCheck ? null : await opts.charges.read();
-    const remaining = Math.max(0, dailyCap - dailySpendState.spent_usd);
+    const remaining = Math.max(0, dailyCap - dailySpendState.tokens_estimated);
 
     opts.reporter.info('gate.dry_run', {
       mode: opts.mode,
       cloneCount: opts.cloneCount,
       chargeCost,
-      estimatedCost: costEstimate.totalEstimatedUsd,
-      perCloneCost: costEstimate.perCloneCostUsd,
-      perCloneBudget: costEstimate.perCloneBudgetUsd,
+      estimatedCost: costEstimate.totalEstimatedTokens,
+      perCloneCost: costEstimate.perCloneTokens,
+      perCloneBudget: costEstimate.perCloneTokenBudget,
       dailyCap,
-      dailySpent: dailySpendState.spent_usd,
+      dailySpent: dailySpendState.tokens_estimated,
       dailyRemaining: remaining,
       charges: chargeState?.current_charges ?? 'skipped',
       chargesMax: chargeState?.charges_max ?? 'skipped',
@@ -141,7 +139,7 @@ export async function runPreSpawnGate(
       passed: true,
       costEstimate,
       chargesAfterDeduct: chargeState?.current_charges ?? 0,
-      dailySpentAfter: dailySpendState.spent_usd,
+      dailySpentAfter: dailySpendState.tokens_estimated,
       dailyRemaining: remaining,
       committed: false,
     };
@@ -158,16 +156,16 @@ export async function runPreSpawnGate(
     cast_id: opts.castId,
     mode: opts.mode,
     clone_count: opts.cloneCount,
-    estimated_cost_usd: costEstimate.totalEstimatedUsd,
-    cost_type: 'estimate',
+    estimated_tokens: costEstimate.totalEstimatedTokens,
+    estimate_type: 'estimate',
   });
 
-  const dailyRemaining = Math.max(0, dailyCap - afterDailySpend.spent_usd);
+  const dailyRemaining = Math.max(0, dailyCap - afterDailySpend.tokens_estimated);
 
   opts.reporter.info('gate.committed', {
     cast: opts.castId,
     charges: chargesAfterDeduct,
-    dailySpent: afterDailySpend.spent_usd,
+    dailySpent: afterDailySpend.tokens_estimated,
     dailyRemaining,
   });
 
@@ -175,7 +173,7 @@ export async function runPreSpawnGate(
     passed: true,
     costEstimate,
     chargesAfterDeduct,
-    dailySpentAfter: afterDailySpend.spent_usd,
+    dailySpentAfter: afterDailySpend.tokens_estimated,
     dailyRemaining,
     committed: true,
   };

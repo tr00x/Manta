@@ -440,13 +440,17 @@ export const ChargeEventSchema = z
   })
   .strict();
 
+// Usage ledger entry. Claude Code is a subscription (Pro/Max), not pay-per-
+// token, so the unit here is a TOKEN ESTIMATE — a rough proxy for how much of
+// your subscription's usage/rate budget a cast consumes — NOT dollars. The
+// repivot (2026-05-31) replaced the dollar accounting with this usage model.
 export const DailySpendEntrySchema = z
   .object({
     cast_id: z.string(),
     mode: ModeSchema,
     clone_count: z.number().int().positive(),
-    estimated_cost_usd: z.number().nonnegative(),
-    cost_type: z.enum(['estimate', 'actual']),
+    estimated_tokens: z.number().nonnegative(),
+    estimate_type: z.enum(['estimate', 'actual']),
     started_at: z.number().int().nonnegative(),
   })
   .strict();
@@ -455,17 +459,25 @@ export const DailySpendStateSchema = z
   .object({
     version: z.literal(1),
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    spent_usd: z.number().nonnegative(),
+    tokens_estimated: z.number().nonnegative(),
     entries: z.array(DailySpendEntrySchema),
   })
   .strict();
 
 export const BudgetConfigSchema = z
   .object({
-    per_cast_usd: z.number().positive(),
-    per_clone_usd: z.union([z.number().positive(), z.literal('auto')]),
-    daily_cap_usd: z.number().positive(),
-    cost_estimates: z.record(ModeSchema, z.number().nonnegative()),
+    // Usage-aware caps (token estimates, not dollars). `auto` per-clone =
+    // per-cast / clone_count.
+    token_estimate_per_cast: z.number().positive(),
+    token_estimate_per_clone: z.union([z.number().positive(), z.literal('auto')]),
+    daily_token_cap: z.number().positive(),
+    // Parallelism cap: max clones a single cast may spawn concurrently.
+    max_parallel_clones: z.number().int().positive(),
+    // Cast-rate cap: max casts allowed to start within a rolling hour. Backed
+    // by the charge ledger's cast_start events. The charge system remains the
+    // primary rate primitive; this is a hard per-hour ceiling on top of it.
+    max_casts_per_hour: z.number().int().positive(),
+    token_estimates: z.record(ModeSchema, z.number().nonnegative()),
     auto_downgrade: z
       .object({
         enabled: z.boolean(),

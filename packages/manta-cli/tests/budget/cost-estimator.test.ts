@@ -6,54 +6,57 @@ function makeConfig(overrides: Partial<ResolvedBudgetConfig> = {}): ResolvedBudg
   return { ...BUDGET_DEFAULTS, ...overrides };
 }
 
+// Units are TOKEN ESTIMATES (usage proxy), not dollars — Claude Code is a
+// subscription. The estimator multiplies the per-mode per-clone token estimate
+// by clone count and resolves the per-clone token budget.
 describe('estimateCost', () => {
-  it('recon-swarm × 3 → $1.50 × 3 = $4.50', () => {
+  it('recon-swarm × 3 → 150k × 3 = 450k tokens', () => {
     const result = estimateCost('recon-swarm', 3, makeConfig());
     expect(result.mode).toBe('recon-swarm');
     expect(result.cloneCount).toBe(3);
-    expect(result.perCloneCostUsd).toBe(1.50);
-    expect(result.totalEstimatedUsd).toBe(4.50);
+    expect(result.perCloneTokens).toBe(150_000);
+    expect(result.totalEstimatedTokens).toBe(450_000);
   });
 
-  it('forking-realities × 2 → $3.00 × 2 = $6.00', () => {
+  it('forking-realities × 2 → 300k × 2 = 600k tokens', () => {
     const result = estimateCost('forking-realities', 2, makeConfig());
     expect(result.mode).toBe('forking-realities');
     expect(result.cloneCount).toBe(2);
-    expect(result.perCloneCostUsd).toBe(3.00);
-    expect(result.totalEstimatedUsd).toBe(6.00);
+    expect(result.perCloneTokens).toBe(300_000);
+    expect(result.totalEstimatedTokens).toBe(600_000);
   });
 
-  it('perCloneUsd: "auto" computes as perCastUsd / N', () => {
-    const config = makeConfig({ perCastUsd: 15, perCloneUsd: 'auto' });
+  it('tokenEstimatePerClone: "auto" computes as tokenEstimatePerCast / N', () => {
+    const config = makeConfig({ tokenEstimatePerCast: 1_500_000, tokenEstimatePerClone: 'auto' });
     const result = estimateCost('recon-swarm', 3, config);
-    expect(result.perCloneBudgetUsd).toBe(5);
+    expect(result.perCloneTokenBudget).toBe(500_000);
   });
 
-  it('explicit perCloneUsd numeric override', () => {
-    const config = makeConfig({ perCloneUsd: 8 });
+  it('explicit tokenEstimatePerClone numeric override', () => {
+    const config = makeConfig({ tokenEstimatePerClone: 80_000 });
     const result = estimateCost('recon-swarm', 3, config);
-    expect(result.perCloneBudgetUsd).toBe(8);
+    expect(result.perCloneTokenBudget).toBe(80_000);
   });
 
   it('perCloneBudgetOverride takes precedence', () => {
-    const config = makeConfig({ perCloneUsd: 8 });
-    const result = estimateCost('recon-swarm', 3, config, 12);
-    expect(result.perCloneBudgetUsd).toBe(12);
+    const config = makeConfig({ tokenEstimatePerClone: 80_000 });
+    const result = estimateCost('recon-swarm', 3, config, 120_000);
+    expect(result.perCloneTokenBudget).toBe(120_000);
   });
 
-  it('unknown mode in costEstimates falls back to $2.00/clone', () => {
+  it('unknown mode in tokenEstimates falls back to 200k/clone', () => {
     const config = makeConfig({
-      costEstimates: {} as ResolvedBudgetConfig['costEstimates'],
+      tokenEstimates: {} as ResolvedBudgetConfig['tokenEstimates'],
     });
     const result = estimateCost('recon-swarm', 2, config);
-    expect(result.perCloneCostUsd).toBe(2.00);
-    expect(result.totalEstimatedUsd).toBe(4.00);
+    expect(result.perCloneTokens).toBe(200_000);
+    expect(result.totalEstimatedTokens).toBe(400_000);
   });
 
   it('single clone', () => {
     const result = estimateCost('council', 1, makeConfig());
-    expect(result.perCloneCostUsd).toBe(5.00);
-    expect(result.totalEstimatedUsd).toBe(5.00);
+    expect(result.perCloneTokens).toBe(500_000);
+    expect(result.totalEstimatedTokens).toBe(500_000);
     expect(result.cloneCount).toBe(1);
   });
 
