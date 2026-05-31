@@ -176,8 +176,10 @@ Test a local checkout without installing: `claude --plugin-dir /path/to/Manta`.
 
 ### npm CLI (terminal)
 
-> [!IMPORTANT]
-> The npm package is **`@tr00x/manta`** (plain `manta` is an unrelated package — don't `npx manta`). Until it's published, use the plugin path above.
+Published as **[`@tr00x/manta`](https://www.npmjs.com/package/@tr00x/manta)** — live on npm.
+
+> [!NOTE]
+> Install the **scoped** name `@tr00x/manta`; plain `manta` is an unrelated package, so don't `npx manta`.
 
 ```
 npx @tr00x/manta@latest install          # registers the manta-bus MCP server
