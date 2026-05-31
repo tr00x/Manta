@@ -1,0 +1,26 @@
+{
+  "name": "manta-explainer-video",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Remotion explainer video for the Manta self-cloning pattern (~80s, 1920x1080, dark tech-minimalism)",
+  "license": "MIT",
+  "scripts": {
+    "dev": "remotion studio",
+    "render": "remotion render MantaExplainer out/manta-explainer.mp4",
+    "render:preview": "remotion render MantaExplainer out/manta-explainer.mp4 --concurrency=4",
+    "still": "remotion still MantaExplainer out/poster.png --frame=600",
+    "upgrade": "remotion upgrade"
+  },
+  "dependencies": {
+    "@remotion/google-fonts": "^4.0.469",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "remotion": "^4.0.469"
+  },
+  "devDependencies": {
+    "@remotion/cli": "^4.0.469",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^6.0.3"
+  }
+}
