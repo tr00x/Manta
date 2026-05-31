@@ -54,6 +54,7 @@ async function runReconCast(opts: {
   repoCwd: string;
   task: string;
   env: NodeJS.ProcessEnv;
+  mode?: string;
 }): Promise<{ exitCode: number | null; stdout: string; stderr: string; observedCastId?: string }> {
   const tickBudgetMs = 1_500_000; // 25 min ceiling — keep in lockstep with --tick-budget-ms
   const heartbeatBudgetMs = tickBudgetMs / 4; // positive-liveness budget
@@ -62,7 +63,11 @@ async function runReconCast(opts: {
   const castProc = execa(
     'node',
     [
-      cliBin, 'cast', 'recon-swarm',
+      // Inheritance is mode-agnostic — it lives in the shared forkParentSession
+      // primitive every clone of every mode goes through. The mode is
+      // parametrized so the suite can prove inheritance across mode types
+      // (recon-swarm = read; forking-realities = write/branch).
+      cliBin, 'cast', opts.mode ?? 'recon-swarm',
       '--clones', String(expectedCloneCount),
       '--task', opts.task,
       // The clone must be allowed to write token.txt at its worktree root. recon-swarm
@@ -160,6 +165,7 @@ const noClaude = !claude.available;
 describe.skipIf(noClaude)('transcript inheritance end-to-end against real claude', () => {
   let fxPositive: SampleRepoFixture | undefined;
   let fxNegative: SampleRepoFixture | undefined;
+  let fxForking: SampleRepoFixture | undefined;
   let suiteFailed = false;
 
   afterEach((ctx) => {
@@ -168,7 +174,7 @@ describe.skipIf(noClaude)('transcript inheritance end-to-end against real claude
 
   afterAll(async () => {
     const force = process.env.MANTA_E2E_KEEP === '1';
-    for (const fx of [fxPositive, fxNegative]) {
+    for (const fx of [fxPositive, fxNegative, fxForking]) {
       if (!fx) continue;
       if (suiteFailed || force) {
         console.warn(
@@ -331,6 +337,61 @@ describe.skipIf(noClaude)('transcript inheritance end-to-end against real claude
         (e) => e.clone_id === id && CLONE_DRIVEN_EVENTS.has(e.type),
       );
       expect(ranUnderPriming).toBe(true);
+    }
+  }, 35 * 60 * 1000);
+
+  it('cross-mode: forking-realities clones also inherit context (write-mode, same fork primitive)', async () => {
+    // Inheritance lives in the shared forkParentSession primitive (called per-clone
+    // before any mode-specific logic), so a STRUCTURALLY DIFFERENT mode — forking
+    // (write/branch, per-clone overlays, sibling isolation) vs recon (read) — must
+    // inherit identically. Same sentinel-recall proof.
+    const bin = claude.path ?? 'claude';
+    const { mangle } = await import('manta');
+    fxForking = await makeSampleRepo();
+    const repoCwd = fxForking.root;
+
+    const PARENT_UUID = randomUUID();
+    const TOKEN = `MANTA_E2E_${randomBytes(6).toString('hex')}`;
+    const seed = await execa(
+      bin,
+      ['--print', '--session-id', PARENT_UUID, '--model', 'haiku', '--permission-mode', 'bypassPermissions',
+        `Remember this exact build token for later: ${TOKEN}. Reply with only the word ACK.`],
+      { cwd: repoCwd, reject: false, timeout: 5 * 60 * 1000 },
+    );
+    expect(seed.exitCode).toBe(0);
+    const parentJsonl = path.join(claudeHome, 'projects', mangle(repoCwd), `${PARENT_UUID}.jsonl`);
+    expect((await fs.readFile(parentJsonl, 'utf8')).includes(TOKEN)).toBe(true);
+
+    const baseEnv: NodeJS.ProcessEnv = { ...process.env };
+    delete baseEnv.CLAUDE_CODE_SESSION_ID;
+    delete baseEnv.MANTA_PARENT_SESSION_ID;
+    const task =
+      'Earlier in this conversation you were told an exact build token to remember (a string ' +
+      'starting with MANTA_E2E_). Write that exact token — and nothing else — into a file named ' +
+      'token.txt at the root of your worktree, then graceful-death. If you genuinely do not recall ' +
+      'any such token, write the single word NONE into token.txt instead.';
+
+    const cast = await runReconCast({
+      repoCwd,
+      task,
+      mode: 'forking-realities',
+      env: { ...baseEnv, MANTA_PARENT_SESSION_ID: PARENT_UUID },
+    });
+    if (cast.exitCode !== 0) {
+      console.error('forking cast stdout:\n', cast.stdout);
+      console.error('forking cast stderr:\n', cast.stderr);
+    }
+    expect(cast.exitCode).toBe(0);
+
+    const { busPaths, Registry, systemClock } = await import('@manta/bus');
+    const clones = await new Registry(busPaths(repoCwd), systemClock).list();
+    expect(clones).toHaveLength(2);
+    for (const c of clones) {
+      expect(c.state).toBe('DEAD');
+      const castId = c.metadata?.cast_id as string | undefined;
+      const tokenPath = path.join(repoCwd, '.manta/worktrees', `clone-${castId}-${c.clone_id}`, 'token.txt');
+      const body = (await fs.readFile(tokenPath, 'utf8')).trim();
+      expect(body).toContain(TOKEN);
     }
   }, 35 * 60 * 1000);
 
