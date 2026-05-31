@@ -10,7 +10,13 @@ import type {
 import type { CloneRunner, CloneHandle } from '../spawner/clone-spawner.js';
 import { spawnClone, selectCloneRunner } from '../spawner/clone-spawner.js';
 import { forkParentSession } from '../spawner/session-fork.js';
-import { addWorktree, removeWorktree, type WorktreeRecord } from '../spawner/worktree.js';
+import {
+  addWorktree,
+  removeWorktree,
+  cloneWorktreeName,
+  cloneWorktreePath,
+  type WorktreeRecord,
+} from '../spawner/worktree.js';
 import { buildCloneSnapshot } from '../spawner/snapshot-builder.js';
 import { runTickLoop } from '../tick-loop.js';
 import { CliError } from '../errors.js';
@@ -602,7 +608,9 @@ export async function runCastCommand(
       } else {
         wt = await addWorktree({
           repoRoot: rt.repoRoot,
-          name: `clone-${cloneId}`,
+          // bug #64: cast-scoped name so a clone letter freed by one cast and
+          // reused by another can never alias the same dir on disk.
+          name: cloneWorktreeName(opts.castId, cloneId),
           branch: `manta/${opts.castId}/${cloneId}`,
         });
         worktrees.push(wt);
@@ -984,7 +992,7 @@ export async function runCastCommand(
           cloneIds.map(async (id) => {
             const expectedBranch = `manta/${opts.castId}/${id}`;
             const wt = allWorktrees.find((w) => w.branch === expectedBranch);
-            const wtPath = wt?.path ?? `${rt.repoRoot}/.manta/worktrees/clone-${id}`;
+            const wtPath = wt?.path ?? cloneWorktreePath(rt.repoRoot, opts.castId, id);
             const collected = await collector.collect(id, wtPath, 'main');
             const certEvent = allEvents.find(
               (e) =>
@@ -1036,7 +1044,7 @@ export async function runCastCommand(
       }),
     );
     // I-IMP-1 (Chunk-2 review): on the failure path, peel back any worktrees
-    // created so a re-cast doesn't collide on `clone-${id}` paths or
+    // created so a re-cast doesn't collide on `clone-${castId}-${id}` paths or
     // `manta/${castId}/${id}` branch names. Successful casts intentionally
     // retain worktrees (operator post-mortem inspection — see ARCHITECTURE.md
     // "Worktrees stay after a cast"); failure paths must clean up. Order:
@@ -1080,7 +1088,7 @@ export async function runCastCommand(
     );
   }
   // Note: worktree cleanup is deliberately NOT done here. Phase 0 keeps the
-  // `clone-${id}` worktrees on disk so the operator can `cd` in and inspect
+  // `clone-${castId}-${id}` worktrees on disk so the operator can `cd` in and inspect
   // post-mortem state. `manta abort` and Phase 7 `manta exhume` will manage
   // retention.
 }
@@ -1103,7 +1111,7 @@ async function runMergeAllPipeline(
     const wt = allWorktrees.find((w) => w.branch === expectedBranch);
     return {
       cloneId: c.clone_id,
-      worktreePath: wt?.path ?? `${rt.repoRoot}/.manta/worktrees/clone-${c.clone_id}`,
+      worktreePath: wt?.path ?? cloneWorktreePath(rt.repoRoot, opts.castId, c.clone_id),
       exitTime: c.died_at ?? Date.now(),
     };
   });

@@ -5,7 +5,7 @@ import type { Reporter } from '../output/reporter.js';
 import type { CommandResult } from './status.js';
 import { CliError } from '../errors.js';
 import { moveWorktreeToGraveyard } from '../spawner/graveyard.js';
-import { removeWorktree } from '../spawner/worktree.js';
+import { removeWorktree, cloneWorktreePath } from '../spawner/worktree.js';
 
 export interface RunPromoteOptions {
   castId: string;
@@ -86,7 +86,7 @@ export async function runPromoteCommand(
 
   for (const loserId of losers) {
     const loserBranch = `manta/${opts.castId}/${loserId}`;
-    const worktreePath = `${rt.repoRoot}/.manta/worktrees/clone-${loserId}`;
+    const worktreePath = cloneWorktreePath(rt.repoRoot, opts.castId, loserId);
     try {
       const { graveyardPath } = await moveWorktreeToGraveyard({
         repoRoot: rt.repoRoot,
@@ -104,7 +104,7 @@ export async function runPromoteCommand(
     }
   }
 
-  const winnerWorktree = `${rt.repoRoot}/.manta/worktrees/clone-${opts.cloneId}`;
+  const winnerWorktree = cloneWorktreePath(rt.repoRoot, opts.castId, opts.cloneId);
   try {
     await removeWorktree({
       repoRoot: rt.repoRoot,

@@ -13,6 +13,7 @@ import { CastManifestSchema } from '@manta/bus';
 import type { Runtime } from '../runtime.js';
 import { getMantaCliVersion } from '../library/cli-version.js';
 import { sanitizeSnapshot } from '../share/sanitize-snapshot.js';
+import { cloneWorktreePath } from '../spawner/worktree.js';
 import { sanitizeTaskContract } from '../share/sanitize-task-contract.js';
 import { sanitizePostMortemMarkdown } from '../share/sanitize-post-mortem.js';
 import { sanitizeZkNote } from '../share/sanitize-zk-note.js';
@@ -135,8 +136,8 @@ function defaultDeps(): ShareDeps {
         return '';
       }
     },
-    resolveCloneWorktree: ({ repoRoot, cloneId }) =>
-      path.join(repoRoot, '.manta', 'worktrees', `clone-${cloneId}`),
+    resolveCloneWorktree: ({ repoRoot, castId, cloneId }) =>
+      cloneWorktreePath(repoRoot, castId, cloneId),
     publishRunner: {
       whoami: async () => {
         try {

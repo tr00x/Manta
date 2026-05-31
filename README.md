@@ -226,7 +226,6 @@ Honest status — this is `0.1.0`, early but real, not a toy and not a demo.
 
 **Known limitations (tracked in [`docs/manta-bugs.md`](docs/manta-bugs.md)) — none block normal use:**
 
-- ⚠️ **Worktree paths are clone-letter-scoped, not cast-scoped** — the data-loss guard makes this safe today; the structural cleanup (cast-scoped paths) is a post-`0.1.0` refactor.
 - ⚠️ **macOS / Linux first** — Windows isn't yet exercised (`sh -c` wrappers, SIGTERM semantics need a pass).
 - ⚠️ **In the Manta repo itself**, `/manta:*` slash commands collide with the installed plugin of the same name (Claude Code upstream #14929) — use `claude --plugin-dir .` there. Normal users in their own projects are unaffected.
 

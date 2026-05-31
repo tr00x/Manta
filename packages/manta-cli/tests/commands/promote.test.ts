@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { runPromoteCommand } from '../../src/commands/promote.js';
 import { createReporter, MemorySink } from '../../src/output/reporter.js';
 import { createRuntime, type Runtime } from '../../src/runtime.js';
-import { addWorktree } from '../../src/spawner/worktree.js';
+import { addWorktree, cloneWorktreeName, cloneWorktreePath } from '../../src/spawner/worktree.js';
 import { isCliError } from '../../src/errors.js';
 import { makeRepoFixture, type RepoFixture } from '../helpers/repoFixture.js';
 
@@ -60,7 +60,7 @@ async function setupCast(
     const branch = `manta/${castId}/${id}`;
     const { path: wt } = await addWorktree({
       repoRoot: fx.root,
-      name: `clone-${id}`,
+      name: cloneWorktreeName(castId, id),
       branch,
     });
     await fs.writeFile(path.join(wt, `${id}.txt`), `content authored by clone ${id}\n`, 'utf8');
@@ -105,7 +105,7 @@ describe('promote command', () => {
     expect(merges).toContain('manta-merge: promote A');
 
     // ── Loser graveyarded: original worktree gone, graveyard entry present ──
-    expect(await exists(path.join(fx.root, '.manta/worktrees/clone-B'))).toBe(false);
+    expect(await exists(cloneWorktreePath(fx.root, castId, 'B'))).toBe(false);
     const graveyardInfo = path.join(fx.root, '.manta/graveyard', `${castId}-B`, 'info.json');
     expect(await exists(graveyardInfo)).toBe(true);
     const info = JSON.parse(await fs.readFile(graveyardInfo, 'utf8')) as {
@@ -118,7 +118,7 @@ describe('promote command', () => {
     expect(info.originalBranch).toBe(`manta/${castId}/B`);
 
     // ── Winner's worktree was cleaned up ────────────────────────────────
-    expect(await exists(path.join(fx.root, '.manta/worktrees/clone-A'))).toBe(false);
+    expect(await exists(cloneWorktreePath(fx.root, castId, 'A'))).toBe(false);
 
     // ── A `promote` event was recorded with the winner + graveyarded losers ──
     const events = await rt.ctx.events.readAll();

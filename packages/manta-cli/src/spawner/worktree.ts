@@ -4,6 +4,27 @@ import { execa } from 'execa';
 
 const SAFE_NAME = /^[A-Za-z0-9._-]+$/;
 
+/**
+ * bug #64 (structural fix): the canonical worktree dir NAME for a clone, scoped
+ * by BOTH castId and cloneId. Two casts that reuse the same clone letter (e.g.
+ * cast-1 frees `A`, cast-2 allocates `A`) now land on DISJOINT dirs
+ * (`clone-cast-1-A` vs `clone-cast-2-A`), so a freed-letter reuse can never
+ * alias another cast's directory. This is the single source of truth for the
+ * naming scheme — every call site (cast spawn, merge-review/merge-all fallback,
+ * promote, share) MUST derive its path through {@link cloneWorktreeName} /
+ * {@link cloneWorktreePath} so none can drift back onto the old letter-only
+ * scheme and reintroduce the alias. castId already carries a `cast-` prefix
+ * (e.g. `cast-1780248713179`), so the resulting name is `clone-cast-…-A`.
+ */
+export function cloneWorktreeName(castId: string, cloneId: string): string {
+  return `clone-${castId}-${cloneId}`;
+}
+
+/** Absolute path of a clone's cast-scoped worktree. See {@link cloneWorktreeName}. */
+export function cloneWorktreePath(repoRoot: string, castId: string, cloneId: string): string {
+  return path.join(repoRoot, '.manta', 'worktrees', cloneWorktreeName(castId, cloneId));
+}
+
 export interface WorktreeRecord {
   path: string;
   branch: string;
@@ -43,15 +64,15 @@ export async function addWorktree(opts: AddWorktreeOptions): Promise<WorktreeRec
   const wtPath = path.join(opts.repoRoot, '.manta', 'worktrees', opts.name);
 
   if (fs.existsSync(wtPath)) {
-    // bug #64: the worktree dir is keyed only by clone-letter, so a letter freed
-    // by a finished clone and reused by a later cast lands on the SAME dir. The
-    // allocator (allocateCloneIds) + Registry.register already guarantee no LIVE
-    // clone holds this letter, so an existing dir here is an ORPHAN from a prior
-    // clone. A graceful-death clone committed its work to its branch (clean tree
-    // → safe to reclaim); a CRASHED clone may have left UNCOMMITTED work. Refuse
-    // to `rm -rf` unsaved work — surface it for the operator instead of silently
-    // destroying it. (Full structural fix = cast-scoped worktree paths; tracked
-    // as a curator follow-up since it spans out-of-package call sites.)
+    // bug #64: cast-scoped names (cloneWorktreeName) now make letter reuse across
+    // casts land on DISJOINT dirs, so the cross-cast aliasing that motivated this
+    // guard is gone structurally. This guard REMAINS as defense-in-depth for the
+    // residual cases where a dir can still pre-exist: a retried cast reusing its
+    // own castId+letter, or a manual/out-of-band dir at this path. An existing
+    // dir here is therefore an ORPHAN from a prior run of the SAME identity. A
+    // graceful-death clone committed its work to its branch (clean tree → safe to
+    // reclaim); a CRASHED clone may have left UNCOMMITTED work. Refuse to `rm -rf`
+    // unsaved work — surface it for the operator instead of silently destroying it.
     if (await worktreeHasUncommittedChanges(wtPath)) {
       throw new Error(
         `refusing to reuse worktree ${wtPath}: it has uncommitted changes from a ` +

@@ -18,6 +18,7 @@ import { createRuntime } from '../../src/runtime.js';
 import { makeRepoFixture, type RepoFixture } from '../helpers/repoFixture.js';
 import { makeSnapshotFor } from '../helpers/snapshotFixture.js';
 import { parseTasksFile } from '../../src/spawner/tasks-file.js';
+import { cloneWorktreePath } from '../../src/spawner/worktree.js';
 
 const noopReporter: Reporter = {
   info: () => {},
@@ -66,9 +67,9 @@ describe('cast command (recon-swarm)', () => {
     });
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('2');
-    // Each clone has a worktree.
+    // Each clone has a worktree (cast-scoped path — bug #64).
     for (const id of ['A', 'B']) {
-      const wt = path.join(fx.root, '.manta', 'worktrees', `clone-${id}`);
+      const wt = cloneWorktreePath(fx.root, 'cast-test-1', id);
       const wtExists = await fs
         .access(wt)
         .then(() => true)
@@ -175,7 +176,7 @@ describe('cast command (recon-swarm)', () => {
   // I-IMP-1 regression: when a mid-cast spawn step throws (clone N-of-M fails
   // to start), the catch block must terminate already-running children AND
   // peel back the worktrees they created. Otherwise a re-cast collides on
-  // `clone-${id}` paths and `manta/${castId}/${id}` branch names.
+  // `clone-${castId}-${id}` paths and `manta/${castId}/${id}` branch names.
   it('cleans up partial worktrees when a clone fails to spawn mid-cast', async () => {
     fx = await makeRepoFixture();
     const rt = await createRuntime({
@@ -212,7 +213,7 @@ describe('cast command (recon-swarm)', () => {
       }),
     ).rejects.toMatchObject({ name: 'CliError', kind: 'cast_failed' });
     // 1st clone's worktree must NOT remain on disk after the failed cast.
-    const wtA = path.join(fx.root, '.manta', 'worktrees', 'clone-A');
+    const wtA = cloneWorktreePath(fx.root, 'cast-imp1', 'A');
     const aExists = await fs
       .access(wtA)
       .then(() => true)
@@ -221,7 +222,7 @@ describe('cast command (recon-swarm)', () => {
     // 2nd clone never had its worktree created (runner.run threw before
     // spawnClone returned a handle, but addWorktree had already run for B
     // before runner.run was called) — verify it is also gone.
-    const wtB = path.join(fx.root, '.manta', 'worktrees', 'clone-B');
+    const wtB = cloneWorktreePath(fx.root, 'cast-imp1', 'B');
     const bExists = await fs
       .access(wtB)
       .then(() => true)
