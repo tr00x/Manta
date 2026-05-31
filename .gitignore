@@ -110,3 +110,4 @@ docs/release-v1-board.md
 docs/manta-bugs.md
 docs/internals/claude-code-pitfalls.md
 CLAUDE.md
+packages/*/ARCHITECTURE.md
