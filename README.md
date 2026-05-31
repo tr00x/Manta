@@ -1,4 +1,8 @@
-# Manta
+<p align="center">
+  <img src="docs/assets/manta-header.jpg" alt="Manta — a ring of cloned blades, one agent forked into many" width="640">
+</p>
+
+<h1 align="center">Manta</h1>
 
 **Manta makes Claude Code clone *itself* to work in parallel — same system prompt, your full conversation inherited, each clone in its own isolated git worktree, coordinating over a message bus.**
 
