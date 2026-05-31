@@ -24639,7 +24639,11 @@ var init_user_tools = __esm({
       events: positiveInt.optional()
     });
     AbortInputSchema = external_exports.object({
-      reason: external_exports.string().min(1).optional()
+      // REQUIRED (audit #4): abort is a global destructive op — it marks EVERY live
+      // clone DEAD across ALL casts. Forcing a reason adds friction against an
+      // accidental bare call (e.g. an orchestrator confusing it with manta.kill) and
+      // lands an explanation on every post-mortem.
+      reason: external_exports.string().min(1)
     });
     KillInputSchema = external_exports.object({
       cloneId: external_exports.string().min(1),

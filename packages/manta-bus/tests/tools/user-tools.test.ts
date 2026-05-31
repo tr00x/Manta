@@ -181,6 +181,36 @@ describe('createUserTools handlers (stub binary via MANTA_CLI_BIN)', () => {
     expect(out.exited).toBe(false); // resolved via the stderr scan, child still alive
   });
 
+  it('audit #1: a transcript_fork.skipped warning before a FAILED spawn does NOT report launched', async () => {
+    process.env.MANTA_FAKE_MODE = 'cast-forkskip-then-fail';
+    const out = (await tool('manta.cast').handle({
+      mode: 'recon-swarm',
+      task: 'fork skipped then spawn fails',
+    })) as { castId: string | null; launched: boolean; exited: boolean; exitCode: number | null };
+    // The warning carries `cast-7777777777777` (captured for diagnostics), but
+    // NO `cast.spawn` worktree line ever appears → must resolve via the non-zero
+    // exit, NOT prematurely as launched on the warning's token.
+    expect(out.launched).toBe(false);
+    expect(out.exited).toBe(true);
+    expect(out.exitCode).toBe(1);
+    expect(out.castId).toBe('cast-7777777777777');
+  });
+
+  it('audit #1: launched fires on the cast.spawn worktree line even after a preceding fork-skip warning', async () => {
+    process.env.MANTA_FAKE_MODE = 'cast-forkskip-then-spawn';
+    const out = (await tool('manta.cast').handle({
+      mode: 'recon-swarm',
+      task: 'fork skipped then real spawn',
+    })) as { castId: string | null; launched: boolean; exited: boolean };
+    expect(out.launched).toBe(true);
+    expect(out.exited).toBe(false);
+    expect(out.castId).toBe('cast-8888888888888');
+  });
+
+  it('audit #4: manta.abort requires a reason (bare call is a validation error)', async () => {
+    await expect(tool('manta.abort').handle({})).rejects.toThrow();
+  });
+
   it('manta.cast rejects an invalid mode with a validation error', async () => {
     await expect(tool('manta.cast').handle({ mode: 'not-a-mode', task: 'x' })).rejects.toThrow();
     // phantom-lance is a real Mode but is NOT castable — must be rejected too.

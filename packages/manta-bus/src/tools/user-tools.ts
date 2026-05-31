@@ -24,12 +24,16 @@ import { parse } from './parse';
  * budget (~25 min) elapses; it does NOT fork-and-return. And the cast id is
  * generated INTERNALLY (`cast-${Date.now()}`) and printed to stdout only at
  * the very end. Blocking an MCP tool call for 25 minutes is unacceptable, so
- * {@link spawnCast} runs the child non-blocking, scans its STDERR for the early
+ * {@link spawnCast} runs the child non-blocking, scans its STDERR for the
  * `cast.spawn ... worktree=…/clone-cast-<ts>-<CLONE>` reporter line to extract
- * the cast id, resolves the tool call promptly, and `unref()`s the child so the
- * orchestrator keeps running in the background. Fast-failing casts (dry-run,
- * validation errors) print to stdout / exit before any clone spawns, so they
- * fall through to the child-exit path and return their full output + exit code.
+ * the cast id, resolves the tool call promptly, and `unref()`s the child so it
+ * runs the orchestrator ASYNCHRONOUSLY TO THE TOOL CALL. Note: `unref()` only
+ * frees the bus event loop — the cast is NOT session-detached, so it shares the
+ * bus server's lifetime. That is intentional and correct: the cast's clones
+ * coordinate through this same bus, so a cast outliving the bus would be
+ * useless. Fast-failing casts (dry-run, validation errors) print to stdout /
+ * exit before any clone spawns, so they fall through to the child-exit path and
+ * return their full output + exit code.
  */
 
 // ---------------------------------------------------------------------------
@@ -98,6 +102,16 @@ export function resolveMantaCliBin(opts: ResolveBinOptions = {}): CliBinResoluti
 
   const override = env.MANTA_CLI_BIN?.trim();
   if (override) {
+    // Validate the override up front (audit #3): the sibling branch gates on
+    // existence, so the env seam must too — otherwise a typo'd path surfaces as
+    // a deferred, misattributed ENOENT inside the child spawn instead of a clear
+    // config error.
+    if (!exists(override)) {
+      throw new Error(
+        `MANTA_CLI_BIN points at a non-existent file: ${override}. ` +
+          `Unset it to use sibling/PATH resolution, or fix the path.`,
+      );
+    }
     return { command: node, prefixArgs: [override], source: 'env', scriptPath: override };
   }
 
@@ -185,8 +199,18 @@ export function runCliCapture(
   });
 }
 
-/** Matches a Manta cast id (`cast-` + a millisecond timestamp). */
+/** Matches a Manta cast id (`cast-` + a millisecond timestamp) anywhere — loose, for id capture. */
 const CAST_ID_RE = /(cast-\d{10,})/;
+/**
+ * Matches the worktree path the `cast.spawn` reporter line carries
+ * (`…/clone-cast-<ts>-<CLONE>`). This is the ONLY signal that a clone actually
+ * spawned — distinct from earlier lines like `cast.transcript_fork.skipped
+ * castId=cast-<ts> …` that also carry a `cast-<ts>` token but fire BEFORE any
+ * clone exists (repivot/MCP audit #1). Declaring "launched" must key on this,
+ * not on any loose `cast-<ts>` match, or a fork-skip warning falsely reports a
+ * cast as launched when `spawnClone` may still fail.
+ */
+const CLONE_SPAWN_RE = /clone-cast-(\d{10,})-\w+/;
 
 export interface CastSpawnResult {
   /** The cast id, parsed from the child's output. Null if not observed yet. */
@@ -221,8 +245,10 @@ const DEFAULT_CAST_ID_TIMEOUT_MS = 10_000;
  *   - `idTimeoutMs` elapses (defensive: launched, id unknown).
  *
  * On the launched path the child is `unref()`d and its pipes are drained so it
- * keeps running the orchestrator in the background without leaking listeners or
- * blocking the bus server's event loop.
+ * runs the orchestrator asynchronously to this tool call without leaking
+ * listeners or blocking the bus server's event loop. It is NOT session-detached
+ * — the cast shares the bus's lifetime (correct: its clones coordinate through
+ * this same bus).
  */
 export function spawnCast(
   resolution: CliBinResolution,
@@ -241,8 +267,9 @@ export function spawnCast(
     let settled = false;
 
     const detach = (): void => {
-      // Stop accumulating, drain to avoid backpressure, keep the child alive in
-      // the background, and let the bus server exit independently of it.
+      // Stop accumulating; drain (resume) so the child's pipes never fill and
+      // block its ~25-min tick loop; unref so the child no longer pins the bus
+      // event loop. The child still shares the bus's lifetime (not detached).
       child.stdout?.removeListener('data', onOut);
       child.stderr?.removeListener('data', onErr);
       child.stdout?.resume();
@@ -270,12 +297,20 @@ export function spawnCast(
 
     function onErr(c: Buffer): void {
       stderr += c.toString('utf8');
-      // STDERR carries the reporter's `cast.spawn` event for a REAL cast that
-      // actually started spawning clones → safe to declare "launched".
+      // Capture the id loosely (any `cast-<ts>` token, incl. an early
+      // transcript_fork.skipped warning) for the eventual child-exit path...
       if (castId === null) {
         const m = CAST_ID_RE.exec(stderr);
-        if (m) {
-          castId = m[1] ?? null;
+        if (m) castId = m[1] ?? null;
+      }
+      // ...but declare "launched" ONLY on the `cast.spawn` worktree line, which
+      // proves a clone actually spawned (audit #1). A fork-skip warning that
+      // precedes a failed spawn must NOT early-resolve as launched — if the
+      // spawn then fails, the `close` handler returns exited:true + the code.
+      if (!settled) {
+        const s = CLONE_SPAWN_RE.exec(stderr);
+        if (s) {
+          if (castId === null) castId = `cast-${s[1]}`;
           resolveLaunched();
         }
       }
@@ -358,7 +393,11 @@ export const InspectInputSchema = z.object({
 });
 
 export const AbortInputSchema = z.object({
-  reason: z.string().min(1).optional(),
+  // REQUIRED (audit #4): abort is a global destructive op — it marks EVERY live
+  // clone DEAD across ALL casts. Forcing a reason adds friction against an
+  // accidental bare call (e.g. an orchestrator confusing it with manta.kill) and
+  // lands an explanation on every post-mortem.
+  reason: z.string().min(1),
 });
 
 export const KillInputSchema = z.object({
@@ -438,8 +477,12 @@ const inspectSchema: JsonSchema = {
 const abortSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
+  required: ['reason'],
   properties: {
-    reason: { type: 'string', description: 'Optional reason recorded on every clone post-mortem.' },
+    reason: {
+      type: 'string',
+      description: 'REQUIRED. Why you are aborting — recorded on every clone post-mortem. Required as a guard against an accidental global stop.',
+    },
   },
 };
 
@@ -548,26 +591,35 @@ export function createUserTools(deps: CreateUserToolsDeps): UserToolEntry[] {
       if (input.events !== undefined) argv.push('--events', String(input.events));
       const r = await runCliCapture(resolveBin(), argv, runOpts());
       let json: unknown = null;
+      // Surface WHY parsing failed (audit #5) so the orchestrator can branch
+      // deterministically instead of guessing from a bare json:null — e.g.
+      // unknown clone (non-zero exit, `[manta] …` on stderr, empty stdout) vs.
+      // a successful call whose stdout was unexpectedly non-JSON.
+      let parseError: 'empty_stdout' | 'non_json_stdout' | null = null;
+      const trimmed = r.stdout.trim();
       try {
-        json = JSON.parse(r.stdout.trim());
+        if (trimmed.length === 0) {
+          parseError = 'empty_stdout';
+        } else {
+          json = JSON.parse(trimmed);
+        }
       } catch {
-        // inspect can exit non-zero (unknown clone) with a plain `[manta] …`
-        // stderr line and no JSON on stdout — return raw + exit code instead.
+        parseError = 'non_json_stdout';
       }
-      return { json, raw: r.stdout, stderr: r.stderr, exitCode: r.exitCode, timedOut: r.timedOut };
+      return { json, parseError, raw: r.stdout, stderr: r.stderr, exitCode: r.exitCode, timedOut: r.timedOut };
     },
   };
 
   const abort: UserToolEntry = {
     name: 'manta.abort',
     description:
-      'Emergency stop — mark every live clone DEAD and write a post-mortem for each. Runs `manta abort`. ' +
-      'MUTATING. Returns raw text. Native alternative to /manta:abort.',
+      'Emergency stop — mark EVERY live clone DEAD across ALL casts and write a post-mortem for each. ' +
+      'Runs `manta abort`. MUTATING and GLOBAL — to stop just one clone use manta.kill instead. ' +
+      'Requires a `reason`. Returns raw text. Native alternative to /manta:abort.',
     inputSchema: abortSchema,
     handle: async (args) => {
       const input = parse(AbortInputSchema, args, 'manta.abort');
-      const argv = ['abort'];
-      if (input.reason !== undefined) argv.push('--reason', input.reason);
+      const argv = ['abort', '--reason', input.reason];
       const r = await runCliCapture(resolveBin(), argv, runOpts());
       return r;
     },

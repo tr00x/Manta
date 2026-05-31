@@ -22937,6 +22937,11 @@ function resolveMantaCliBin(opts = {}) {
   const exists = opts.fileExists ?? defaultFileExists;
   const override = env.MANTA_CLI_BIN?.trim();
   if (override) {
+    if (!exists(override)) {
+      throw new Error(
+        `MANTA_CLI_BIN points at a non-existent file: ${override}. Unset it to use sibling/PATH resolution, or fix the path.`
+      );
+    }
     return { command: node, prefixArgs: [override], source: "env", scriptPath: override };
   }
   const serverDir = opts.serverDir ?? defaultServerDir();
@@ -22986,6 +22991,7 @@ function runCliCapture(resolution, argv, opts) {
   });
 }
 var CAST_ID_RE = /(cast-\d{10,})/;
+var CLONE_SPAWN_RE = /clone-cast-(\d{10,})-\w+/;
 var DEFAULT_CAST_ID_TIMEOUT_MS = 1e4;
 function spawnCast(resolution, argv, opts) {
   return new Promise((resolve3) => {
@@ -23023,8 +23029,12 @@ function spawnCast(resolution, argv, opts) {
       stderr += c.toString("utf8");
       if (castId === null) {
         const m = CAST_ID_RE.exec(stderr);
-        if (m) {
-          castId = m[1] ?? null;
+        if (m) castId = m[1] ?? null;
+      }
+      if (!settled) {
+        const s = CLONE_SPAWN_RE.exec(stderr);
+        if (s) {
+          if (castId === null) castId = `cast-${s[1]}`;
           resolveLaunched();
         }
       }
@@ -23086,7 +23096,11 @@ var InspectInputSchema = external_exports.object({
   events: positiveInt.optional()
 });
 var AbortInputSchema = external_exports.object({
-  reason: external_exports.string().min(1).optional()
+  // REQUIRED (audit #4): abort is a global destructive op — it marks EVERY live
+  // clone DEAD across ALL casts. Forcing a reason adds friction against an
+  // accidental bare call (e.g. an orchestrator confusing it with manta.kill) and
+  // lands an explanation on every post-mortem.
+  reason: external_exports.string().min(1)
 });
 var KillInputSchema = external_exports.object({
   cloneId: external_exports.string().min(1),
@@ -23147,8 +23161,12 @@ var inspectSchema = {
 var abortSchema = {
   type: "object",
   additionalProperties: false,
+  required: ["reason"],
   properties: {
-    reason: { type: "string", description: "Optional reason recorded on every clone post-mortem." }
+    reason: {
+      type: "string",
+      description: "REQUIRED. Why you are aborting \u2014 recorded on every clone post-mortem. Required as a guard against an accidental global stop."
+    }
   }
 };
 var killSchema = {
@@ -23211,21 +23229,27 @@ function createUserTools(deps) {
       if (input.events !== void 0) argv.push("--events", String(input.events));
       const r = await runCliCapture(resolveBin(), argv, runOpts());
       let json = null;
+      let parseError = null;
+      const trimmed = r.stdout.trim();
       try {
-        json = JSON.parse(r.stdout.trim());
+        if (trimmed.length === 0) {
+          parseError = "empty_stdout";
+        } else {
+          json = JSON.parse(trimmed);
+        }
       } catch {
+        parseError = "non_json_stdout";
       }
-      return { json, raw: r.stdout, stderr: r.stderr, exitCode: r.exitCode, timedOut: r.timedOut };
+      return { json, parseError, raw: r.stdout, stderr: r.stderr, exitCode: r.exitCode, timedOut: r.timedOut };
     }
   };
   const abort = {
     name: "manta.abort",
-    description: "Emergency stop \u2014 mark every live clone DEAD and write a post-mortem for each. Runs `manta abort`. MUTATING. Returns raw text. Native alternative to /manta:abort.",
+    description: "Emergency stop \u2014 mark EVERY live clone DEAD across ALL casts and write a post-mortem for each. Runs `manta abort`. MUTATING and GLOBAL \u2014 to stop just one clone use manta.kill instead. Requires a `reason`. Returns raw text. Native alternative to /manta:abort.",
     inputSchema: abortSchema,
     handle: async (args) => {
       const input = parse3(AbortInputSchema, args, "manta.abort");
-      const argv = ["abort"];
-      if (input.reason !== void 0) argv.push("--reason", input.reason);
+      const argv = ["abort", "--reason", input.reason];
       const r = await runCliCapture(resolveBin(), argv, runOpts());
       return r;
     }
