@@ -148,7 +148,19 @@ describe('createUserTools handlers (stub binary via MANTA_CLI_BIN)', () => {
   });
 
   function tools(): ReturnType<typeof createUserTools> {
-    return createUserTools({ repoRoot: process.cwd(), castIdTimeoutMs: 4_000, captureTimeoutMs: 10_000 });
+    // castIdTimeoutMs is spawnCast's SAFETY-NET timeout — it must NOT race the
+    // real child signal these tests assert on (the stub's `cast.spawn` stderr
+    // line at child-start / its self-exit). At 4_000ms it did: under full-suite
+    // CPU/IO contention (vitest fans 180+ files across forks), child node
+    // startup + the parent worker's event-loop scheduling latency can push
+    // detection of the spawn line / exit past 4s, so the timeout fired FIRST and
+    // resolved `launched:true, castId:null` — flipping the launched/castId/exited
+    // assertions intermittently (green on retry, green in isolation). 20_000ms
+    // keeps the safety net well clear of any realistic contention ladder, so the
+    // resolution is always driven by the real child event — deterministic, not
+    // raced. (Paired with the 20s per-test timeouts on the three spawn tests so
+    // vitest's 5s default cannot kill a contended run before the real signal.)
+    return createUserTools({ repoRoot: process.cwd(), castIdTimeoutMs: 20_000, captureTimeoutMs: 10_000 });
   }
   function tool(name: string): ReturnType<typeof createUserTools>[number] {
     const t = tools().find((e) => e.name === name);
@@ -179,7 +191,7 @@ describe('createUserTools handlers (stub binary via MANTA_CLI_BIN)', () => {
     expect(out.castId).toBe('cast-9999999999999');
     expect(out.launched).toBe(true);
     expect(out.exited).toBe(false); // resolved via the stderr scan, child still alive
-  });
+  }, 20_000); // see castIdTimeoutMs note: explicit bound > worst-case contended child startup
 
   it('audit #1: a transcript_fork.skipped warning before a FAILED spawn does NOT report launched', async () => {
     process.env.MANTA_FAKE_MODE = 'cast-forkskip-then-fail';
@@ -194,7 +206,7 @@ describe('createUserTools handlers (stub binary via MANTA_CLI_BIN)', () => {
     expect(out.exited).toBe(true);
     expect(out.exitCode).toBe(1);
     expect(out.castId).toBe('cast-7777777777777');
-  });
+  }, 20_000); // see castIdTimeoutMs note: explicit bound > worst-case contended child startup
 
   it('audit #1: launched fires on the cast.spawn worktree line even after a preceding fork-skip warning', async () => {
     process.env.MANTA_FAKE_MODE = 'cast-forkskip-then-spawn';
@@ -205,7 +217,7 @@ describe('createUserTools handlers (stub binary via MANTA_CLI_BIN)', () => {
     expect(out.launched).toBe(true);
     expect(out.exited).toBe(false);
     expect(out.castId).toBe('cast-8888888888888');
-  });
+  }, 20_000); // see castIdTimeoutMs note: explicit bound > worst-case contended child startup
 
   it('audit #4: manta.abort requires a reason (bare call is a validation error)', async () => {
     await expect(tool('manta.abort').handle({})).rejects.toThrow();

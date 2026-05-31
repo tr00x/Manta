@@ -360,11 +360,18 @@ describe('cast command (recon-swarm)', () => {
       verifyMcp: false,
     });
     const elapsed = Date.now() - start;
-    // Budget is 200ms; SIGTERM grace is 1_000ms; spawn + finally adds slack.
-    // 5_000ms is comfortably above the worst-case ladder, well under the
-    // 99_999ms heartbeat timeout — so passing this bound proves the budget
-    // (not the heartbeat detector) is what stopped the cast.
-    expect(elapsed).toBeLessThan(5_000);
+    // The AUTHORITATIVE proof that the budget-timer (not the 99_999ms heartbeat
+    // detector) stopped the cast is the `cast.budget_abort` event asserted
+    // below — deterministic, load-independent. This wallclock bound is only a
+    // coarse sanity ceiling that must still sit far under the 99_999ms heartbeat
+    // timeout. The old 5_000ms bound RACED real wall-time: this path does a real
+    // child-process spawn + git worktree-add + a 1_000ms SIGTERM grace, and
+    // under full-suite CPU/IO contention (vitest fans 180+ files across forks)
+    // that ladder intermittently exceeds 5s on a loaded machine — a flake with
+    // no logic bug. 30_000ms is comfortably below the 99_999ms heartbeat timeout
+    // (so it still proves the budget path won) yet above any realistic
+    // contention ladder, removing the race without masking anything.
+    expect(elapsed).toBeLessThan(30_000);
     expect(result.exitCode).toBe(0);
     // Reporter recorded the budget-abort event so operators see WHY a cast
     // returned without all clones marking DEAD.
@@ -414,8 +421,15 @@ describe('cast command (recon-swarm)', () => {
     const elapsed = Date.now() - start;
     // Expected timeline: ~500ms heartbeat stale → DEAD → next cycle allDone
     // true → loop exit → my fix terminates DEAD handle (SIGTERM, 1s grace)
-    // → exit resolves → cast returns. ~2s typical, generous 15s bound for CI.
-    expect(elapsed).toBeLessThan(15_000);
+    // → exit resolves → cast returns. ~2s typical. The AUTHORITATIVE proof is
+    // the event pair below (cast.done present, cast.budget_abort ABSENT) — this
+    // wallclock bound is only a coarse ceiling. It must merely stay under the
+    // 60_000ms tickBudgetMs so that passing it proves the DEAD-terminate path
+    // (not the budget abort) returned the cast. The old 15_000ms raced real
+    // wall-time (spawn + git worktree-add + 500ms detector + 1_000ms SIGTERM
+    // grace) under full-suite CPU/IO contention; 30_000ms sits well below the
+    // 60_000ms budget yet above any realistic contention ladder.
+    expect(elapsed).toBeLessThan(30_000);
     expect(result.exitCode).toBe(0);
     const events = sink.lines.map((l) => l.event);
     expect(events).toContain('cast.done');
