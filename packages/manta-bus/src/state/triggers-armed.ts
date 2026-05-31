@@ -19,7 +19,7 @@ const ArmedEntrySchema = z
     state: TriggerArmedStateSchema,
     armed_at: z.number().int().nonnegative().nullable(),
     armed_by_dry_run_ok: z.boolean(),
-    dry_run_estimate_usd: z.number().nonnegative().nullable(),
+    dry_run_estimate_tokens: z.number().nonnegative().nullable(),
     // §3.9 — disarm after 3 consecutive validation errors.
     consecutive_validation_errors: z.number().int().nonnegative().default(0),
   })
@@ -57,7 +57,7 @@ function disarmedEntry(): ArmedEntry {
     state: 'disarmed',
     armed_at: null,
     armed_by_dry_run_ok: false,
-    dry_run_estimate_usd: null,
+    dry_run_estimate_tokens: null,
     consecutive_validation_errors: 0,
   };
 }
@@ -99,7 +99,7 @@ export class TriggersArmedStore {
   }
 
   /** Requires current state pending_dry_run; throws illegal_transition otherwise. */
-  async arm(name: string, opts: { dryRunEstimateUsd: number }): Promise<void> {
+  async arm(name: string, opts: { dryRunEstimateTokens: number }): Promise<void> {
     const now = this.clock.now();
     await this.mutate(
       (file) => {
@@ -115,7 +115,7 @@ export class TriggersArmedStore {
           state: 'armed',
           armed_at: now,
           armed_by_dry_run_ok: true,
-          dry_run_estimate_usd: opts.dryRunEstimateUsd,
+          dry_run_estimate_tokens: opts.dryRunEstimateTokens,
           consecutive_validation_errors: 0,
         };
         return file;
@@ -125,7 +125,7 @@ export class TriggersArmedStore {
         this.appendEvent('trigger_armed', {
           name,
           armed_at: now,
-          dry_run_estimate_usd: opts.dryRunEstimateUsd,
+          dry_run_estimate_tokens: opts.dryRunEstimateTokens,
         }),
     );
   }

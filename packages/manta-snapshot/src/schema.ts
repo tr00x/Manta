@@ -55,11 +55,16 @@ export const OpenFileSchema = z.object({
   reason: z.string().min(1),
 });
 
+// `tokensTotal`/`tokensUsed` track real transcript token accounting. The
+// `tokensEstimated*` pair is the clone's internal per-clone usage cap — a token
+// ESTIMATE (subscription usage proxy), NOT dollars. The 2026-05-31 budget
+// repivot renamed the former `dollarsTotal`/`dollarsUsed` fields: Claude Code is
+// a subscription (Pro/Max), not pay-per-token, so a dollar cap was meaningless.
 export const BudgetSchema = z.object({
   tokensTotal: z.number().int().nonnegative(),
   tokensUsed: z.number().int().nonnegative(),
-  dollarsTotal: z.number().nonnegative(),
-  dollarsUsed: z.number().nonnegative(),
+  tokensEstimatedTotal: z.number().nonnegative(),
+  tokensEstimatedUsed: z.number().nonnegative(),
 });
 
 export const SnapshotSchema = z

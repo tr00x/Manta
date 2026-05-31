@@ -51,7 +51,9 @@ export const TriggerScopeSchema = z
 export const TriggerSafetySchema = z
   .object({
     hourly_cap: z.number().int().positive().default(3),
-    per_fire_budget_usd: z.number().positive().default(3),
+    // Per-fire usage ceiling as a token ESTIMATE (subscription usage proxy),
+    // NOT dollars — renamed from `per_fire_budget_usd` in the 2026-05-31 repivot.
+    per_fire_token_cap: z.number().positive().default(3),
     loop: z
       .object({
         max_cause_chain_depth: z.number().int().positive().max(8).default(3),
@@ -69,8 +71,10 @@ export const TriggerActionSchema = z
     clones: z.number().int().positive().max(8),
     task_template: z.string().min(1),
     scope: TriggerScopeSchema,
+    // Per-clone / per-cast usage caps as token ESTIMATES (usage proxy), NOT
+    // dollars — renamed from `per_clone_usd`/`per_cast_usd` in the repivot.
     budget: z
-      .object({ per_clone_usd: z.number().positive(), per_cast_usd: z.number().positive() })
+      .object({ per_clone_token_estimate: z.number().positive(), per_cast_token_estimate: z.number().positive() })
       .strict(),
   })
   .strict();
@@ -96,9 +100,9 @@ export const TriggerDefSchema = z
     action: TriggerActionSchema,
   })
   .strict()
-  .refine((t) => t.action.budget.per_cast_usd <= t.safety.per_fire_budget_usd, {
-    message: 'action.budget.per_cast_usd must be <= safety.per_fire_budget_usd',
-    path: ['action', 'budget', 'per_cast_usd'],
+  .refine((t) => t.action.budget.per_cast_token_estimate <= t.safety.per_fire_token_cap, {
+    message: 'action.budget.per_cast_token_estimate must be <= safety.per_fire_token_cap',
+    path: ['action', 'budget', 'per_cast_token_estimate'],
   });
 
 export type TriggerName = z.infer<typeof TriggerNameSchema>;

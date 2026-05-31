@@ -38,8 +38,8 @@ describe('forking-realities spawn integration', () => {
       cycleIntervalMs: 50,
       tickBudgetMs: 30_000,
       castId: 'cast-int-fr-1',
-      budgetUsdPerClone: 1,
-      budgetUsdPerCast: 5,
+      internalTokenEstimatePerClone: 1,
+      internalTokenEstimatePerCast: 5,
       cloneAssignments: {
         A: { task: 'algorithm-only' },
         B: { task: 'index-based', approach_hint: 'orders.customer_id' },

@@ -184,8 +184,8 @@ async function main(): Promise<void> {
   // based; the user-facing controls are --max-parallel-clones / --max-casts-
   // per-hour. Kept as plain constants so the spawner contract (snapshot budget)
   // stays satisfied without resurrecting the removed dollar flags.
-  const INTERNAL_PER_CLONE_BUDGET = 5;
-  const INTERNAL_PER_CAST_BUDGET = 15;
+  const INTERNAL_PER_CLONE_TOKEN_ESTIMATE = 300_000;
+  const INTERNAL_PER_CAST_TOKEN_ESTIMATE = 1_500_000;
 
   const program = new Command();
   program
@@ -334,8 +334,8 @@ async function main(): Promise<void> {
             // handed to the spawner so each snapshot carries a positive cap.
             // No longer user-tunable — Claude Code is subscription-based; the
             // user-facing controls are --max-parallel-clones / --max-casts-per-hour.
-            budgetUsdPerClone: INTERNAL_PER_CLONE_BUDGET,
-            budgetUsdPerCast: INTERNAL_PER_CAST_BUDGET,
+            internalTokenEstimatePerClone: INTERNAL_PER_CLONE_TOKEN_ESTIMATE,
+            internalTokenEstimatePerCast: INTERNAL_PER_CAST_TOKEN_ESTIMATE,
             ...(options.maxParallelClones !== undefined ? { maxParallelClones: options.maxParallelClones } : {}),
             ...(options.maxCastsPerHour !== undefined ? { maxCastsPerHour: options.maxCastsPerHour } : {}),
             ...(options.maxTokensEstimate !== undefined ? { maxTokensEstimate: options.maxTokensEstimate } : {}),

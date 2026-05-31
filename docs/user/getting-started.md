@@ -81,9 +81,11 @@ In a repo of your choice (or use the sample fixture in `packages/manta-e2e/tests
 node packages/manta-cli/dist/bin/manta.cjs cast recon-swarm \
     --clones 2 \
     --task "Map every public export in src/" \
-    --budget-per-clone-usd 5 \
-    --budget-per-cast-usd 15
+    --max-parallel-clones 5
 ```
+
+Each clone carries an internal per-clone usage budget automatically — Claude Code
+is a subscription, so there are no per-clone dollar flags to set.
 
 The CLI:
 1. Creates `.manta/worktrees/clone-A` and `.manta/worktrees/clone-B`.

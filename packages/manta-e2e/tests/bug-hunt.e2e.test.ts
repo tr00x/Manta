@@ -70,7 +70,6 @@ describe.skipIf(noClaude)('bug-hunt end-to-end against real claude', () => {
         '--allowed-paths', 'src,docs',
         '--cycle-interval-ms', '5000',
         '--tick-budget-ms', String(tickBudgetMs),
-        '--budget-per-clone-usd', '5',
       ],
       { cwd: fx.root, reject: false, timeout: 28 * 60 * 1000 },
     );

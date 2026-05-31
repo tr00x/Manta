@@ -28,7 +28,7 @@ const fullSnapshot = (overrides: Partial<Snapshot> = {}): Snapshot =>
     parentWorktree: ROOT,
     cloneWorktree: `${ROOT}/.manta/worktrees/clone-B`,
     mode: 'forking-realities',
-    budget: { tokensTotal: 0, tokensUsed: 0, dollarsTotal: 5, dollarsUsed: 0 },
+    budget: { tokensTotal: 0, tokensUsed: 0, tokensEstimatedTotal: 5, tokensEstimatedUsed: 0 },
     ttlSeconds: 1200,
     siblingCloneIds: ['A'],
     sessionMode: 'batch',

@@ -67,7 +67,6 @@ describe.skipIf(noClaude)('recon-swarm end-to-end against real claude', () => {
         '--task', 'Map every public export in src/. Produce a markdown summary as docs/recon.md.',
         '--cycle-interval-ms', '5000',
         '--tick-budget-ms', String(tickBudgetMs),
-        '--budget-per-clone-usd', '5',
       ],
       { cwd: fx.root, reject: false, timeout: 28 * 60 * 1000 },
     );

@@ -72,7 +72,6 @@ async function runReconCast(opts: {
       '--max-files-changed', '5',
       '--cycle-interval-ms', '5000',
       '--tick-budget-ms', String(tickBudgetMs),
-      '--budget-per-clone-usd', '5',
     ],
     { cwd: opts.repoCwd, reject: false, timeout: 28 * 60 * 1000, env: opts.env, extendEnv: false },
   );

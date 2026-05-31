@@ -105,11 +105,11 @@ describe('loadBudgetConfig', () => {
     await fs.mkdir(configDir, { recursive: true });
     await fs.writeFile(
       path.join(configDir, 'budget.json'),
-      JSON.stringify({ token_estimates: { 'recon-swarm': 2.00 } }),
+      JSON.stringify({ token_estimates: { 'recon-swarm': 200_000 } }),
     );
     const config = await loadBudgetConfig(tmpDir);
-    expect(config.tokenEstimates['recon-swarm']).toBe(2.00);
-    expect(config.tokenEstimates['forking-realities']).toBe(3.00);
+    expect(config.tokenEstimates['recon-swarm']).toBe(200_000);
+    expect(config.tokenEstimates['forking-realities']).toBe(300_000);
   });
 
   it('ignores malformed config file and returns defaults', async () => {

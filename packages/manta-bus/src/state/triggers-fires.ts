@@ -40,7 +40,7 @@ export const TriggerFireRecordSchema = z
     cast_id: CastIdSchema.optional(), // present iff spawned
     parent_cast_id: CastIdSchema.nullable().optional(),
     cause_chain: z.array(z.string()).default([]),
-    cost_estimate_usd: z.number().nonnegative().optional(),
+    token_estimate: z.number().nonnegative().optional(),
     dedup_key_hash: z.string().optional(),
     payload_excerpt: z.record(z.unknown()).optional(),
   })

@@ -48,7 +48,8 @@ describe('charge/budget integration', () => {
 
     const dailyState = await rt.ctx.dailySpend.read();
     expect(dailyState.entries.length).toBe(1);
-    expect(dailyState.tokens_estimated).toBeCloseTo(4.5);
+    // recon-swarm token estimate 150k × 3 clones = 450k (usage proxy, not dollars).
+    expect(dailyState.tokens_estimated).toBe(450_000);
   });
 
   it('scenario 2: charge exhaustion — forking-realities needs 2, have 1', async () => {
@@ -73,12 +74,12 @@ describe('charge/budget integration', () => {
       cast_id: 'c-big',
       mode: 'forking-realities',
       clone_count: 10,
-      estimated_tokens: 48.0,
+      estimated_tokens: 4_800_000,
       estimate_type: 'estimate',
     });
 
     const remaining = await rt.ctx.dailySpend.getRemaining(config.dailyTokenCap);
-    expect(remaining).toBe(2.0);
+    expect(remaining).toBe(200_000);
 
     const estCost = config.tokenEstimates['recon-swarm']! * 3;
     expect(estCost).toBeGreaterThan(remaining);

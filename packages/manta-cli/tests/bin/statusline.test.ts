@@ -9,8 +9,8 @@ import {
   isLive,
   resolveRepoRoot,
   readClones,
-  readSpentUsd,
-  readCapUsd,
+  readTokensEstimated,
+  readTokenCap,
   computeStatusline,
   type StatuslineClone,
 } from '../../src/bin/manta-statusline.js';
@@ -23,21 +23,21 @@ function clone(partial: Partial<StatuslineClone> & { clone_id: string; state: st
 }
 
 describe('formatStatusline', () => {
-  it('renders the canonical line: clones · spend/cap · elapsed', () => {
+  it('renders the canonical line: clones · token-usage/cap · elapsed', () => {
     const line = formatStatusline({
       clones: [
         clone({ clone_id: 'A', state: 'WORKING', registered_at: NOW - 4 * 60_000 }),
         clone({ clone_id: 'B', state: 'WINDING_DOWN', registered_at: NOW - 2 * 60_000 }),
       ],
-      spentUsd: 2.4,
-      capUsd: 15,
+      tokensEstimated: 2_400_000,
+      tokenCap: 15_000_000,
       nowMs: NOW,
     });
-    expect(line).toBe('🦈 A▶WORKING B▶WINDING_DOWN · $2.40/15 · 4m');
+    expect(line).toBe('🦈 A▶WORKING B▶WINDING_DOWN · 2.4M/15M · 4m');
   });
 
   it('returns EMPTY string when there are no clones at all', () => {
-    expect(formatStatusline({ clones: [], spentUsd: 2.4, capUsd: 15, nowMs: NOW })).toBe('');
+    expect(formatStatusline({ clones: [], tokensEstimated: 2_400_000, tokenCap: 15_000_000, nowMs: NOW })).toBe('');
   });
 
   it('returns EMPTY string when every clone is DEAD (no live clones)', () => {
@@ -46,8 +46,8 @@ describe('formatStatusline', () => {
         clone({ clone_id: 'A', state: 'DEAD', registered_at: NOW - 60_000 }),
         clone({ clone_id: 'B', state: 'DEAD', registered_at: NOW - 60_000 }),
       ],
-      spentUsd: 2.4,
-      capUsd: 15,
+      tokensEstimated: 2_400_000,
+      tokenCap: 15_000_000,
       nowMs: NOW,
     });
     expect(line).toBe('');
@@ -59,28 +59,28 @@ describe('formatStatusline', () => {
         clone({ clone_id: 'A', state: 'DEAD', registered_at: NOW - 60_000 }),
         clone({ clone_id: 'B', state: 'WORKING', registered_at: NOW - 30_000 }),
       ],
-      spentUsd: 1,
-      capUsd: 15,
+      tokensEstimated: 1_000_000,
+      tokenCap: 15_000_000,
       nowMs: NOW,
     });
-    expect(line).toBe('🦈 B▶WORKING · $1.00/15 · 30s');
+    expect(line).toBe('🦈 B▶WORKING · 1M/15M · 30s');
   });
 
-  it('omits the cap when capUsd is null', () => {
+  it('omits the cap when tokenCap is null', () => {
     const line = formatStatusline({
       clones: [clone({ clone_id: 'A', state: 'WORKING', registered_at: NOW - 60_000 })],
-      spentUsd: 3,
-      capUsd: null,
+      tokensEstimated: 3_000_000,
+      tokenCap: null,
       nowMs: NOW,
     });
-    expect(line).toBe('🦈 A▶WORKING · $3.00 · 1m');
+    expect(line).toBe('🦈 A▶WORKING · 3M · 1m');
   });
 
-  it('omits the spend segment when spentUsd is null', () => {
+  it('omits the usage segment when tokensEstimated is null', () => {
     const line = formatStatusline({
       clones: [clone({ clone_id: 'A', state: 'WORKING', registered_at: NOW - 60_000 })],
-      spentUsd: null,
-      capUsd: 15,
+      tokensEstimated: null,
+      tokenCap: 15_000_000,
       nowMs: NOW,
     });
     expect(line).toBe('🦈 A▶WORKING · 1m');
@@ -89,28 +89,28 @@ describe('formatStatusline', () => {
   it('omits the elapsed segment when no live clone has registered_at', () => {
     const line = formatStatusline({
       clones: [clone({ clone_id: 'A', state: 'WORKING' })],
-      spentUsd: 2,
-      capUsd: 15,
+      tokensEstimated: 2_000_000,
+      tokenCap: 15_000_000,
       nowMs: NOW,
     });
-    expect(line).toBe('🦈 A▶WORKING · $2.00/15');
+    expect(line).toBe('🦈 A▶WORKING · 2M/15M');
   });
 
-  it('renders a non-integer cap with two decimals', () => {
+  it('renders sub-million usage as compact k and a fractional-M cap', () => {
     const line = formatStatusline({
       clones: [clone({ clone_id: 'A', state: 'WORKING' })],
-      spentUsd: 2.5,
-      capUsd: 12.5,
+      tokensEstimated: 250_000,
+      tokenCap: 2_500_000,
       nowMs: NOW,
     });
-    expect(line).toBe('🦈 A▶WORKING · $2.50/12.50');
+    expect(line).toBe('🦈 A▶WORKING · 250k/2.5M');
   });
 
   it('treats a clock skew (now before registration) as 0s, not negative', () => {
     const line = formatStatusline({
       clones: [clone({ clone_id: 'A', state: 'WORKING', registered_at: NOW + 5_000 })],
-      spentUsd: null,
-      capUsd: null,
+      tokensEstimated: null,
+      tokenCap: null,
       nowMs: NOW,
     });
     expect(line).toBe('🦈 A▶WORKING · 0s');
@@ -122,8 +122,8 @@ describe('formatStatusline', () => {
         clone({ clone_id: 'A', state: 'WORKING', registered_at: NOW - 30_000 }),
         clone({ clone_id: 'B', state: 'WORKING', registered_at: NOW - 5 * 60_000 }),
       ],
-      spentUsd: null,
-      capUsd: null,
+      tokensEstimated: null,
+      tokenCap: null,
       nowMs: NOW,
     });
     expect(line).toBe('🦈 A▶WORKING B▶WORKING · 5m');
@@ -199,40 +199,40 @@ describe('I/O readers (tmp repo)', () => {
     expect(readClones(dir)).toEqual([]);
   });
 
-  it('readSpentUsd reads today spent_usd', async () => {
+  it('readTokensEstimated reads today tokens_estimated', async () => {
     const today = new Date(NOW).toLocaleDateString('en-CA');
     await fsp.writeFile(
       path.join(stateDir, 'daily-spend.json'),
-      JSON.stringify({ version: 1, date: today, spent_usd: 7.5, entries: [] }),
+      JSON.stringify({ version: 1, date: today, tokens_estimated: 750_000, entries: [] }),
     );
-    expect(readSpentUsd(dir, NOW)).toBe(7.5);
+    expect(readTokensEstimated(dir, NOW)).toBe(750_000);
   });
 
-  it('readSpentUsd returns 0 for a stale (previous-day) ledger', async () => {
+  it('readTokensEstimated returns 0 for a stale (previous-day) ledger', async () => {
     await fsp.writeFile(
       path.join(stateDir, 'daily-spend.json'),
-      JSON.stringify({ version: 1, date: '2000-01-01', spent_usd: 99, entries: [] }),
+      JSON.stringify({ version: 1, date: '2000-01-01', tokens_estimated: 990_000, entries: [] }),
     );
-    expect(readSpentUsd(dir, NOW)).toBe(0);
+    expect(readTokensEstimated(dir, NOW)).toBe(0);
   });
 
-  it('readSpentUsd returns null when the ledger is missing', () => {
-    expect(readSpentUsd(dir, NOW)).toBeNull();
+  it('readTokensEstimated returns null when the ledger is missing', () => {
+    expect(readTokensEstimated(dir, NOW)).toBeNull();
   });
 
-  it('readCapUsd prefers state/budget.json', async () => {
-    await fsp.writeFile(path.join(stateDir, 'budget.json'), JSON.stringify({ daily_cap_usd: 15 }));
-    await fsp.writeFile(path.join(configDir, 'budget.json'), JSON.stringify({ daily_cap_usd: 999 }));
-    expect(readCapUsd(dir)).toBe(15);
+  it('readTokenCap prefers state/budget.json', async () => {
+    await fsp.writeFile(path.join(stateDir, 'budget.json'), JSON.stringify({ daily_token_cap: 5_000_000 }));
+    await fsp.writeFile(path.join(configDir, 'budget.json'), JSON.stringify({ daily_token_cap: 999_000_000 }));
+    expect(readTokenCap(dir)).toBe(5_000_000);
   });
 
-  it('readCapUsd falls back to config/budget.json', async () => {
-    await fsp.writeFile(path.join(configDir, 'budget.json'), JSON.stringify({ daily_cap_usd: 42 }));
-    expect(readCapUsd(dir)).toBe(42);
+  it('readTokenCap falls back to config/budget.json', async () => {
+    await fsp.writeFile(path.join(configDir, 'budget.json'), JSON.stringify({ daily_token_cap: 42_000_000 }));
+    expect(readTokenCap(dir)).toBe(42_000_000);
   });
 
-  it('readCapUsd returns null when no budget file is present', () => {
-    expect(readCapUsd(dir)).toBeNull();
+  it('readTokenCap returns null when no budget file is present', () => {
+    expect(readTokenCap(dir)).toBeNull();
   });
 
   it('resolveRepoRoot walks up to the nearest .git', () => {
@@ -280,10 +280,10 @@ describe('computeStatusline (end-to-end)', () => {
     const today = new Date(NOW).toLocaleDateString('en-CA');
     await fsp.writeFile(
       path.join(stateDir, 'daily-spend.json'),
-      JSON.stringify({ version: 1, date: today, spent_usd: 3, entries: [] }),
+      JSON.stringify({ version: 1, date: today, tokens_estimated: 3_000_000, entries: [] }),
     );
-    await fsp.writeFile(path.join(stateDir, 'budget.json'), JSON.stringify({ daily_cap_usd: 15 }));
-    expect(computeStatusline(dir, NOW)).toBe('🦈 A▶WORKING · $3.00/15 · 1m');
+    await fsp.writeFile(path.join(stateDir, 'budget.json'), JSON.stringify({ daily_token_cap: 15_000_000 }));
+    expect(computeStatusline(dir, NOW)).toBe('🦈 A▶WORKING · 3M/15M · 1m');
   });
 
   it('no live clones → EMPTY string', async () => {

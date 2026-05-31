@@ -45,13 +45,13 @@ describe('TriggersArmedStore', () => {
     try {
       const s = store(dir, new FakeClock(4242));
       await s.setPendingDryRun('tx');
-      await s.arm('tx', { dryRunEstimateUsd: 2.9 });
+      await s.arm('tx', { dryRunEstimateTokens: 2.9 });
       expect(await s.getState('tx')).toBe('armed');
       const file = await s.read();
       const entry = file.triggers['tx'];
       expect(entry?.armed_at).toBe(4242);
       expect(entry?.armed_by_dry_run_ok).toBe(true);
-      expect(entry?.dry_run_estimate_usd).toBe(2.9);
+      expect(entry?.dry_run_estimate_tokens).toBe(2.9);
     } finally {
       cleanup();
     }
@@ -61,8 +61,8 @@ describe('TriggersArmedStore', () => {
     const { dir, cleanup } = tmpRepo();
     try {
       const s = store(dir);
-      await expect(s.arm('tx', { dryRunEstimateUsd: 1 })).rejects.toBeInstanceOf(TriggerStateError);
-      await expect(s.arm('tx', { dryRunEstimateUsd: 1 })).rejects.toMatchObject({ code: 'illegal_transition' });
+      await expect(s.arm('tx', { dryRunEstimateTokens: 1 })).rejects.toBeInstanceOf(TriggerStateError);
+      await expect(s.arm('tx', { dryRunEstimateTokens: 1 })).rejects.toMatchObject({ code: 'illegal_transition' });
       expect(await s.getState('tx')).toBe('disarmed');
     } finally {
       cleanup();
@@ -74,7 +74,7 @@ describe('TriggersArmedStore', () => {
     try {
       const s = store(dir);
       await s.setPendingDryRun('tx');
-      await s.arm('tx', { dryRunEstimateUsd: 1 });
+      await s.arm('tx', { dryRunEstimateTokens: 1 });
       await s.disarm('tx');
       expect(await s.getState('tx')).toBe('disarmed');
       await s.disarm('tx'); // twice is safe
@@ -90,7 +90,7 @@ describe('TriggersArmedStore', () => {
       const s = store(dir);
       await s.setPendingDryRun('ta');
       await s.setPendingDryRun('tb');
-      await s.arm('tb', { dryRunEstimateUsd: 1 });
+      await s.arm('tb', { dryRunEstimateTokens: 1 });
       await s.setPendingDryRun('tc');
       await s.disarm('tc');
       const flipped = await s.disarmAll();
@@ -107,7 +107,7 @@ describe('TriggersArmedStore', () => {
     try {
       const s = store(dir);
       await s.setPendingDryRun('tx');
-      await s.arm('tx', { dryRunEstimateUsd: 1 });
+      await s.arm('tx', { dryRunEstimateTokens: 1 });
       expect((await s.recordValidationError('tx')).disarmed).toBe(false);
       expect((await s.recordValidationError('tx')).disarmed).toBe(false);
       expect((await s.recordValidationError('tx')).disarmed).toBe(true);
@@ -137,7 +137,7 @@ describe('TriggersArmedStore', () => {
     try {
       const s = store(dir);
       await s.setPendingDryRun('tx');
-      await s.arm('tx', { dryRunEstimateUsd: 1 });
+      await s.arm('tx', { dryRunEstimateTokens: 1 });
       await Promise.all(Array.from({ length: 10 }, () => s.disarm('tx')));
       expect(await s.getState('tx')).toBe('disarmed');
     } finally {

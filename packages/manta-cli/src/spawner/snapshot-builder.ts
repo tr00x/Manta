@@ -17,7 +17,7 @@ export interface CloneSpawnRequest {
   /** Boot the clone as a continuation of the parent transcript. Default false. */
   resumeEnabled?: boolean | undefined;
   castId: string;
-  budgetUsd: number;
+  tokenEstimate: number;
   budgetTokens?: number;
   approachHint?: string | null;
   sessionMode?: 'batch' | 'daemon' | undefined;
@@ -25,8 +25,8 @@ export interface CloneSpawnRequest {
 }
 
 export function buildCloneSnapshot(req: CloneSpawnRequest): Snapshot {
-  if (req.budgetUsd <= 0) {
-    throw new CliError(`invalid budget for clone ${req.cloneId}: must be > 0`, {
+  if (req.tokenEstimate <= 0) {
+    throw new CliError(`invalid token estimate for clone ${req.cloneId}: must be > 0`, {
       kind: 'invalid_input',
     });
   }
@@ -55,8 +55,8 @@ export function buildCloneSnapshot(req: CloneSpawnRequest): Snapshot {
     budget: {
       tokensTotal: req.budgetTokens ?? 0,
       tokensUsed: 0,
-      dollarsTotal: req.budgetUsd,
-      dollarsUsed: 0,
+      tokensEstimatedTotal: req.tokenEstimate,
+      tokensEstimatedUsed: 0,
     },
     ttlSeconds: deadlineSeconds,
     siblingCloneIds: req.siblingClones,

@@ -262,8 +262,8 @@ export interface RunCastOptions {
    * and NOT user-tunable — Claude Code is a subscription. Defaults applied by
    * the CLI wiring; tests may override.
    */
-  budgetUsdPerClone: number;
-  budgetUsdPerCast: number;
+  internalTokenEstimatePerClone: number;
+  internalTokenEstimatePerCast: number;
   /**
    * Parallelism cap (CLI: `--max-parallel-clones`). When set, a cast whose
    * cloneCount exceeds it is rejected before any state-committing call. When
@@ -329,7 +329,7 @@ interface EffectiveAssignment {
   task: string;
   approachHint: string | null;
   scope: CastScopeOptions;
-  budgetUsd: number;
+  tokenEstimate: number;
   deadlineMs: number;
 }
 
@@ -519,7 +519,7 @@ export async function runCastCommand(
   // assignment omits it. Cumulative budget gate is Σ effective per-clone caps,
   // not N×cap — asymmetric overrides are honoured.
   const effective: Record<string, EffectiveAssignment> = {};
-  let totalBudgetUsd = 0;
+  let totalTokenEstimate = 0;
   for (const id of cloneIds) {
     const a = assignments[id] ?? {};
     const e: EffectiveAssignment = {
@@ -532,21 +532,21 @@ export async function runCastCommand(
             maxFilesChanged: a.scope.max_files_changed,
           }
         : castScope,
-      budgetUsd: a.budget_usd ?? opts.budgetUsdPerClone,
+      tokenEstimate: a.token_estimate ?? opts.internalTokenEstimatePerClone,
       deadlineMs:
         a.deadline_seconds != null ? a.deadline_seconds * 1_000 : DEFAULT_DEADLINE_MS,
     };
     effective[id] = e;
-    totalBudgetUsd += e.budgetUsd;
+    totalTokenEstimate += e.tokenEstimate;
   }
 
-  if (totalBudgetUsd > opts.budgetUsdPerCast) {
+  if (totalTokenEstimate > opts.internalTokenEstimatePerCast) {
     const detail = cloneIds
-      .map((id) => `${id}=${effective[id]!.budgetUsd}`)
+      .map((id) => `${id}=${effective[id]!.tokenEstimate}`)
       .join(' + ');
     throw new CliError(
-      `cumulative per-clone usage estimate (${detail} = ${totalBudgetUsd}) exceeds the per-cast ` +
-        `usage budget (${opts.budgetUsdPerCast}). Lower the per-clone overrides in --tasks, or spawn fewer clones.`,
+      `cumulative per-clone usage estimate (${detail} = ${totalTokenEstimate}) exceeds the per-cast ` +
+        `usage budget (${opts.internalTokenEstimatePerCast}). Lower the per-clone overrides in --tasks, or spawn fewer clones.`,
       { kind: 'invalid_input' },
     );
   }
@@ -788,7 +788,7 @@ export async function runCastCommand(
         parentSessionId,
         resumeEnabled: cloneResumeEnabled,
         castId: opts.castId,
-        budgetUsd: e.budgetUsd,
+        tokenEstimate: e.tokenEstimate,
         sessionMode,
         sessionId,
       });

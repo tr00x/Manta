@@ -45,8 +45,8 @@ describe('cli end-to-end (recon-swarm with fake clones)', () => {
       cycleIntervalMs: 50,
       tickBudgetMs: 15_000,
       castId: 'cast-it-1',
-      budgetUsdPerClone: 5,
-      budgetUsdPerCast: 15,
+      internalTokenEstimatePerClone: 5,
+      internalTokenEstimatePerCast: 15,
       verifyMcp: false,
       // Default fake-clone behaviour ('crash' mode) is: register, exit 0
       // WITHOUT marking DEAD — exercises the orchestrator's death-detection.

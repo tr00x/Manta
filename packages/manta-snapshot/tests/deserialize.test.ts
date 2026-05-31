@@ -41,7 +41,7 @@ describe('deserializeSnapshot', () => {
       parentWorktree: '/p',
       cloneWorktree: '/c',
       mode: 'recon-swarm',
-      budget: { tokensTotal: 1, tokensUsed: 0, dollarsTotal: 1, dollarsUsed: 0 },
+      budget: { tokensTotal: 1, tokensUsed: 0, tokensEstimatedTotal: 1, tokensEstimatedUsed: 0 },
       ttlSeconds: 60,
       siblingCloneIds: [],
     };

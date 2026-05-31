@@ -64,7 +64,9 @@ describe('runPreSpawnGate', () => {
     expect(result.committed).toBe(true);
     expect(result.chargesAfterDeduct).toBe(2);
     expect(result.dailySpentAfter).toBeGreaterThan(0);
-    expect(result.dailyRemaining).toBeLessThan(50);
+    // Remaining is in TOKEN estimates now (not dollars): it dropped below the
+    // full daily token cap once this cast's estimate was recorded.
+    expect(result.dailyRemaining).toBeLessThan(5_000_000);
   });
 
   it('dryRun=true → passed=true, committed=false, reporter called with preview', async () => {

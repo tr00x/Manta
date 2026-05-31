@@ -25,8 +25,8 @@ describe('canonicalize', () => {
   });
 
   it('two key-permuted objects stringify identically', () => {
-    const a = JSON.stringify(canonicalize({ task: 't', budget_usd: 5 }));
-    const b = JSON.stringify(canonicalize({ budget_usd: 5, task: 't' }));
+    const a = JSON.stringify(canonicalize({ task: 't', token_estimate: 5 }));
+    const b = JSON.stringify(canonicalize({ token_estimate: 5, task: 't' }));
     expect(a).toBe(b);
   });
 });

@@ -36,21 +36,31 @@ After each cast completes:
 - **Fail** (budget abort or clone crashes): -1 charge
 - **Neutral** (manual kill): no change
 
-## Budget layers
+## Usage layers
 
-### L1: Per-clone budget
+Claude Code is a **subscription** (Pro/Max), not pay-per-token, so Manta tracks
+**usage**, not dollars. The unit everywhere below is a **token estimate** — a
+rough proxy for how much of your subscription's usage/rate limit a cast consumes.
 
-`--budget-per-clone-usd <amount>` — maximum USD each clone can spend. Default: auto (per-cast / N).
+### L1: Parallelism cap
 
-### L2: Per-cast budget
+`--max-parallel-clones <n>` — maximum clones a single cast may spawn at once.
+Default: 5 (config key `max_parallel_clones`). A cast requesting more is rejected
+before any clone spawns.
 
-`--budget-per-cast-usd <amount>` — maximum total USD for the entire cast. Default: $15.
+### L2: Cast-rate cap
 
-### L3: Daily cap
+`--max-casts-per-hour <n>` — maximum casts allowed to start in a rolling hour.
+Default: 6 (config key `max_casts_per_hour`). Protects your subscription's
+usage/rate limit when many casts fire in quick succession.
 
-Configurable via `manta limit set daily_cap_usd <amount>` or `--daily-cap-usd` flag. Default: $50/day.
+### L3: Daily token-estimate cap
 
-When daily cap would be exceeded, Manta computes downgrade options (fewer clones, cheaper mode) and presents them.
+Configurable via `manta limit set daily_token_cap <tokens>`, or override a single
+cast with `--max-tokens-estimate <tokens>`. Default: 5,000,000 tokens/day.
+
+When the daily token-estimate cap would be exceeded, Manta computes downgrade
+options (fewer clones, cheaper mode) and presents them.
 
 ### L4: Auto-downgrade
 
@@ -70,11 +80,11 @@ Preview cost without spawning clones:
 $ manta cast recon-swarm -n 3 --dry-run
 Dry Run: recon-swarm
   Clones:     3
-  Est. cost:  ~$4.50 (3 × $1.50/clone)
-  Budget check:
-    Per-cast:   $15.00 ≥ $15.00 ✓
-    Daily cap:  $50.00 - $23.50 = $26.50 ≥ $4.50 ✓
-    Charges:    3 ≥ 1 ✓
+  Est. usage: ~450k tok (3 × ~150k/clone)
+  Usage check:
+    Parallelism: 3 ≤ 5 ✓
+    Daily cap:   5,000,000 - 1,200,000 = 3,800,000 ≥ 450,000 tok ✓
+    Charges:     3 ≥ 1 ✓
 ```
 
 ### `manta cost [today|week]`
@@ -83,9 +93,12 @@ Show spend summary:
 
 ```
 $ manta cost
-Daily budget: $23.50 / $50.00 (47%)
-Remaining today: $26.50
-Charges: 3/5
+Usage today: 2 casts, 5 clones spawned
+Cast rate: 2/6 this hour  ████░░░░░░░░░░░░░░░░
+  4 more casts allowed before the hourly cap
+
+Token estimate today: ~1.2M tok (usage proxy, not dollars)
+Charges: 3/5  (parallelism cap: 5 clones/cast)
 ```
 
 ### `manta charges`
@@ -118,17 +131,20 @@ Read or write budget configuration:
 
 ```
 $ manta limit get
-per_cast_usd:                      15
-daily_cap_usd:                     50
+max_parallel_clones:               5
+max_casts_per_hour:                6
+token_estimate_per_cast:           1500000
+token_estimate_per_clone:          auto (computed: per_cast / N)
+daily_token_cap:                   5000000
 charges.initial:                   3
 ...
 
-$ manta limit set daily_cap_usd 100
-Updated daily_cap_usd: 50 → 100
+$ manta limit set daily_token_cap 8000000
+Updated daily_token_cap: 5000000 → 8000000
 ```
 
 ### Additional cast flags
 
-- `--force` — bypass daily cap check
+- `--force` — bypass the daily token-estimate cap check
 - `--no-charge-check` — skip charge system entirely (testing only)
-- `--daily-cap-usd <amount>` — override daily cap for this cast
+- `--max-tokens-estimate <tokens>` — override the daily token-estimate projection for this cast

@@ -85,7 +85,7 @@ Key fields:
 | `scope.allowed_paths` | Yes | Disjoint module paths for this clone |
 | `scope.forbidden_paths` | Recommended | Exclude other clones' modules |
 | `scope.max_files_changed` | Recommended | Safety cap on file writes |
-| `budget_usd` | No | Per-clone budget override |
+| `token_estimate` | No | Per-clone token-estimate (usage) override |
 | `deadline_seconds` | No | Per-clone deadline override |
 
 ## CLI examples
@@ -106,7 +106,7 @@ manta cast refactor-wave \
   --clones 3 \
   --task "Replace console.log with structured logger" \
   --tasks logger-migration.yaml \
-  --budget-per-clone-usd 3
+  --max-parallel-clones 3
 ```
 
 Cost preview:

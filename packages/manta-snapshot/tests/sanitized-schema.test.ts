@@ -51,7 +51,7 @@ describe('SanitizedSnapshotSchema', () => {
   it('rejects a leaked budget block', () => {
     const r = SanitizedSnapshotSchema.safeParse({
       ...validSanitized(),
-      budget: { tokensTotal: 0, tokensUsed: 0, dollarsTotal: 5, dollarsUsed: 0 },
+      budget: { tokensTotal: 0, tokensUsed: 0, tokensEstimatedTotal: 5, tokensEstimatedUsed: 0 },
     });
     expect(r.success).toBe(false);
   });

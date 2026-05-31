@@ -101,7 +101,7 @@ async function buildFixture(opts: { diff?: string; recentMessages?: number } = {
       parentWorktree: repoRoot,
       cloneWorktree: path.join(repoRoot, '.manta', 'worktrees', `clone-${CLONE_ID}`),
       mode: 'forking-realities',
-      budget: { tokensTotal: 0, tokensUsed: 0, dollarsTotal: 5, dollarsUsed: 0 },
+      budget: { tokensTotal: 0, tokensUsed: 0, tokensEstimatedTotal: 5, tokensEstimatedUsed: 0 },
       ttlSeconds: 1200,
       siblingCloneIds: ['A'],
       sessionMode: 'batch',

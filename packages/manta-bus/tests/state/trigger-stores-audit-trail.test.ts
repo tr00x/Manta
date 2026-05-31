@@ -59,14 +59,14 @@ describe('trigger stores audit-trail pairing (bug #54)', () => {
         const ev = eventsOf(dir, clock);
         const s = armed(dir, clock, ev);
         await s.setPendingDryRun('t-a');
-        await s.arm('t-a', { dryRunEstimateUsd: 2.5 });
+        await s.arm('t-a', { dryRunEstimateTokens: 2.5 });
         const all = await ev.readAll();
         const armedEvents = all.filter((e) => e.type === 'trigger_armed');
         expect(armedEvents).toHaveLength(1);
         const payload = armedEvents[0]!.payload as Record<string, unknown>;
         expect(payload.name).toBe('t-a');
         expect(payload.armed_at).toBe(5000);
-        expect(payload.dry_run_estimate_usd).toBe(2.5);
+        expect(payload.dry_run_estimate_tokens).toBe(2.5);
       } finally {
         cleanup();
       }
@@ -80,7 +80,7 @@ describe('trigger stores audit-trail pairing (bug #54)', () => {
         await armed(dir, clock, eventsOf(dir, clock)).setPendingDryRun('t-a');
         // Arm with a throwing events log — must reject and leave state untouched.
         const broken = armed(dir, clock, new ThrowingEventsLog(busPaths(dir), clock));
-        await expect(broken.arm('t-a', { dryRunEstimateUsd: 2.5 })).rejects.toThrow('boom');
+        await expect(broken.arm('t-a', { dryRunEstimateTokens: 2.5 })).rejects.toThrow('boom');
         // State must NOT have advanced to armed.
         expect(await armed(dir, clock, eventsOf(dir, clock)).getState('t-a')).toBe('pending_dry_run');
       } finally {
@@ -97,7 +97,7 @@ describe('trigger stores audit-trail pairing (bug #54)', () => {
         const ev = eventsOf(dir, clock);
         const s = armed(dir, clock, ev);
         await s.setPendingDryRun('t-d');
-        await s.arm('t-d', { dryRunEstimateUsd: 1 });
+        await s.arm('t-d', { dryRunEstimateTokens: 1 });
         await s.disarm('t-d');
         const disarmed = (await ev.readAll()).filter((e) => e.type === 'trigger_disarmed');
         expect(disarmed).toHaveLength(1);
@@ -114,7 +114,7 @@ describe('trigger stores audit-trail pairing (bug #54)', () => {
         const ev = eventsOf(dir, clock);
         const s = armed(dir, clock, ev);
         await s.setPendingDryRun('t-1');
-        await s.arm('t-1', { dryRunEstimateUsd: 1 });
+        await s.arm('t-1', { dryRunEstimateTokens: 1 });
         await s.setPendingDryRun('t-2');
         const flipped = await s.disarmAll();
         expect(new Set(flipped)).toEqual(new Set(['t-1', 't-2']));
@@ -135,7 +135,7 @@ describe('trigger stores audit-trail pairing (bug #54)', () => {
         const clock = new FakeClock(1000);
         const setup = armed(dir, clock, eventsOf(dir, clock));
         await setup.setPendingDryRun('t-d');
-        await setup.arm('t-d', { dryRunEstimateUsd: 1 });
+        await setup.arm('t-d', { dryRunEstimateTokens: 1 });
         const broken = armed(dir, clock, new ThrowingEventsLog(busPaths(dir), clock));
         await expect(broken.disarm('t-d')).rejects.toThrow('boom');
         expect(await armed(dir, clock, eventsOf(dir, clock)).getState('t-d')).toBe('armed');
@@ -153,7 +153,7 @@ describe('trigger stores audit-trail pairing (bug #54)', () => {
         const ev = eventsOf(dir, clock);
         const s = armed(dir, clock, ev);
         await s.setPendingDryRun('t-v');
-        await s.arm('t-v', { dryRunEstimateUsd: 1 });
+        await s.arm('t-v', { dryRunEstimateTokens: 1 });
         expect((await s.recordValidationError('t-v')).disarmed).toBe(false);
         expect((await s.recordValidationError('t-v')).disarmed).toBe(false);
         // No disarm-by-validation event yet (only counter increments).
@@ -175,7 +175,7 @@ describe('trigger stores audit-trail pairing (bug #54)', () => {
         const clock = new FakeClock(1000);
         const setup = armed(dir, clock, eventsOf(dir, clock));
         await setup.setPendingDryRun('t-v');
-        await setup.arm('t-v', { dryRunEstimateUsd: 1 });
+        await setup.arm('t-v', { dryRunEstimateTokens: 1 });
         await setup.recordValidationError('t-v');
         await setup.recordValidationError('t-v');
         const broken = armed(dir, clock, new ThrowingEventsLog(busPaths(dir), clock));

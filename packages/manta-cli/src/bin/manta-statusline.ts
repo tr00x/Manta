@@ -32,10 +32,13 @@ export interface StatuslineClone {
 /** Pure inputs to the formatter — everything I/O-derived is resolved upstream. */
 export interface StatuslineInput {
   readonly clones: readonly StatuslineClone[];
-  /** Today's cast spend in USD, or null if the ledger is missing/stale. */
-  readonly spentUsd: number | null;
-  /** Daily cap in USD, or null if no budget config is readable. */
-  readonly capUsd: number | null;
+  /**
+   * Today's estimated token usage (subscription usage proxy, NOT dollars), or
+   * null if the ledger is missing/stale. Budget repivot 2026-05-31.
+   */
+  readonly tokensEstimated: number | null;
+  /** Daily token-estimate cap, or null if no budget config is readable. */
+  readonly tokenCap: number | null;
   /** Wall-clock now, in ms — injected so the formatter stays pure/testable. */
   readonly nowMs: number;
 }
@@ -49,7 +52,7 @@ const SEP = ' · '; // " · "
  * that empty string is the signal Claude Code uses to hide the row. Pure: no
  * I/O, no clock access (now is injected). Never throws.
  *
- * Example: `🦈 A▶WORKING B▶WINDING_DOWN · $2.40/15 · 4m`
+ * Example: `🦈 A▶WORKING B▶WINDING_DOWN · 1.2M/5M · 4m` (token usage, not dollars)
  */
 export function formatStatusline(input: StatuslineInput): string {
   const live = input.clones.filter((c) => isLive(c.state));
@@ -62,13 +65,14 @@ export function formatStatusline(input: StatuslineInput): string {
   // Segment 1: per-clone `<id>▶<STATE>`, in registry order.
   segments.push(live.map((c) => `${c.clone_id}${STATE_ARROW}${c.state}`).join(' '));
 
-  // Segment 2: spend `$<spent>[/<cap>]` — only when a spend figure exists.
-  if (input.spentUsd != null && Number.isFinite(input.spentUsd)) {
-    let spend = `$${formatMoney(input.spentUsd)}`;
-    if (input.capUsd != null && Number.isFinite(input.capUsd)) {
-      spend += `/${formatCap(input.capUsd)}`;
+  // Segment 2: token usage `<used>[/<cap>]` — only when a usage figure exists.
+  // Token estimates are a subscription-usage proxy (budget repivot), NOT dollars.
+  if (input.tokensEstimated != null && Number.isFinite(input.tokensEstimated)) {
+    let usage = formatTokens(input.tokensEstimated);
+    if (input.tokenCap != null && Number.isFinite(input.tokenCap)) {
+      usage += `/${formatTokens(input.tokenCap)}`;
     }
-    segments.push(spend);
+    segments.push(usage);
   }
 
   // Segment 3: elapsed time since the oldest live clone registered.
@@ -98,14 +102,20 @@ function oldestRegisteredAt(clones: readonly StatuslineClone[]): number | null {
   return min;
 }
 
-/** `$2.40` — always two decimals, matching the design example. */
-function formatMoney(usd: number): string {
-  return usd.toFixed(2);
-}
-
-/** Cap shows as a bare integer when whole (`15`), else two decimals. */
-function formatCap(usd: number): string {
-  return Number.isInteger(usd) ? String(usd) : usd.toFixed(2);
+/**
+ * Compact token count: `1.5M` / `5M` (≥1e6, one decimal unless whole),
+ * `250k` (≥1e3, rounded), else the bare rounded integer. No `$` — token
+ * estimates are a subscription-usage proxy, never dollars (budget repivot).
+ */
+function formatTokens(tokens: number): string {
+  if (tokens >= 1_000_000) {
+    const m = tokens / 1_000_000;
+    return `${Number.isInteger(m) ? m : m.toFixed(1)}M`;
+  }
+  if (tokens >= 1_000) {
+    return `${Math.round(tokens / 1_000)}k`;
+  }
+  return String(Math.round(tokens));
 }
 
 /** Compact elapsed: `<60s`→`Ns`, `<60m`→`Nm`, else `HhMm`. */
@@ -182,40 +192,41 @@ export function readClones(repoRoot: string): StatuslineClone[] {
 }
 
 /**
- * Read today's cast spend from daily-spend.json. Returns null on failure, and 0
- * when the ledger is from a previous day (a stale ledger means no spend today —
- * same day-boundary semantics as DailySpendLedger.read).
+ * Read today's estimated token usage from daily-spend.json. Returns null on
+ * failure, and 0 when the ledger is from a previous day (a stale ledger means
+ * no usage today — same day-boundary semantics as DailySpendLedger.read).
+ * The unit is a token estimate (subscription usage proxy), NOT dollars.
  */
-export function readSpentUsd(repoRoot: string, nowMs: number): number | null {
+export function readTokensEstimated(repoRoot: string, nowMs: number): number | null {
   try {
     const data = readJson(path.join(repoRoot, '.manta', 'state', 'daily-spend.json')) as {
       date?: unknown;
-      spent_usd?: unknown;
+      tokens_estimated?: unknown;
     };
     if (typeof data.date === 'string' && data.date !== localDate(nowMs)) {
       return 0;
     }
-    return typeof data.spent_usd === 'number' && Number.isFinite(data.spent_usd) ? data.spent_usd : null;
+    return typeof data.tokens_estimated === 'number' && Number.isFinite(data.tokens_estimated) ? data.tokens_estimated : null;
   } catch {
     return null;
   }
 }
 
 /**
- * Read the daily cap (USD). Tries `.manta/state/budget.json` first (the path the
- * design spec names), then falls back to the CLI's real budget config at
- * `.manta/config/budget.json`. Returns null when neither yields a `daily_cap_usd`.
+ * Read the daily token-estimate cap. Tries `.manta/state/budget.json` first (the
+ * path the design spec names), then falls back to the CLI's real budget config at
+ * `.manta/config/budget.json`. Returns null when neither yields a `daily_token_cap`.
  */
-export function readCapUsd(repoRoot: string): number | null {
+export function readTokenCap(repoRoot: string): number | null {
   const candidates = [
     path.join(repoRoot, '.manta', 'state', 'budget.json'),
     path.join(repoRoot, '.manta', 'config', 'budget.json'),
   ];
   for (const file of candidates) {
     try {
-      const data = readJson(file) as { daily_cap_usd?: unknown };
-      if (typeof data.daily_cap_usd === 'number' && Number.isFinite(data.daily_cap_usd)) {
-        return data.daily_cap_usd;
+      const data = readJson(file) as { daily_token_cap?: unknown };
+      if (typeof data.daily_token_cap === 'number' && Number.isFinite(data.daily_token_cap)) {
+        return data.daily_token_cap;
       }
     } catch {
       // Try the next candidate; missing/malformed files are expected.
@@ -233,8 +244,8 @@ export function computeStatusline(startDir: string, nowMs: number): string {
     }
     return formatStatusline({
       clones: readClones(repoRoot),
-      spentUsd: readSpentUsd(repoRoot, nowMs),
-      capUsd: readCapUsd(repoRoot),
+      tokensEstimated: readTokensEstimated(repoRoot, nowMs),
+      tokenCap: readTokenCap(repoRoot),
       nowMs,
     });
   } catch {

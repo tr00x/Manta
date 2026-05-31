@@ -22,10 +22,12 @@ describe('limit command', () => {
       reporter: createReporter({ sink }),
     });
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('per_cast_usd:');
-    expect(result.stdout).toContain('15');
-    expect(result.stdout).toContain('daily_cap_usd:');
-    expect(result.stdout).toContain('50');
+    expect(result.stdout).toContain('token_estimate_per_cast:');
+    expect(result.stdout).toContain('1500000');
+    expect(result.stdout).toContain('daily_token_cap:');
+    expect(result.stdout).toContain('5000000');
+    expect(result.stdout).toContain('max_parallel_clones:');
+    expect(result.stdout).toContain('max_casts_per_hour:');
   });
 
   it('get with specific key returns value', async () => {
@@ -34,11 +36,11 @@ describe('limit command', () => {
     const sink = new MemorySink();
     const result = await runLimitCommand(rt, {
       subcommand: 'get',
-      key: 'daily_cap_usd',
+      key: 'daily_token_cap',
       reporter: createReporter({ sink }),
     });
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('daily_cap_usd: 50');
+    expect(result.stdout).toContain('daily_token_cap: 5000000');
   });
 
   it('get with unknown key returns error', async () => {
@@ -60,17 +62,17 @@ describe('limit command', () => {
     const sink = new MemorySink();
     const result = await runLimitCommand(rt, {
       subcommand: 'set',
-      key: 'daily_cap_usd',
+      key: 'daily_token_cap',
       value: '100',
       reporter: createReporter({ sink }),
     });
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('50 → 100');
+    expect(result.stdout).toContain('5000000 → 100');
 
     const configPath = path.join(fx.root, '.manta', 'config', 'budget.json');
     const raw = await fs.readFile(configPath, 'utf-8');
     const parsed = JSON.parse(raw);
-    expect(parsed.daily_cap_usd).toBe(100);
+    expect(parsed.daily_token_cap).toBe(100);
   });
 
   it('set with dotted key updates nested value', async () => {
@@ -107,7 +109,7 @@ describe('limit command', () => {
     const sink = new MemorySink();
     await runLimitCommand(rt, {
       subcommand: 'set',
-      key: 'per_cast_usd',
+      key: 'token_estimate_per_cast',
       value: '20',
       reporter: createReporter({ sink }),
     });

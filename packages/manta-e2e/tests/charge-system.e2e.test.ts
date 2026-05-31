@@ -45,7 +45,7 @@ describe('charge-system e2e smoke', () => {
       timeout: 15_000,
     });
     expect(costResult.exitCode).toBe(0);
-    expect(costResult.stdout).toContain('$0.00 / $50.00');
+    expect(costResult.stdout).toContain('Usage today: 0 casts');
     expect(costResult.stdout).toContain('No casts today');
 
     // --- manta cost week ---
@@ -64,41 +64,41 @@ describe('charge-system e2e smoke', () => {
       timeout: 15_000,
     });
     expect(limitResult.exitCode).toBe(0);
-    expect(limitResult.stdout).toContain('per_cast_usd:');
-    expect(limitResult.stdout).toContain('daily_cap_usd:');
+    expect(limitResult.stdout).toContain('token_estimate_per_cast:');
+    expect(limitResult.stdout).toContain('daily_token_cap:');
     expect(limitResult.stdout).toContain('charges.initial:');
 
     // --- manta limit get <specific key> ---
-    const limitKeyResult = await execa('node', [cliBin, 'limit', 'get', 'daily_cap_usd'], {
+    const limitKeyResult = await execa('node', [cliBin, 'limit', 'get', 'daily_token_cap'], {
       cwd: fx.root,
       reject: false,
       timeout: 15_000,
     });
     expect(limitKeyResult.exitCode).toBe(0);
-    expect(limitKeyResult.stdout).toContain('daily_cap_usd: 50');
+    expect(limitKeyResult.stdout).toContain('daily_token_cap: 5000000');
 
     // --- manta limit set ---
-    const setResult = await execa('node', [cliBin, 'limit', 'set', 'daily_cap_usd', '100'], {
+    const setResult = await execa('node', [cliBin, 'limit', 'set', 'daily_token_cap', '100'], {
       cwd: fx.root,
       reject: false,
       timeout: 15_000,
     });
     expect(setResult.exitCode).toBe(0);
-    expect(setResult.stdout).toContain('50 → 100');
+    expect(setResult.stdout).toContain('5000000 → 100');
 
     // Verify config persisted
     const configPath = path.join(fx.root, '.manta', 'config', 'budget.json');
     const raw = await fs.readFile(configPath, 'utf-8');
     const parsed = JSON.parse(raw);
-    expect(parsed.daily_cap_usd).toBe(100);
+    expect(parsed.daily_token_cap).toBe(100);
 
     // Verify updated value visible via get
-    const verifyResult = await execa('node', [cliBin, 'limit', 'get', 'daily_cap_usd'], {
+    const verifyResult = await execa('node', [cliBin, 'limit', 'get', 'daily_token_cap'], {
       cwd: fx.root,
       reject: false,
       timeout: 15_000,
     });
-    expect(verifyResult.stdout).toContain('daily_cap_usd: 100');
+    expect(verifyResult.stdout).toContain('daily_token_cap: 100');
   });
 
   it('charges.json is unchanged after read-only commands', async () => {

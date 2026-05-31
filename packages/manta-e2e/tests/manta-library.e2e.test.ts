@@ -278,8 +278,6 @@ describe.skipIf(noClaude)('manta library install + cast + uninstall round-trip (
           '5000',
           '--tick-budget-ms',
           String(tickBudgetMs),
-          '--budget-per-clone-usd',
-          '5',
           '--max-files-changed',
           '5',
         ],

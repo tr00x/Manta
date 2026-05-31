@@ -111,7 +111,7 @@ A:
 B:
   task: rewrite the SQL
   approach_hint: denormalize the order-totals column
-  budget_usd: 4
+  token_estimate: 300000
   deadline_seconds: 1800
 C:
   task: rewrite the SQL
@@ -126,26 +126,28 @@ Same content as JSON:
 ```json
 {
   "A": { "task": "rewrite the SQL", "approach_hint": "use an index on orders.customer_id" },
-  "B": { "task": "rewrite the SQL", "approach_hint": "denormalize", "budget_usd": 4 }
+  "B": { "task": "rewrite the SQL", "approach_hint": "denormalize", "token_estimate": 300000 }
 }
 ```
 
 All fields are optional. Missing fields fall back to the cast-level
-defaults from `--task`, `--budget-per-clone-usd`, `--allowed-paths`, etc.
+defaults from `--task`, `--allowed-paths`, etc. (the per-clone token-estimate
+budget is internal and applied automatically).
 Supplying `scope` is all-or-nothing — the bus's `ScopeSchema` is `.strict()`,
 so you must provide `allowed_paths` and `max_files_changed` together if you
 override scope at all.
 
-### Asymmetric budgets
+### Asymmetric usage estimates
 
-The cumulative-budget gate sums the **effective** per-clone budget, not
-`N × budget-per-clone-usd`. If you set `--budget-per-cast-usd 7` and the
-overlay puts both clones at `budget_usd: 4`, the cast is rejected up front:
+The cumulative usage gate sums the **effective** per-clone token estimate against
+the internal per-cast ceiling. If the overlay puts both clones at a high
+`token_estimate` that together exceed the per-cast ceiling, the cast is rejected
+up front (token estimates are a subscription-usage proxy, not dollars):
 
 ```
-[manta] invalid_input: cumulative budget (A=$4 + B=$4 = $8) exceeds
-        --budget-per-cast-usd=$7. Reduce per-clone budgets, lower
-        --budget-per-clone-usd, or raise --budget-per-cast-usd.
+[manta] invalid_input: cumulative per-clone usage estimate (A=900000 + B=900000
+        = 1800000) exceeds the per-cast usage budget (1500000). Lower the
+        per-clone overrides in --tasks, or spawn fewer clones.
 ```
 
 ### Roster typo guard

@@ -79,7 +79,7 @@ describe('resolveParentSessionId (RB1 Chunk 1, Decision #5)', () => {
       parentSessionId,
       resumeEnabled,
       castId: CAST_ID,
-      budgetUsd: 5,
+      tokenEstimate: 5,
     });
     expect(snap.parentSessionId).toBe(UUID);
     expect(snap.parentSessionId).not.toBe(snap.castId);

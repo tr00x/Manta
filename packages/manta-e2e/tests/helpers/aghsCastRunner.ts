@@ -54,7 +54,6 @@ export async function runAghsCastE2e(params: AghsCastE2eParams): Promise<AghsCas
       '--task', task,
       '--cycle-interval-ms', '5000',
       '--tick-budget-ms', String(tickBudgetMs),
-      '--budget-per-clone-usd', '5',
     ],
     {
       cwd: fx.root,

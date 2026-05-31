@@ -22,7 +22,8 @@ describe('cost command', () => {
     });
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('No casts today');
-    expect(result.stdout).toContain('$0.00 / $50.00');
+    expect(result.stdout).toContain('Usage today: 0 casts, 0 clones spawned');
+    expect(result.stdout).toContain('Token estimate today:');
     expect(result.stdout).toContain('Charges:');
   });
 
@@ -34,8 +35,8 @@ describe('cost command', () => {
       cast_id: 'cast-test-1',
       mode: 'recon-swarm',
       clone_count: 3,
-      estimated_cost_usd: 4.5,
-      cost_type: 'estimate',
+      estimated_tokens: 150_000,
+      estimate_type: 'estimate',
     });
 
     const sink = new MemorySink();
@@ -44,10 +45,12 @@ describe('cost command', () => {
       reporter: createReporter({ sink }),
     });
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('$4.50');
     expect(result.stdout).toContain('cast-test-1');
     expect(result.stdout).toContain("Today's casts:");
-    expect(result.stdout).toContain('Remaining today: $45.50');
+    expect(result.stdout).toContain('Usage today: 1 cast, 3 clones spawned');
+    // Token estimate (subscription usage proxy, not dollars) is rendered compactly.
+    expect(result.stdout).toContain('150k tok');
+    expect(result.stdout).toContain('Token estimate today:');
   });
 
   it('shows weekly summary', async () => {
@@ -70,8 +73,8 @@ describe('cost command', () => {
       cast_id: 'cast-period-1',
       mode: 'recon-swarm',
       clone_count: 2,
-      estimated_cost_usd: 3.0,
-      cost_type: 'estimate',
+      estimated_tokens: 120_000,
+      estimate_type: 'estimate',
     });
 
     const daily = await runCostCommand(rt, {
@@ -83,10 +86,10 @@ describe('cost command', () => {
       reporter: createReporter({ sink: new MemorySink() }),
     });
 
-    // Daily report is the "Daily budget / Today's casts" view; weekly is the
+    // Daily report is the "Usage today / Today's casts" view; weekly is the
     // 7-day "This week / Avg" view. They must NOT be identical (the M3 bug made
     // `weekly` collapse to the daily output).
-    expect(daily.stdout).toContain('Daily budget:');
+    expect(daily.stdout).toContain('Usage today:');
     expect(daily.stdout).toContain("Today's casts:");
     expect(weekly.stdout).toContain('This week:');
     expect(weekly.stdout).toContain('Avg:');

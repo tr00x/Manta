@@ -40,8 +40,8 @@ describe('refactor-wave spawn integration', () => {
       cycleIntervalMs: 50,
       tickBudgetMs: 30_000,
       castId: 'cast-int-rw-1',
-      budgetUsdPerClone: 1,
-      budgetUsdPerCast: 5,
+      internalTokenEstimatePerClone: 1,
+      internalTokenEstimatePerCast: 5,
       cloneAssignments: {
         A: {
           task: 'migrate packages/auth to Result<T>',

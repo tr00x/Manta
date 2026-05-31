@@ -316,7 +316,9 @@ export const CloneAssignmentSchema = z
     task: z.string().min(1).max(8_000).optional(),
     approach_hint: z.string().max(8_000).optional(),
     scope: ScopeSchema.optional(),
-    budget_usd: z.number().positive().optional(),
+    // Per-clone usage cap as a token ESTIMATE (subscription usage proxy), NOT
+    // dollars. Renamed from `budget_usd` in the 2026-05-31 budget repivot.
+    token_estimate: z.number().positive().optional(),
     deadline_seconds: z.number().int().positive().optional(),
     role: CloneRoleSchema.optional(),
   })

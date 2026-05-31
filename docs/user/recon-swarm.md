@@ -26,11 +26,11 @@ It's the **wrong** call for:
 
 If the clone exits without `report_death`, the orchestrator detects the stale heartbeat and writes the post-mortem itself with reason `heartbeat … ms ago > …`.
 
-## Cost & time budget
+## Usage & time budget
 
-- **Budget per clone**: default $5 in dollars (`--budget-per-clone-usd`).
+- **Usage per clone**: each clone carries an internal per-clone token-estimate budget automatically (Claude Code is a subscription, not pay-per-token — there are no per-clone dollar flags). Cast-wide usage is capped by `--max-parallel-clones` and `--max-casts-per-hour`.
 - **Time per clone (TTL)**: hard ceiling 20 min via `taskContract.deadline_ms`; soft ceiling 25 min via the cast's `--tick-budget-ms`.
-- **Charges / cooldowns**: not enforced in Phase 0. Watch your spend manually.
+- **Charges / cooldowns**: not enforced in Phase 0. Watch your usage manually.
 
 ## Reading the output
 

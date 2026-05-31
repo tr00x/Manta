@@ -23,7 +23,7 @@ describe('captureState', () => {
       openFiles: [],
       parentWorktree: '/parent',
       cloneWorktree: '/clone-A',
-      budget: { tokensTotal: 1, tokensUsed: 0, dollarsTotal: 1, dollarsUsed: 0 },
+      budget: { tokensTotal: 1, tokensUsed: 0, tokensEstimatedTotal: 1, tokensEstimatedUsed: 0 },
       ttlSeconds: 60,
       siblingCloneIds: [],
     });
@@ -52,7 +52,7 @@ describe('captureState', () => {
       openFiles: [],
       parentWorktree: '/p',
       cloneWorktree: '/c',
-      budget: { tokensTotal: 1, tokensUsed: 0, dollarsTotal: 1, dollarsUsed: 0 },
+      budget: { tokensTotal: 1, tokensUsed: 0, tokensEstimatedTotal: 1, tokensEstimatedUsed: 0 },
       ttlSeconds: 60,
       siblingCloneIds: [],
     });
@@ -78,7 +78,7 @@ describe('captureState', () => {
       openFiles: [],
       parentWorktree: '/p',
       cloneWorktree: '/c',
-      budget: { tokensTotal: 1, tokensUsed: 0, dollarsTotal: 1, dollarsUsed: 0 },
+      budget: { tokensTotal: 1, tokensUsed: 0, tokensEstimatedTotal: 1, tokensEstimatedUsed: 0 },
       ttlSeconds: 60,
       siblingCloneIds: [],
     });
@@ -107,7 +107,7 @@ describe('captureState — parentSessionId + resumeEnabled (RB1 Chunk 1)', () =>
     openFiles: [],
     parentWorktree: '/p',
     cloneWorktree: '/c',
-    budget: { tokensTotal: 1, tokensUsed: 0, dollarsTotal: 1, dollarsUsed: 0 },
+    budget: { tokensTotal: 1, tokensUsed: 0, tokensEstimatedTotal: 1, tokensEstimatedUsed: 0 },
     ttlSeconds: 60,
     siblingCloneIds: [],
   });
