@@ -218,7 +218,8 @@ Honest status — this is `0.1.0`, early but real, not a toy and not a demo.
 
 - ✅ **Transcript inheritance** — clones provably boot with the caster's context (acceptance e2e reproduces a parent-only sentinel token; a negative control inherits nothing).
 - ✅ **Isolation & coordination** — worktrees, the bus (locks/claims/broadcasts/heartbeats), task contracts, graceful death.
-- ✅ **All 7 built-in modes** operational; 25 MCP tools on the bus.
+- ✅ **All 9 cast modes** operational — 7 built-in (recon-swarm, bug-hunt, refactor-wave, forking-realities, pair-programming, test-storm, documentation-chase) + the Aghs-locked `council` & `decoy` (opt-in).
+- ✅ **31 MCP tools** on the bus: 25 clone-coordination tools + **6 native orchestrator tools** (`manta_cast`/`manta_status`/`manta_cost`/`manta_inspect`/`manta_abort`/`manta_kill`) so your Claude Code can drive Manta with native tool calls, not just `/manta:*` slash commands.
 - ✅ **Merge-review quality gate** mirrors the canonical `pnpm gate` (typecheck + lint + tests) before scoring branches.
 - ✅ **Charges, budgets, cooldowns** — runaway-cost guardrails.
 - ✅ **Distribution** — single self-contained npm artifact + a validated Claude Code plugin (`claude plugin validate` passes).
@@ -226,7 +227,7 @@ Honest status — this is `0.1.0`, early but real, not a toy and not a demo.
 - ✅ **Concurrent casts** — running several casts at once is safe: the allocator + atomic registry CAS guarantee disjoint clone letters, and a data-loss guard refuses to clobber a dirty orphan worktree. (Verified: 4 clones in parallel on disjoint letters.)
 - ✅ **Clone safety** — an always-on PreToolUse guard hard-enforces each clone's path scope and blocks dangerous ops (push, `rm -rf` outside the worktree) in the harness, not just via priming.
 - ✅ **Observability** — conditional statusline (Tier 0): shows live clones + spend only while a cast runs, nothing when idle; `manta doctor` health-checks the environment; `/manta:tail` for deep watch.
-- ✅ Gate: **173 test files / ~1580 tests green** (real-claude e2e are visibly skipped unless `MANTA_E2E=1`, never a zero-assertion pass).
+- ✅ Gate: **183 test files / 1667 tests green** (real-claude e2e are visibly skipped unless `MANTA_E2E=1`, never a zero-assertion pass).
 
 **Known limitations (tracked in [`docs/manta-bugs.md`](docs/manta-bugs.md)) — none block normal use:**
 
