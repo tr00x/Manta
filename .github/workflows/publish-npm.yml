@@ -40,11 +40,15 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Gate (typecheck + lint + tests)
-        run: pnpm gate
-
+      # Build BEFORE the gate: cross-package type resolution (`@manta/bus`, …)
+      # reads each package's built dist `.d.ts`. A fresh CI checkout has no dist,
+      # so running `tsc -b`/vitest first fails with TS2307. Building first emits
+      # the declarations the typecheck + tests resolve against.
       - name: Build all packages
         run: pnpm -r build
+
+      - name: Gate (typecheck + lint + tests)
+        run: pnpm gate
 
       - name: Publish if the version is new
         working-directory: packages/manta-cli
