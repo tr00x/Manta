@@ -365,9 +365,10 @@ async function main(): Promise<void> {
 
   program
     .command('status')
-    .description('Show active clones, locks, and claims')
-    .action(async () => {
-      await runWithRuntime((rt) => runStatusCommand(rt, { reporter }));
+    .description('Show active clones, locks, and claims (settled/DEAD hidden unless --all)')
+    .option('--all', 'also show settled (DEAD) clones from finished casts', false)
+    .action(async (options: { all?: boolean }) => {
+      await runWithRuntime((rt) => runStatusCommand(rt, { reporter, showAll: options.all ?? false }));
     });
 
   program

@@ -51,4 +51,42 @@ describe('renderStatusTable', () => {
     expect(out).toContain('src/foo.ts');
     expect(out).toContain('task-1');
   });
+
+  const mkClone = (id: string, state: CloneRecord['state']): CloneRecord => ({
+    clone_id: id,
+    mode: 'recon-swarm',
+    parent_pid: 1,
+    worktree: `/w/${id}`,
+    metadata: {},
+    registered_at: 1_000_000,
+    last_heartbeat_at: 1_000_050,
+    state,
+  });
+  const base = { now: 1_000_100, locks: [], claims: [], thresholds: defaultThresholds };
+
+  it('hides settled (DEAD) clones by default and notes how many are hidden (#68)', () => {
+    const out = renderStatusTable({
+      ...base,
+      clones: [mkClone('A', 'WORKING'), mkClone('B', 'DEAD'), mkClone('C', 'DEAD')],
+    });
+    expect(out).toContain('A'); // live shown
+    expect(out).not.toContain('| DEAD'); // dead rows hidden
+    expect(out).toMatch(/2 settled clone\(s\) hidden/);
+    expect(out).toContain('--all');
+  });
+
+  it('shows DEAD clones when showAll is set', () => {
+    const out = renderStatusTable(
+      { ...base, clones: [mkClone('A', 'WORKING'), mkClone('B', 'DEAD')] },
+      { showAll: true },
+    );
+    expect(out).toContain('DEAD');
+    expect(out).not.toMatch(/settled clone\(s\) hidden/); // nothing hidden when showing all
+  });
+
+  it('reports no active clones (with hidden count) when only DEAD remain', () => {
+    const out = renderStatusTable({ ...base, clones: [mkClone('A', 'DEAD'), mkClone('B', 'DEAD')] });
+    expect(out).toContain('No active clones');
+    expect(out).toMatch(/2 settled clone\(s\) hidden/);
+  });
 });

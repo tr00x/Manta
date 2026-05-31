@@ -9,6 +9,8 @@ export interface CommandResult {
 
 export interface RunStatusOptions {
   reporter: Reporter;
+  /** Include settled (DEAD) clones in the table (CLI `--all`). Default false. */
+  showAll?: boolean;
 }
 
 /**
@@ -23,9 +25,11 @@ export async function runStatusCommand(
   opts: RunStatusOptions,
 ): Promise<CommandResult> {
   const status = await rt.orchestrator.getStatus();
-  const stdout = renderStatusTable(status);
+  const stdout = renderStatusTable(status, { showAll: opts.showAll ?? false });
+  const liveCount = status.clones.filter((c) => c.state !== 'DEAD').length;
   opts.reporter.info('status', {
-    clones: status.clones.length,
+    clones: liveCount,
+    settled: status.clones.length - liveCount,
     locks: status.locks.length,
     claims: status.claims.length,
   });

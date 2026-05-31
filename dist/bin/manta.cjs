@@ -45040,8 +45040,15 @@ init_cjs_shims();
 
 // src/output/status-table.ts
 init_cjs_shims();
-function renderStatusTable(status) {
-  if (status.clones.length === 0) {
+function renderStatusTable(status, opts = {}) {
+  const showAll = opts.showAll ?? false;
+  const dead = status.clones.filter((c) => c.state === "DEAD");
+  const live = status.clones.filter((c) => c.state !== "DEAD");
+  const visible = showAll ? status.clones : live;
+  if (visible.length === 0) {
+    if (dead.length > 0) {
+      return `No active clones. (${dead.length} settled clone(s) hidden \u2014 \`manta status --all\` to show.)`;
+    }
     return "No active clones.";
   }
   const lines = [];
@@ -45051,7 +45058,7 @@ function renderStatusTable(status) {
   lines.push(
     "------+--------------+-----------------+---------------+----------------------+----------------------"
   );
-  for (const c of status.clones) {
+  for (const c of visible) {
     const ageMs = status.now - c.last_heartbeat_at;
     const ageStr = `${Math.max(0, Math.round(ageMs / 1e3))}s`;
     const locks = status.locks.filter((l) => l.owner_clone_id === c.clone_id).map((l) => l.path).join(", ") || "-";
@@ -45063,16 +45070,18 @@ function renderStatusTable(status) {
       `${pad(c.clone_id, 5)} | ${pad(c.mode, 12)} | ${pad(stateDisplay, 15)} | ${pad(ageStr, 13)} | ${pad(locks, 20)} | ${pad(claims, 20)}`
     );
   }
-  const live = status.clones.filter((c) => c.state !== "DEAD");
   lines.push("");
   if (live.length > 0) {
     const ids = live.map((c) => c.clone_id).join(", ");
     lines.push(
       `\u2191 "Clone" is the id. Stop one: \`manta kill <id>\` (e.g. \`manta kill ${live[0].clone_id}\`) \xB7 stop all: \`manta abort\` \xB7 details: \`manta inspect <id>\`  [live: ${ids}]`
     );
+    if (!showAll && dead.length > 0) {
+      lines.push(`(${dead.length} settled clone(s) hidden \u2014 \`manta status --all\` to show.)`);
+    }
   } else {
     lines.push(
-      "All clones settled (DEAD) \u2014 finished casts, safe to ignore. The next cast reuses these slots. (Full reset of Manta in this repo: `manta cleanup`.)"
+      "All clones settled (DEAD) \u2014 finished casts, safe to ignore. The next cast reuses these slots."
     );
   }
   return lines.join("\n");
@@ -45085,9 +45094,11 @@ function pad(s3, width) {
 // src/commands/status.ts
 async function runStatusCommand(rt2, opts) {
   const status = await rt2.orchestrator.getStatus();
-  const stdout = renderStatusTable(status);
+  const stdout = renderStatusTable(status, { showAll: opts.showAll ?? false });
+  const liveCount = status.clones.filter((c) => c.state !== "DEAD").length;
   opts.reporter.info("status", {
-    clones: status.clones.length,
+    clones: liveCount,
+    settled: status.clones.length - liveCount,
     locks: status.locks.length,
     claims: status.claims.length
   });
@@ -52318,8 +52329,8 @@ async function main() {
       );
     }
   );
-  program2.command("status").description("Show active clones, locks, and claims").action(async () => {
-    await runWithRuntime((rt2) => runStatusCommand(rt2, { reporter }));
+  program2.command("status").description("Show active clones, locks, and claims (settled/DEAD hidden unless --all)").option("--all", "also show settled (DEAD) clones from finished casts", false).action(async (options2) => {
+    await runWithRuntime((rt2) => runStatusCommand(rt2, { reporter, showAll: options2.all ?? false }));
   });
   program2.command("kill <cloneId>").description("Mark a clone DEAD and write its post-mortem").option("-r, --reason <reason>", "death reason", "manual kill").action(async (cloneId, options2) => {
     await runWithRuntime(
