@@ -7226,6 +7226,15 @@ var init_zod = __esm({
 });
 
 // ../manta-bus/src/schema.ts
+function coercibleInt(inner) {
+  return external_exports.preprocess((v2) => {
+    if (typeof v2 === "string" && /^-?\d+$/.test(v2.trim())) {
+      const n = Number(v2);
+      return Number.isSafeInteger(n) ? n : v2;
+    }
+    return v2;
+  }, inner);
+}
 var CloneIdSchema, ModeSchema, CloneStateSchema, SafeCastIdRegex, RegisterInputSchema, HeartbeatInputSchema, SuicideIntentInputSchema, ReportDeathInputSchema, ScopeSchema, TaskContractSchema, TaskContractWriteInputSchema, TaskContractReadInputSchema, AckContractInputSchema, ContractRefreshInputSchema, ClaimWorkInputSchema, ReleaseWorkInputSchema, RepoRelativePathSchema, LockInputSchema, BroadcastEventTypeSchema, PayloadObjectSchema, BroadcastInputSchema, MessageInputSchema, DriftReportInputSchema, ZkWriteInputSchema, ParaAppendInputSchema, CastIdSchema, ReadBroadcastsInputSchema, RetaskInputSchema, PauseInputSchema, ResumeInputSchema, FeedbackInputSchema, RequestTaskInputSchema, EnqueueWorkInputSchema, CastPolicySchema, CloneRoleSchema, CloneAssignmentSchema, CastClonesEntrySchema, CastTriggerProvenanceSchema, CastMetadataSchema, CastManifestSchema, CreateCastInputSchema, BudgetConfigSchema;
 var init_schema = __esm({
   "../manta-bus/src/schema.ts"() {
@@ -7258,7 +7267,7 @@ var init_schema = __esm({
     RegisterInputSchema = external_exports.object({
       clone_id: CloneIdSchema,
       mode: ModeSchema,
-      parent_pid: external_exports.number().int().positive(),
+      parent_pid: coercibleInt(external_exports.number().int().positive()),
       worktree: external_exports.string().min(1),
       metadata: external_exports.record(external_exports.string(), external_exports.string()).default({})
     }).strict().refine(
@@ -7288,7 +7297,7 @@ var init_schema = __esm({
     ScopeSchema = external_exports.object({
       allowed_paths: external_exports.array(external_exports.string().min(1)).min(1),
       forbidden_paths: external_exports.array(external_exports.string().min(1)).default([]),
-      max_files_changed: external_exports.number().int().nonnegative()
+      max_files_changed: coercibleInt(external_exports.number().int().nonnegative())
     }).strict();
     TaskContractSchema = external_exports.object({
       clone_id: CloneIdSchema,
@@ -7297,7 +7306,7 @@ var init_schema = __esm({
       scope: ScopeSchema,
       approach_hint: external_exports.string().max(8e3).optional(),
       sibling_clones: external_exports.array(CloneIdSchema).default([]),
-      deadline_ms: external_exports.number().int().positive()
+      deadline_ms: coercibleInt(external_exports.number().int().positive())
     }).strict();
     TaskContractWriteInputSchema = external_exports.object({
       contract: TaskContractSchema
@@ -7316,7 +7325,7 @@ var init_schema = __esm({
     ClaimWorkInputSchema = external_exports.object({
       clone_id: CloneIdSchema,
       item: external_exports.string().min(1).max(512),
-      timeout_ms: external_exports.number().int().positive()
+      timeout_ms: coercibleInt(external_exports.number().int().positive())
     }).strict();
     ReleaseWorkInputSchema = external_exports.object({
       clone_id: CloneIdSchema,
@@ -7389,14 +7398,14 @@ var init_schema = __esm({
     ReadBroadcastsInputSchema = external_exports.object({
       clone_id: CloneIdSchema,
       cast_id: CastIdSchema,
-      since_ts: external_exports.number().int().nonnegative().optional()
+      since_ts: coercibleInt(external_exports.number().int().nonnegative()).optional()
     }).strict();
     RetaskInputSchema = external_exports.object({
       clone_id: CloneIdSchema,
       new_task: external_exports.string().min(1).max(8e3),
       new_scope: ScopeSchema.optional(),
       new_approach_hint: external_exports.string().max(8e3).optional(),
-      new_deadline_ms: external_exports.number().int().positive().optional()
+      new_deadline_ms: coercibleInt(external_exports.number().int().positive()).optional()
     }).strict();
     PauseInputSchema = external_exports.object({
       clone_id: CloneIdSchema,
@@ -24534,7 +24543,9 @@ async function runPostMortem(ctx, opts) {
     );
   }
   const allEvents = await ctx.events.readAll();
-  const cloneEvents = allEvents.filter((e) => e.clone_id === opts.cloneId);
+  const cloneEvents = allEvents.filter(
+    (e) => e.clone_id === opts.cloneId && e.ts >= final.registered_at
+  );
   const day = ymd(ctx.clock.now());
   const cast = castIdOf(final);
   const filename = `${day}-${cast}-${opts.cloneId}.md`;

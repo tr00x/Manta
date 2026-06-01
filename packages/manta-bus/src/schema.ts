@@ -35,7 +35,7 @@ export const RegisterInputSchema = z
   .object({
     clone_id: CloneIdSchema,
     mode: ModeSchema,
-    parent_pid: z.number().int().positive(),
+    parent_pid: coercibleInt(z.number().int().positive()),
     worktree: z.string().min(1),
     metadata: z.record(z.string(), z.string()).default({}),
   })
@@ -79,7 +79,7 @@ export const ScopeSchema = z
   .object({
     allowed_paths: z.array(z.string().min(1)).min(1),
     forbidden_paths: z.array(z.string().min(1)).default([]),
-    max_files_changed: z.number().int().nonnegative(),
+    max_files_changed: coercibleInt(z.number().int().nonnegative()),
   })
   .strict();
 
@@ -91,7 +91,7 @@ export const TaskContractSchema = z
     scope: ScopeSchema,
     approach_hint: z.string().max(8_000).optional(),
     sibling_clones: z.array(CloneIdSchema).default([]),
-    deadline_ms: z.number().int().positive(),
+    deadline_ms: coercibleInt(z.number().int().positive()),
   })
   .strict();
 
@@ -125,7 +125,7 @@ export const ClaimWorkInputSchema = z
   .object({
     clone_id: CloneIdSchema,
     item: z.string().min(1).max(512),
-    timeout_ms: z.number().int().positive(),
+    timeout_ms: coercibleInt(z.number().int().positive()),
   })
   .strict();
 
@@ -178,6 +178,28 @@ const PayloadObjectSchema = z.preprocess((v) => {
   }
   return v;
 }, z.record(z.string(), z.unknown()));
+
+// Bug #M1 (sibling of #51): the same `--print`-mode MCP bridge serializes
+// NUMERIC arguments as strings, so a clone calling e.g. `manta.claim_work`
+// with `timeout_ms: 30000` reaches the bus as `"30000"` and a bare
+// `z.number()` rejects with `expected number, received string`. This broke
+// every clone-invoked bus tool that takes a numeric param (claim_work,
+// read_broadcasts, retask, register). `coercibleInt` widens a leaf numeric
+// schema to also accept a numeric STRING: it parses a string that is a clean
+// integer literal, passes everything else through unchanged, then runs the
+// caller's real validator (`.int().positive()` etc.). Non-numeric garbage
+// ("abc", "1.5", "") is left as-is and still fails the inner validator, so the
+// guard is a pure widening — it never weakens validation. Defensive: the root
+// bug is in the Claude Code SDK bridge, same as #51.
+function coercibleInt<S extends z.ZodTypeAny>(inner: S): z.ZodEffects<S> {
+  return z.preprocess((v) => {
+    if (typeof v === 'string' && /^-?\d+$/.test(v.trim())) {
+      const n = Number(v);
+      return Number.isSafeInteger(n) ? n : v;
+    }
+    return v;
+  }, inner);
+}
 
 export const BroadcastInputSchema = z
   .object({
@@ -240,7 +262,7 @@ export const ReadBroadcastsInputSchema = z
   .object({
     clone_id: CloneIdSchema,
     cast_id: CastIdSchema,
-    since_ts: z.number().int().nonnegative().optional(),
+    since_ts: coercibleInt(z.number().int().nonnegative()).optional(),
   })
   .strict();
 
@@ -252,7 +274,7 @@ export const RetaskInputSchema = z
     new_task: z.string().min(1).max(8_000),
     new_scope: ScopeSchema.optional(),
     new_approach_hint: z.string().max(8_000).optional(),
-    new_deadline_ms: z.number().int().positive().optional(),
+    new_deadline_ms: coercibleInt(z.number().int().positive()).optional(),
   })
   .strict();
 

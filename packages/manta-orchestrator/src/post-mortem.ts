@@ -69,8 +69,21 @@ export async function runPostMortem(
     );
   }
 
+  // Bug #M5: clone letters (A/B/C) are a shared namespace reused across casts,
+  // and the events log keys by bare clone_id — so a naive `e.clone_id === id`
+  // filter pulls in the PRIOR cast's events for the same letter, interleaving
+  // a stale death/last-gasp into this clone's post-mortem timeline. Scope the
+  // filter to events at or after THIS incarnation's registration: the prior
+  // cast's reuse of the letter was registered (and died) earlier, so its events
+  // have a smaller `ts` and drop out. `registered_at` is set fresh on every
+  // `register` (including re-register over a DEAD record, bug #16), so it marks
+  // the exact boundary of the current incarnation. The structural fix
+  // (cast-scoped event keys) is still tracked post-0.1.0; this kills the
+  // timeline-corruption symptom without a schema migration.
   const allEvents = await ctx.events.readAll();
-  const cloneEvents = allEvents.filter((e) => e.clone_id === opts.cloneId);
+  const cloneEvents = allEvents.filter(
+    (e) => e.clone_id === opts.cloneId && e.ts >= final.registered_at,
+  );
 
   const day = ymd(ctx.clock.now());
   const cast = castIdOf(final);

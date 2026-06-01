@@ -264,4 +264,36 @@ describe('post-mortem', () => {
     expect(writer.captured).toHaveLength(1);
     expect(ok.document.filename).toMatch(/^[A-Za-z0-9._-]+$/);
   });
+
+  // Bug #M5: clone letters are reused across casts. A post-mortem for cast-2's
+  // clone A must NOT inherit cast-1's clone-A events (the timeline-corruption
+  // symptom). Scoping events to >= the current incarnation's registered_at
+  // drops the prior cast's trail.
+  it('does not interleave a prior cast\'s events into a reused clone letter', async () => {
+    // Cast 1: clone A registers (ts≈1000), broadcasts, dies. The broadcast's
+    // timestamp is the STALE marker that must not appear in cast-2's timeline.
+    ctx.clock.advance(1_000);
+    await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: { cast_id: 'cast-1' } });
+    const cast1Broadcast = await ctx.events.append({ type: 'broadcast', clone_id: 'A', payload: { event_type: 'breakthrough' } });
+    await ctx.registry.markDead('A', 'cast-1 done');
+
+    // Time passes, then cast 2 reuses letter A (re-register over the DEAD record).
+    ctx.clock.advance(60_000);
+    await ctx.registry.register({ clone_id: 'A', mode: 'bug-hunt', parent_pid: 2, worktree: '/w2', metadata: { cast_id: 'cast-2' } });
+    const cast2Broadcast = await ctx.events.append({ type: 'broadcast', clone_id: 'A', payload: { event_type: 'breakthrough' } });
+    ctx.clock.advance(91_000);
+
+    const writer = inMemoryPostMortemWriter();
+    await runPostMortem(ctx, {
+      cloneId: 'A',
+      reason: 'cast-2 heartbeat timeout',
+      writer,
+      thresholds: defaultThresholds,
+    });
+    const md = writer.captured[0]!.body;
+    // The timeline shows cast-2's event (its ts) and NOT cast-1's stale one.
+    expect(md).toContain(`\`${cast2Broadcast.ts}\``);
+    expect(md).not.toContain(`\`${cast1Broadcast.ts}\``);
+    expect(writer.captured[0]!.filename).toMatch(/-cast-2-A\.md$/);
+  });
 });

@@ -298,4 +298,58 @@ describe('schema', () => {
     const result = CloneAssignmentSchema.parse({ task: 'implement feature X' });
     expect(result.role).toBeUndefined();
   });
+
+  // Bug #M1: the --print-mode MCP bridge serializes numeric tool args as
+  // strings, so a clone calling `manta.claim_work` with timeout_ms: 30000
+  // reached the bus as "30000" and a bare z.number() rejected it. The
+  // coercibleInt widening parses a clean integer-literal string, leaves real
+  // numbers untouched, and still rejects non-numeric garbage.
+  describe('bug #M1: numeric MCP args arrive as strings (coercibleInt widening)', () => {
+    it('ClaimWorkInputSchema accepts a stringified timeout_ms and coerces to number', () => {
+      const r = ClaimWorkInputSchema.safeParse({ clone_id: 'A', item: 'task-1', timeout_ms: '30000' });
+      expect(r.success).toBe(true);
+      if (r.success) expect(r.data.timeout_ms).toBe(30_000);
+    });
+
+    it('ClaimWorkInputSchema still accepts a real number (no regression)', () => {
+      const r = ClaimWorkInputSchema.safeParse({ clone_id: 'A', item: 'task-1', timeout_ms: 30_000 });
+      expect(r.success).toBe(true);
+      if (r.success) expect(r.data.timeout_ms).toBe(30_000);
+    });
+
+    it('ClaimWorkInputSchema still rejects non-numeric / non-positive after coercion', () => {
+      expect(ClaimWorkInputSchema.safeParse({ clone_id: 'A', item: 't', timeout_ms: 'abc' }).success).toBe(false);
+      expect(ClaimWorkInputSchema.safeParse({ clone_id: 'A', item: 't', timeout_ms: '1.5' }).success).toBe(false);
+      expect(ClaimWorkInputSchema.safeParse({ clone_id: 'A', item: 't', timeout_ms: '0' }).success).toBe(false);
+      expect(ClaimWorkInputSchema.safeParse({ clone_id: 'A', item: 't', timeout_ms: '-5' }).success).toBe(false);
+      expect(ClaimWorkInputSchema.safeParse({ clone_id: 'A', item: 't', timeout_ms: '' }).success).toBe(false);
+    });
+
+    it('RegisterInputSchema coerces a stringified parent_pid', () => {
+      const r = RegisterInputSchema.safeParse({ clone_id: 'A', mode: 'recon-swarm', parent_pid: '12345', worktree: '/w' });
+      expect(r.success).toBe(true);
+      if (r.success) expect(r.data.parent_pid).toBe(12_345);
+    });
+
+    it('TaskContractSchema coerces stringified deadline_ms and max_files_changed', () => {
+      const r = TaskContractSchema.safeParse({
+        clone_id: 'A',
+        mode: 'recon-swarm',
+        task: 't',
+        scope: { allowed_paths: ['src'], max_files_changed: '5' },
+        deadline_ms: '1200000',
+      });
+      expect(r.success).toBe(true);
+      if (r.success) {
+        expect(r.data.deadline_ms).toBe(1_200_000);
+        expect(r.data.scope.max_files_changed).toBe(5);
+      }
+    });
+
+    it('RetaskInputSchema coerces a stringified new_deadline_ms (optional field)', () => {
+      const r = RetaskInputSchema.safeParse({ clone_id: 'A', new_task: 'redo', new_deadline_ms: '900000' });
+      expect(r.success).toBe(true);
+      if (r.success) expect(r.data.new_deadline_ms).toBe(900_000);
+    });
+  });
 });
