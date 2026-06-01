@@ -153,7 +153,7 @@ function rejectShareVersionFlagEarly(argv: string[]): boolean {
 async function main(): Promise<void> {
   if (rejectHookOverrideEarly(process.argv)) {
     process.stderr.write(
-      '[manta] install: hooks distribution is deferred to Phase 8; --no-hooks cannot be disabled\n',
+      '[manta] install: hooks distribution is not yet available; --no-hooks cannot be disabled\n',
     );
     process.exitCode = 11;
     return;
@@ -162,7 +162,7 @@ async function main(): Promise<void> {
   if (rejectPublishNonInteractiveEarly(process.argv)) {
     process.stderr.write(
       '[manta] share: --publish cannot be combined with --non-interactive; ' +
-        'publishing always requires interactive human confirmation (Phase 7b trust model)\n',
+        'publishing always requires interactive human confirmation (trust model)\n',
     );
     process.exitCode = 2;
     return;
@@ -190,14 +190,14 @@ async function main(): Promise<void> {
   const program = new Command();
   program
     .name('manta')
-    .description('Manta — self-cloning Claude Code pattern (Phase 0)')
+    .description('Manta — self-cloning Claude Code pattern')
     .version('0.1.0');
 
   const reporter = createReporter({ sink: new StderrSink() });
 
   program
     .command('cast <mode>')
-    .description('Spawn N clones of the given mode (Phase 2a: recon-swarm, forking-realities)')
+    .description('Spawn N clones of the given mode (recon-swarm, forking-realities, bug-hunt, …)')
     .option('-n, --clones <n>', 'number of clones (1..5)', '2')
     .option('-t, --task <task>', 'task description', 'unspecified')
     // Bug #60 class: timing/usage flags gate safety behaviour, so a NaN from a
@@ -617,7 +617,7 @@ async function main(): Promise<void> {
     .option('--json', 'emit a single JSON line on success or failure', false)
     .option('--dry-run', 'run validation but skip commit, lockfile, and index writes', false)
     .option('--no-validate', 'skip validatePackage (warn loudly); reserved for CI replay')
-    .option('--no-hooks', 'reserved; hooks distribution deferred to Phase 8 and cannot be re-enabled')
+    .option('--no-hooks', 'reserved; hooks distribution is not yet available and cannot be re-enabled')
     .action(
       async (
         spec: string | undefined,

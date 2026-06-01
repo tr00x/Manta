@@ -305,7 +305,7 @@ export async function runInstallCommand(
       // `--no-hooks=false` is rejected at flag parse in bin/manta.ts.
       if (manifest.contributes.hooks.length > 0) {
         process.stderr.write(
-          `[manta] install: package ${manifest.name} declares ${manifest.contributes.hooks.length} hook(s); hooks distribution is deferred to Phase 8. Continuing install without hooks.\n`,
+          `[manta] install: package ${manifest.name} declares ${manifest.contributes.hooks.length} hook(s); hooks distribution is not yet available. Continuing install without hooks.\n`,
         );
       }
 

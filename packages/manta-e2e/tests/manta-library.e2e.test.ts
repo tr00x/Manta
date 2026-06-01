@@ -117,14 +117,14 @@ describe('manta library preflight (always runs, no MANTA_E2E required)', () => {
     expect(r.stdout).toContain('doctor');
   });
 
-  it('rejects --no-hooks=false at parse time with the deferred-to-Phase-8 message', async () => {
+  it('rejects --no-hooks=false at parse time with the hooks-not-yet-available message', async () => {
     const r = await execa(
       'node',
       [cliBin, 'install', '/tmp/never-resolved.tgz', '--no-hooks=false'],
       { reject: false },
     );
     expect(r.exitCode).toBe(11);
-    expect(r.stderr).toContain('hooks distribution is deferred to Phase 8');
+    expect(r.stderr).toContain('hooks distribution is not yet available');
   });
 
   it('manta library list --json on a fresh repo emits {installs: []} and exits 0', async () => {
