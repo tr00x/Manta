@@ -4,6 +4,7 @@ export interface RegistryFake {
   records: CloneRecord[];
   register(input: RegisterInput): Promise<CloneRecord>;
   touch(cloneId: string): Promise<void>;
+  getState(cloneId: string): Promise<string | null>;
   markDead(cloneId: string, reason: string): Promise<CloneRecord>;
   get(cloneId: string): Promise<CloneRecord>;
 }
@@ -42,6 +43,10 @@ export function makeRegistryFake(opts: RegistryFakeOptions = {}): RegistryFake {
       const rec = records.find((r) => r.clone_id === cloneId);
       if (!rec || rec.state === 'DEAD') return;
       rec.last_heartbeat_at = now++;
+    },
+    async getState(cloneId) {
+      // bug #70: non-throwing state read for the booting-ticker.
+      return records.find((r) => r.clone_id === cloneId)?.state ?? null;
     },
     async markDead(cloneId, reason) {
       if (opts.onMarkDead) await opts.onMarkDead(cloneId);

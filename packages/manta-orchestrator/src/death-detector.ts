@@ -38,6 +38,18 @@ export async function findDeadClones(
           `startup grace ${sinceLaunch}ms > ${options.thresholds.startupGraceMs}ms (no first heartbeat)`,
         );
       }
+      // bug #70: the spawner's booting-ticker (clone-spawner.ts) keeps
+      // last_heartbeat_at fresh while a clone is alive-but-quiet during cold
+      // boot, so `sinceLaunch` alone can no longer reap a process that hangs in
+      // STARTING forever (the ticker would touch it indefinitely). Enforce an
+      // ABSOLUTE cap on time-in-STARTING measured from registration: a clone
+      // that has not begun real work within startupHardCapMs is wedged, reap it.
+      const sinceRegistered = now - r.registered_at;
+      if (sinceRegistered > options.thresholds.startupHardCapMs) {
+        reasons.push(
+          `startup hard cap ${sinceRegistered}ms > ${options.thresholds.startupHardCapMs}ms (stuck in STARTING)`,
+        );
+      }
     } else if (r.state === 'IDLE' || r.state === 'WAITING_FOR_TASK') {
       const sinceHeartbeat = now - r.last_heartbeat_at;
       if (sinceHeartbeat > options.thresholds.idleHeartbeatTimeoutMs) {

@@ -58,6 +58,43 @@ describe('death-detector', () => {
     expect(result[0]!.reason).toMatch(/startup grace/);
   });
 
+  it('bug #70: a STARTING clone kept warm by the booting-ticker survives past startupGraceMs', async () => {
+    // The spawner's booting-ticker (clone-spawner.ts) touches last_heartbeat_at
+    // every 30s while STARTING, so a live-but-quiet cold boot keeps refreshing.
+    // Simulate: advance time well past startupGraceMs but touch on the way, the
+    // way the ticker would — the clone must NOT be reaped (it's alive, booting).
+    await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    for (let elapsed = 0; elapsed < defaultThresholds.startupGraceMs * 2; elapsed += 30_000) {
+      ctx.clock.advance(30_000);
+      await ctx.registry.touch('A'); // booting-ticker keeps the heartbeat fresh
+    }
+    const result = await findDeadClones(ctx, {
+      thresholds: defaultThresholds,
+      probe: makeProbe({ alive: () => true }),
+    });
+    expect(result).toEqual([]);
+  });
+
+  it('bug #70: a clone wedged in STARTING is reaped by the absolute hard cap', async () => {
+    // Even with the ticker keeping last_heartbeat_at fresh, a process that never
+    // leaves STARTING is wedged. The hard cap (measured from registered_at) must
+    // still reap it so a hung boot cannot tick forever.
+    await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    // Keep the heartbeat perfectly fresh (ticker still firing) but blow past the
+    // hard cap in wall-clock since registration.
+    for (let elapsed = 0; elapsed <= defaultThresholds.startupHardCapMs + 30_000; elapsed += 30_000) {
+      ctx.clock.advance(30_000);
+      await ctx.registry.touch('A');
+    }
+    const result = await findDeadClones(ctx, {
+      thresholds: defaultThresholds,
+      probe: makeProbe({ alive: () => true }),
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0]!.clone_id).toBe('A');
+    expect(result[0]!.reason).toMatch(/startup hard cap/);
+  });
+
   it('marks orphaned clones (parent dead) as dead even if heartbeat is fresh', async () => {
     await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 999_999_999, worktree: '/w', metadata: {} });
     await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });

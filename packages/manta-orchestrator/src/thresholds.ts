@@ -4,6 +4,7 @@ export const ThresholdsSchema = z
   .object({
     heartbeatTimeoutMs: z.number().int().positive(),
     startupGraceMs: z.number().int().positive(),
+    startupHardCapMs: z.number().int().positive().default(1_800_000),
     staleLockMs: z.number().int().positive(),
     parentPidCheckEnabled: z.boolean(),
     cycleIntervalMs: z.number().int().positive(),
@@ -26,12 +27,16 @@ export type Thresholds = z.infer<typeof ThresholdsSchema>;
 //    120–180s without any manta.* call. Two consecutive casts died at 92s while
 //    actively writing replay.test.ts. 300s accommodates the realistic implementation
 //    window while still catching genuinely stuck clones within 5 minutes.
-//  - startupGraceMs (600s): measured from process LAUNCH (the spawner's "booting"
-//    heartbeat), not registration — see bug #66. Cold-start `claude --print` +
-//    `--resume` transcript replay + priming + skill load + snapshot read can
-//    exceed several minutes when the parent transcript is large (the failure
-//    scaled with session length). 600s gives a real margin for warm-context boot
-//    while still reaping genuinely-dead clones within 10 minutes.
+//  - startupGraceMs (600s): max gap between cold-boot heartbeats. Measured from
+//    last_heartbeat_at, which the spawner's booting-ticker (bug #70) refreshes on
+//    a 30s interval WHILE the clone is STARTING — so a live-but-quiet cold boot
+//    (large `--resume` transcript replay + MCP handshake before the first tool
+//    call) no longer trips it. 600s is a generous missed-tick tolerance.
+//  - startupHardCapMs (1800s/30min): absolute ceiling on time-in-STARTING from
+//    registration (bug #70). Because the booting-ticker keeps touching a live
+//    boot, startupGraceMs alone can't reap a process wedged in STARTING forever;
+//    this cap does. Set well above the largest realistic cold boot so a genuine
+//    warm-start from a huge transcript still completes, but a hung clone dies.
 //  - staleLockMs (15s): Sec 4 — locks renew every 5s; 15s = 3 missed renews. Locks are
 //    held inside tight critical sections, not across reads/edits, so 15s is appropriate.
 //  - cycleIntervalMs (5s): catches dead clones within one heartbeat window without thrashing.
@@ -39,6 +44,7 @@ export type Thresholds = z.infer<typeof ThresholdsSchema>;
 export const defaultThresholds: Thresholds = {
   heartbeatTimeoutMs: 300_000,
   startupGraceMs: 600_000,
+  startupHardCapMs: 1_800_000,
   staleLockMs: 15_000,
   parentPidCheckEnabled: true,
   cycleIntervalMs: 5_000,

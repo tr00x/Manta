@@ -186,6 +186,18 @@ export class Registry {
     return r;
   }
 
+  /**
+   * bug #70: read a clone's current state, or null if the record is gone.
+   * Non-throwing variant of `get`, used by the spawner's booting-ticker to
+   * decide whether to keep emitting cold-boot heartbeats (STARTING) or stop
+   * (any settled/absent state). Avoids the caller having to try/catch
+   * BusNotFoundError on every tick.
+   */
+  async getState(cloneId: string): Promise<string | null> {
+    const file = await atomicReadJson<RegistryFile>(this.paths.registry, empty);
+    return file.clones[cloneId]?.state ?? null;
+  }
+
   async list(): Promise<CloneRecord[]> {
     const file = await atomicReadJson<RegistryFile>(this.paths.registry, empty);
     return Object.values(file.clones);

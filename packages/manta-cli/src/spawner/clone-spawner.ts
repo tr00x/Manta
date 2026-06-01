@@ -45,6 +45,13 @@ export interface RegistryWriter {
    * STARTING grace is measured from launch, not pre-registration.
    */
   touch(cloneId: string): Promise<void>;
+  /**
+   * bug #70: read a clone's current state, used by the booting-ticker to know
+   * when to stop touching. Returns null if the record is gone (deregistered).
+   * `Registry.get` throws BusNotFoundError; this seam swallows that to null so
+   * the ticker can treat "gone" the same as "settled" and exit cleanly.
+   */
+  getState(cloneId: string): Promise<string | null>;
 }
 
 /**
@@ -239,6 +246,48 @@ export async function spawnClone(opts: SpawnCloneOptions): Promise<CloneHandle> 
       signal: r.signal ?? null,
     };
   })();
+
+  // bug #70: the launch heartbeat above fires ONCE. After it, last_heartbeat_at
+  // is only refreshed by the per-tool-call hook — but during cold boot the child
+  // makes NO tool calls for minutes (it's replaying a large --resume transcript +
+  // MCP handshake before its first action). So the heartbeat freezes at launch
+  // time and the death-detector reaps the clone at startupGraceMs even though the
+  // process is alive and booting. This was reproduced live: a clone forked from an
+  // 18 MB session was reaped at "startup grace 601876ms > 600000ms (no first
+  // heartbeat)". Fix: keep touching last_heartbeat_at on an interval WHILE the
+  // clone is still STARTING, so the grace window tracks a live-but-quiet boot. The
+  // ticker self-stops the moment the clone leaves STARTING (its own heartbeat took
+  // over) or the record is gone — so it never masks a genuinely hung WORKING clone
+  // (that path is still governed by heartbeatTimeoutMs), and the death-detector's
+  // absolute STARTING cap (measured from registered_at) still reaps a process that
+  // hangs in STARTING forever. Best-effort throughout: a missed tick is harmless.
+  const BOOT_TICK_MS = 30_000;
+  let bootTicking = false;
+  const bootTicker: ReturnType<typeof setInterval> = setInterval(() => {
+    if (bootTicking) return; // don't overlap a slow tick
+    bootTicking = true;
+    void (async () => {
+      try {
+        const state = await opts.registry.getState(cloneId);
+        if (state !== 'STARTING') {
+          clearInterval(bootTicker);
+          return;
+        }
+        await opts.registry.touch(cloneId);
+      } catch {
+        // best-effort — a missed cold-boot heartbeat is recoverable.
+      } finally {
+        bootTicking = false;
+      }
+    })();
+  }, BOOT_TICK_MS);
+  // Never let the ticker keep the event loop alive on its own.
+  if (typeof bootTicker.unref === 'function') bootTicker.unref();
+  // Stop ticking the instant the process exits, whatever the reason.
+  void exit.then(
+    () => clearInterval(bootTicker),
+    () => clearInterval(bootTicker),
+  );
 
   // I-5 (Chunk-1 review): graceful kill with SIGKILL escalation. The kill
   // command and abort command call this so a hung clone (e.g. `MANTA_FAKE_
