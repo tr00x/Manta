@@ -326,8 +326,14 @@ Honest status — `0.1.0`, **early but real**. Everything below is verified by t
 
 ---
 
+## 🐟 Manta builds Manta
+
+Manta is **self-built**: once the first clones worked, they built the rest of Manta. Much of this codebase was implemented by Manta clones cast from a Claude Code session — bug-hunts, refactor-waves, doc-chases, forking-realities — then reviewed and merged by the main agent. The transcript-inheritance fix, the de-phased docs, even parts of this README were shaped by clones that inherited the conversation they were spawned from. Clone Driven Development, dogfooded all the way down.
+
+---
+
 <div align="center">
 
-**MIT** — see [LICENSE](LICENSE). · An experiment built with [Claude Code](https://claude.com/claude-code).
+**MIT** — see [LICENSE](LICENSE). · An experiment built with [Claude Code](https://claude.com/claude-code), **using Manta to build Manta**.
 
 </div>
