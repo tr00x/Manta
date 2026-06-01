@@ -10,6 +10,7 @@ import type {
 import type { CloneRunner, CloneHandle } from '../spawner/clone-spawner.js';
 import { spawnClone, selectCloneRunner } from '../spawner/clone-spawner.js';
 import { forkParentSession } from '../spawner/session-fork.js';
+import { propagateProjectInstructions } from '../spawner/project-instructions.js';
 import {
   addWorktree,
   removeWorktree,
@@ -256,6 +257,13 @@ export interface RunCastOptions {
    * it is fine as a commander default (contrast the Chunk-1 flag-default trap).
    */
   distillThresholdBytes?: number | undefined;
+  /**
+   * `--no-inherit-instructions` opt-out. When undefined or true (the default),
+   * the parent project's CLAUDE.md / CLAUDE.local.md are copied into each
+   * clone's worktree (they are otherwise lost — gitignored files never enter a
+   * worktree checkout). Set false to skip the copy.
+   */
+  inheritInstructions?: boolean | undefined;
   /**
    * Internal per-clone usage budget (token estimate) handed to the spawner so
    * each clone's snapshot carries a positive resource cap. NOT a dollar budget
@@ -781,6 +789,35 @@ export async function runCastCommand(
               fork.skipped === 'over_threshold'
                 ? 'parent transcript exceeds --distill-threshold-bytes; clone boots without transcript inheritance (pass --force-full-transcript to override)'
                 : 'parent transcript not found on disk; clone boots without transcript inheritance',
+          });
+        }
+      }
+
+      // Project-instructions inheritance: a clone's worktree is a git checkout
+      // whose git-toplevel is the worktree itself, and CLAUDE.md is commonly
+      // gitignored — so the parent's project instructions never reach the clone
+      // by upward search or by checkout. Copy them in explicitly (the other
+      // half of warm-start beside transcript inheritance). Non-fatal: a missing
+      // or unreadable CLAUDE.md must never abort a cast. Opt out with
+      // --no-inherit-instructions.
+      if (opts.inheritInstructions !== false) {
+        try {
+          const copied = await propagateProjectInstructions({
+            parentRoot: rt.repoRoot,
+            worktreePath: wt.path,
+          });
+          if (copied.length > 0) {
+            opts.reporter.info('cast.project_instructions.copied', {
+              castId: opts.castId,
+              cloneId,
+              files: copied,
+            });
+          }
+        } catch (err) {
+          opts.reporter.warn('cast.project_instructions.failed', {
+            castId: opts.castId,
+            cloneId,
+            message: String(err),
           });
         }
       }

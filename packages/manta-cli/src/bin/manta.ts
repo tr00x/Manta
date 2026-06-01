@@ -272,6 +272,10 @@ async function main(): Promise<void> {
       'Parent transcripts strictly larger than this (bytes) skip transcript inheritance unless --force-full-transcript is set (RB1/bug #56). Default 2 MB.',
       parsePositiveIntOption,
     )
+    .option(
+      '--no-inherit-instructions',
+      "Do not copy the parent project's CLAUDE.md / CLAUDE.local.md into clone worktrees. By default they ARE propagated so clones inherit your project instructions even when those files are gitignored (a worktree checkout never carries them otherwise).",
+    )
     .action(
       async (
         mode: string,
@@ -297,6 +301,7 @@ async function main(): Promise<void> {
           parentSessionId?: string;
           forceFullTranscript: boolean;
           distillThresholdBytes?: number;
+          inheritInstructions: boolean;
         },
       ) => {
         const splitCsv = (s: string): string[] =>
@@ -352,6 +357,7 @@ async function main(): Promise<void> {
             ...(options.parentSessionId !== undefined ? { parentSessionId: options.parentSessionId } : {}),
             forceFullTranscript: options.forceFullTranscript,
             ...(options.distillThresholdBytes !== undefined ? { distillThresholdBytes: options.distillThresholdBytes } : {}),
+            inheritInstructions: options.inheritInstructions,
             runner: runClaudeCli(),
             reporter,
             dryRun: options.dryRun,
