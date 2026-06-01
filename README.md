@@ -122,7 +122,7 @@ sequenceDiagram
 <summary><b>Step by step (click to expand)</b></summary>
 
 1. **Allocate & isolate.** Manta creates a **git worktree** per clone under `.manta/worktrees/` — a separate checkout on its own branch. Clones never touch your working tree or each other's.
-2. **Inherit your context.** Manta forks a copy of your live session transcript into each clone and boots it with `claude --print --resume <fork>`. The clone wakes up knowing the whole conversation. *(There's a safe **default** auto-fork threshold (~2 MB) so a cast doesn't blindly copy a huge transcript across N clones — above it the clone boots cold with a loud warning, never silently. Pass `--force-full-transcript` to fork the whole thing regardless; verified live on an 18 MB session.)*
+2. **Inherit your context — conversation *and* standards.** Manta forks a copy of your live session transcript into each clone and boots it with `claude --print --resume <fork>`, so the clone wakes up knowing the whole conversation. *(There's a safe **default** auto-fork threshold (~2 MB) so a cast doesn't blindly copy a huge transcript across N clones — above it the clone boots cold with a loud warning, never silently. Pass `--force-full-transcript` to fork the whole thing regardless; verified live on an 18 MB session.)* It **also** copies your project's **`CLAUDE.md` / `CLAUDE.local.md`** into each clone's worktree — a clone's worktree is its own git checkout, and a gitignored `CLAUDE.md` would never reach it otherwise — so the clone also inherits your coding standards, conventions, and guardrails. (Opt out with `--no-inherit-instructions`.)
 3. **Hand off a contract.** Each clone gets a **task contract** — what to build, which paths it may touch, its budget, success criteria — and acknowledges it on the bus before starting.
 4. **Work in parallel, coordinate on the bus.** Clones talk through the **Manta bus** (an MCP server): **file locks** (no two edit the same file), **work claims**, **broadcasts**, **heartbeats**. No clone can silently corrupt shared state.
 5. **Commit & die gracefully.** A clone writes a report, commits to its branch, releases its locks, and signals its own death. It does **not** push — you pull.
@@ -136,11 +136,15 @@ sequenceDiagram
 |---|---|
 | 🌳 **Worktrees** | Each clone gets an isolated `git worktree` on its own branch. Isolation is real, not cooperative. |
 | 🔥 **Transcript inheritance** | Clones boot from a fork of your live session via `claude --resume`. They start *warm*. |
+| 📖 **Project instructions** | Your `CLAUDE.md` / `CLAUDE.local.md` are copied into every clone worktree (even when gitignored — a checkout wouldn't carry them). Each user's *own* CLAUDE.md, never one baked into Manta. So clones obey your project's standards. |
 | 🚌 **The bus** | `manta-bus` (MCP server) — locks, work claims, broadcasts, heartbeats, contracts. Coordination with no central scheduler. |
 | 📜 **Task contracts** | The spec + scope fence + budget each clone agrees to before working. |
 | 🎚️ **Usage guardrails** | A subscription-aware rate/parallelism system so a cast can't exhaust your usage limit or your machine. |
 | 📋 **Merge-review** | For competing branches, an automated quality-gated score + verdict you follow when merging. |
 | 🧩 **Skills** | Plain-markdown behavior contracts that tell clones how to behave. Shipped with the plugin. |
+
+> [!IMPORTANT]
+> **Your `CLAUDE.md` is half of what makes a clone more than a subagent.** Transcript inheritance carries the *conversation*; `CLAUDE.md` carries the *standards* — your quality bar, conventions, and guardrails. A clone with neither is just a cold helper; a clone with both works like *you* would. Manta delivers both automatically, so **a well-written `CLAUDE.md` directly raises the quality of every clone's output.** If you take cloning seriously, invest in your `CLAUDE.md` — it's the single highest-leverage file in a Clone Driven workflow.
 
 ---
 
