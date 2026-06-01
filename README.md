@@ -122,7 +122,7 @@ sequenceDiagram
 <summary><b>Step by step (click to expand)</b></summary>
 
 1. **Allocate & isolate.** Manta creates a **git worktree** per clone under `.manta/worktrees/` — a separate checkout on its own branch. Clones never touch your working tree or each other's.
-2. **Inherit your context.** Manta forks a copy of your live session transcript into each clone and boots it with `claude --print --resume <fork>`. The clone wakes up knowing the whole conversation. *(For very large transcripts there's a size limit; over it the clone boots without inheritance and says so **loudly** — never silently.)*
+2. **Inherit your context.** Manta forks a copy of your live session transcript into each clone and boots it with `claude --print --resume <fork>`. The clone wakes up knowing the whole conversation. *(There's a safe **default** auto-fork threshold (~2 MB) so a cast doesn't blindly copy a huge transcript across N clones — above it the clone boots cold with a loud warning, never silently. Pass `--force-full-transcript` to fork the whole thing regardless; verified live on an 18 MB session.)*
 3. **Hand off a contract.** Each clone gets a **task contract** — what to build, which paths it may touch, its budget, success criteria — and acknowledges it on the bus before starting.
 4. **Work in parallel, coordinate on the bus.** Clones talk through the **Manta bus** (an MCP server): **file locks** (no two edit the same file), **work claims**, **broadcasts**, **heartbeats**. No clone can silently corrupt shared state.
 5. **Commit & die gracefully.** A clone writes a report, commits to its branch, releases its locks, and signals its own death. It does **not** push — you pull.
@@ -326,7 +326,7 @@ Honest status — `0.1.0`, **early but real**. Everything below is verified by t
 
 ---
 
-## 🐟 Manta builds Manta
+## Manta builds Manta
 
 Manta is **self-built**: once the first clones worked, they built the rest of Manta. Much of this codebase was implemented by Manta clones cast from a Claude Code session — bug-hunts, refactor-waves, doc-chases, forking-realities — then reviewed and merged by the main agent. The transcript-inheritance fix, the de-phased docs, even parts of this README were shaped by clones that inherited the conversation they were spawned from. Clone Driven Development, dogfooded all the way down.
 
