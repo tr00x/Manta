@@ -10,7 +10,6 @@ export {
   TodoSchema,
   MessageSchema,
   OpenFileSchema,
-  BudgetSchema,
   SessionModeSchema,
   type Snapshot,
   type TaskContract,
@@ -20,7 +19,6 @@ export {
   type Todo,
   type Message,
   type OpenFile,
-  type Budget,
 } from './schema';
 export {
   SnapshotValidationError,

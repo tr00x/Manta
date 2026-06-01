@@ -57,12 +57,11 @@ describe('CloneAssignmentSchema', () => {
       task: 'rewrite the SQL query for performance',
       approach_hint: 'consider an index on orders.customer_id',
       scope: { allowed_paths: ['db/'], forbidden_paths: ['secrets/'], max_files_changed: 3 },
-      token_estimate: 4.5,
       deadline_seconds: 900,
     });
     expect(parsed.task).toMatch(/SQL/);
     expect(parsed.scope?.max_files_changed).toBe(3);
-    expect(parsed.token_estimate).toBe(4.5);
+    expect(parsed.deadline_seconds).toBe(900);
   });
 
   it('rejects empty task strings', () => {
@@ -342,7 +341,7 @@ describe('CastsStore.create', () => {
       await store.create({
         cast_id: 'cast-G',
         mode: 'forking-realities',
-        clones: [{ clone_id: 'A', assignment: { task: 't', token_estimate: 5 } }],
+        clones: [{ clone_id: 'A', assignment: { task: 't', deadline_seconds: 5 } }],
         policy: { peer_messaging: 'denied', auto_merge_threshold: null, session_mode: 'batch' as const },
       });
       // Same content, different key insertion order — must NOT be a conflict.
@@ -350,7 +349,7 @@ describe('CastsStore.create', () => {
         store.create({
           cast_id: 'cast-G',
           mode: 'forking-realities',
-          clones: [{ clone_id: 'A', assignment: { token_estimate: 5, task: 't' } }],
+          clones: [{ clone_id: 'A', assignment: { deadline_seconds: 5, task: 't' } }],
           policy: { peer_messaging: 'denied', auto_merge_threshold: null, session_mode: 'batch' as const },
         }),
       ).resolves.toBeDefined();

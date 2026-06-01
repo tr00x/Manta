@@ -8,8 +8,6 @@ import {
   ClaimsStore,
   ContractsStore,
   CastsStore,
-  ChargeStore,
-  DailySpendLedger,
   EventsLog,
   WorkQueueStore,
   TriggersArmedStore,
@@ -91,8 +89,6 @@ export async function createRuntime(opts: CreateRuntimeOptions): Promise<Runtime
     claims: new ClaimsStore(paths, clock),
     contracts: new ContractsStore(paths, clock),
     casts: new CastsStore(paths, clock),
-    charges: new ChargeStore(paths, clock),
-    dailySpend: new DailySpendLedger(paths, clock),
     events,
     // Bug #20: workQueue must be present in production ctx — Phase 5/6 daemon
     // modes (pair-programming, test-storm, documentation-chase) and the

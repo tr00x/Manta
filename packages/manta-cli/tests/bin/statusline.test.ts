@@ -9,8 +9,6 @@ import {
   isLive,
   resolveRepoRoot,
   readClones,
-  readTokensEstimated,
-  readTokenCap,
   computeStatusline,
   type StatuslineClone,
 } from '../../src/bin/manta-statusline.js';
@@ -23,21 +21,19 @@ function clone(partial: Partial<StatuslineClone> & { clone_id: string; state: st
 }
 
 describe('formatStatusline', () => {
-  it('renders the canonical line: clones · token-usage/cap · elapsed', () => {
+  it('renders the canonical line: clones · elapsed', () => {
     const line = formatStatusline({
       clones: [
         clone({ clone_id: 'A', state: 'WORKING', registered_at: NOW - 4 * 60_000 }),
         clone({ clone_id: 'B', state: 'WINDING_DOWN', registered_at: NOW - 2 * 60_000 }),
       ],
-      tokensEstimated: 2_400_000,
-      tokenCap: 15_000_000,
       nowMs: NOW,
     });
-    expect(line).toBe('⧉ A▶WORKING B▶WINDING_DOWN · 2.4M/15M · 4m');
+    expect(line).toBe('⧉ A▶WORKING B▶WINDING_DOWN · 4m');
   });
 
   it('returns EMPTY string when there are no clones at all', () => {
-    expect(formatStatusline({ clones: [], tokensEstimated: 2_400_000, tokenCap: 15_000_000, nowMs: NOW })).toBe('');
+    expect(formatStatusline({ clones: [], nowMs: NOW })).toBe('');
   });
 
   it('returns EMPTY string when every clone is DEAD (no live clones)', () => {
@@ -46,8 +42,6 @@ describe('formatStatusline', () => {
         clone({ clone_id: 'A', state: 'DEAD', registered_at: NOW - 60_000 }),
         clone({ clone_id: 'B', state: 'DEAD', registered_at: NOW - 60_000 }),
       ],
-      tokensEstimated: 2_400_000,
-      tokenCap: 15_000_000,
       nowMs: NOW,
     });
     expect(line).toBe('');
@@ -59,58 +53,22 @@ describe('formatStatusline', () => {
         clone({ clone_id: 'A', state: 'DEAD', registered_at: NOW - 60_000 }),
         clone({ clone_id: 'B', state: 'WORKING', registered_at: NOW - 30_000 }),
       ],
-      tokensEstimated: 1_000_000,
-      tokenCap: 15_000_000,
       nowMs: NOW,
     });
-    expect(line).toBe('⧉ B▶WORKING · 1M/15M · 30s');
-  });
-
-  it('omits the cap when tokenCap is null', () => {
-    const line = formatStatusline({
-      clones: [clone({ clone_id: 'A', state: 'WORKING', registered_at: NOW - 60_000 })],
-      tokensEstimated: 3_000_000,
-      tokenCap: null,
-      nowMs: NOW,
-    });
-    expect(line).toBe('⧉ A▶WORKING · 3M · 1m');
-  });
-
-  it('omits the usage segment when tokensEstimated is null', () => {
-    const line = formatStatusline({
-      clones: [clone({ clone_id: 'A', state: 'WORKING', registered_at: NOW - 60_000 })],
-      tokensEstimated: null,
-      tokenCap: 15_000_000,
-      nowMs: NOW,
-    });
-    expect(line).toBe('⧉ A▶WORKING · 1m');
+    expect(line).toBe('⧉ B▶WORKING · 30s');
   });
 
   it('omits the elapsed segment when no live clone has registered_at', () => {
     const line = formatStatusline({
       clones: [clone({ clone_id: 'A', state: 'WORKING' })],
-      tokensEstimated: 2_000_000,
-      tokenCap: 15_000_000,
       nowMs: NOW,
     });
-    expect(line).toBe('⧉ A▶WORKING · 2M/15M');
-  });
-
-  it('renders sub-million usage as compact k and a fractional-M cap', () => {
-    const line = formatStatusline({
-      clones: [clone({ clone_id: 'A', state: 'WORKING' })],
-      tokensEstimated: 250_000,
-      tokenCap: 2_500_000,
-      nowMs: NOW,
-    });
-    expect(line).toBe('⧉ A▶WORKING · 250k/2.5M');
+    expect(line).toBe('⧉ A▶WORKING');
   });
 
   it('treats a clock skew (now before registration) as 0s, not negative', () => {
     const line = formatStatusline({
       clones: [clone({ clone_id: 'A', state: 'WORKING', registered_at: NOW + 5_000 })],
-      tokensEstimated: null,
-      tokenCap: null,
       nowMs: NOW,
     });
     expect(line).toBe('⧉ A▶WORKING · 0s');
@@ -122,8 +80,6 @@ describe('formatStatusline', () => {
         clone({ clone_id: 'A', state: 'WORKING', registered_at: NOW - 30_000 }),
         clone({ clone_id: 'B', state: 'WORKING', registered_at: NOW - 5 * 60_000 }),
       ],
-      tokensEstimated: null,
-      tokenCap: null,
       nowMs: NOW,
     });
     expect(line).toBe('⧉ A▶WORKING B▶WORKING · 5m');
@@ -159,14 +115,11 @@ describe('isLive', () => {
 describe('I/O readers (tmp repo)', () => {
   let dir: string;
   let stateDir: string;
-  let configDir: string;
 
   beforeEach(async () => {
     dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'manta-statusline-'));
     stateDir = path.join(dir, '.manta', 'state');
-    configDir = path.join(dir, '.manta', 'config');
     await fsp.mkdir(stateDir, { recursive: true });
-    await fsp.mkdir(configDir, { recursive: true });
     await fsp.mkdir(path.join(dir, '.git'), { recursive: true });
   });
 
@@ -199,42 +152,6 @@ describe('I/O readers (tmp repo)', () => {
     expect(readClones(dir)).toEqual([]);
   });
 
-  it('readTokensEstimated reads today tokens_estimated', async () => {
-    const today = new Date(NOW).toLocaleDateString('en-CA');
-    await fsp.writeFile(
-      path.join(stateDir, 'daily-spend.json'),
-      JSON.stringify({ version: 1, date: today, tokens_estimated: 750_000, entries: [] }),
-    );
-    expect(readTokensEstimated(dir, NOW)).toBe(750_000);
-  });
-
-  it('readTokensEstimated returns 0 for a stale (previous-day) ledger', async () => {
-    await fsp.writeFile(
-      path.join(stateDir, 'daily-spend.json'),
-      JSON.stringify({ version: 1, date: '2000-01-01', tokens_estimated: 990_000, entries: [] }),
-    );
-    expect(readTokensEstimated(dir, NOW)).toBe(0);
-  });
-
-  it('readTokensEstimated returns null when the ledger is missing', () => {
-    expect(readTokensEstimated(dir, NOW)).toBeNull();
-  });
-
-  it('readTokenCap prefers state/budget.json', async () => {
-    await fsp.writeFile(path.join(stateDir, 'budget.json'), JSON.stringify({ daily_token_cap: 5_000_000 }));
-    await fsp.writeFile(path.join(configDir, 'budget.json'), JSON.stringify({ daily_token_cap: 999_000_000 }));
-    expect(readTokenCap(dir)).toBe(5_000_000);
-  });
-
-  it('readTokenCap falls back to config/budget.json', async () => {
-    await fsp.writeFile(path.join(configDir, 'budget.json'), JSON.stringify({ daily_token_cap: 42_000_000 }));
-    expect(readTokenCap(dir)).toBe(42_000_000);
-  });
-
-  it('readTokenCap returns null when no budget file is present', () => {
-    expect(readTokenCap(dir)).toBeNull();
-  });
-
   it('resolveRepoRoot walks up to the nearest .git', () => {
     const nested = path.join(dir, 'a', 'b', 'c');
     fs.mkdirSync(nested, { recursive: true });
@@ -261,7 +178,6 @@ describe('computeStatusline (end-to-end)', () => {
     dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'manta-statusline-e2e-'));
     stateDir = path.join(dir, '.manta', 'state');
     await fsp.mkdir(stateDir, { recursive: true });
-    await fsp.mkdir(path.join(dir, '.manta', 'config'), { recursive: true });
     await fsp.mkdir(path.join(dir, '.git'), { recursive: true });
   });
 
@@ -277,13 +193,7 @@ describe('computeStatusline (end-to-end)', () => {
         clones: { A: { clone_id: 'A', state: 'WORKING', registered_at: NOW - 60_000 } },
       }),
     );
-    const today = new Date(NOW).toLocaleDateString('en-CA');
-    await fsp.writeFile(
-      path.join(stateDir, 'daily-spend.json'),
-      JSON.stringify({ version: 1, date: today, tokens_estimated: 3_000_000, entries: [] }),
-    );
-    await fsp.writeFile(path.join(stateDir, 'budget.json'), JSON.stringify({ daily_token_cap: 15_000_000 }));
-    expect(computeStatusline(dir, NOW)).toBe('⧉ A▶WORKING · 3M/15M · 1m');
+    expect(computeStatusline(dir, NOW)).toBe('⧉ A▶WORKING · 1m');
   });
 
   it('no live clones → EMPTY string', async () => {

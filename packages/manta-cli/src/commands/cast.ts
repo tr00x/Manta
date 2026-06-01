@@ -30,8 +30,6 @@ import { adjustWeightsFromProject } from './rubric-prepass.js';
 import { listWorktrees } from '../spawner/worktree.js';
 import { loadBudgetConfig } from '../config/budget-config.js';
 import { assertAghsUnlocked, resolveUnlockedAghsModes } from '../config/aghs-gate.js';
-import { runPreSpawnGate } from '../budget/pre-spawn-gate.js';
-import { classifyCastOutcome } from '../budget/cast-outcome.js';
 import type { DispatchEnqueuer } from '../dispatch/types.js';
 import { PairDispatcher } from '../dispatch/pair-dispatch.js';
 import { DocChaseDispatcher } from '../dispatch/doc-chase-dispatch.js';
@@ -265,34 +263,13 @@ export interface RunCastOptions {
    */
   inheritInstructions?: boolean | undefined;
   /**
-   * Internal per-clone usage budget (token estimate) handed to the spawner so
-   * each clone's snapshot carries a positive resource cap. NOT a dollar budget
-   * and NOT user-tunable — Claude Code is a subscription. Defaults applied by
-   * the CLI wiring; tests may override.
-   */
-  internalTokenEstimatePerClone: number;
-  internalTokenEstimatePerCast: number;
-  /**
-   * Parallelism cap (CLI: `--max-parallel-clones`). When set, a cast whose
-   * cloneCount exceeds it is rejected before any state-committing call. When
+   * Parallelism cap (CLI: `--max-parallel-clones`). The ONLY cast constraint:
+   * Claude Code is a subscription, not pay-per-token, so this is the single
+   * guard that protects the machine and the subscription rate limit. When set, a
+   * cast whose cloneCount exceeds it is rejected before any clone spawns. When
    * undefined, the BudgetConfig default (`max_parallel_clones`) applies.
    */
   maxParallelClones?: number;
-  /**
-   * Cast-rate cap (CLI: `--max-casts-per-hour`). When set, a cast is rejected
-   * if the charge ledger already recorded >= this many `cast_start` events in
-   * the trailing hour. When undefined, the BudgetConfig default applies. This
-   * is the subscription usage/rate guard — the charge system stays the primary
-   * rate primitive and this is a hard hourly ceiling on top of it.
-   */
-  maxCastsPerHour?: number;
-  /**
-   * Optional per-cast usage ceiling (CLI: `--max-tokens-estimate`). When set,
-   * it LOWERS the internal per-cast token-estimate budget: the cast is rejected
-   * if the cumulative per-clone estimate exceeds it. A true per-cast ceiling —
-   * it does NOT touch the daily-cap projection (repivot audit #2).
-   */
-  maxTokensEstimate?: number;
   /**
    * Per-clone scope (allowed/forbidden paths, max files changed). Optional —
    * when omitted defaults to read-only whole-repo with `.manta/state` and
@@ -312,20 +289,13 @@ export interface RunCastOptions {
   /** Skip the `claude mcp list` pre-flight. Tests with fake runners pass false. */
   verifyMcp?: boolean;
   /**
-   * MCP pre-flight to run before the charge-committing pre-spawn gate (B8).
-   * Defaults to {@link verifyMantaBusRegistered}. Injectable so tests can drive
-   * the throw path (bus-not-registered) deterministically without a real
-   * `claude` binary on PATH. Only consulted when `verifyMcp !== false` and not
-   * a dry-run.
+   * MCP pre-flight to run before spawning any clone. Defaults to
+   * {@link verifyMantaBusRegistered}. Injectable so tests can drive the throw
+   * path (bus-not-registered) deterministically without a real `claude` binary
+   * on PATH. Only consulted when `verifyMcp !== false` and not a dry-run.
    */
   preflight?: () => Promise<void>;
-  /** Daily token-estimate cap override. If undefined, reads from BudgetConfig. */
-  dailyTokenCapOverride?: number;
-  /** Skip charge system check (CLI: --no-charge-check). Default false. */
-  noChargeCheck?: boolean;
-  /** Force past daily cap (CLI: --force). Default false. */
-  force?: boolean;
-  /** Dry-run mode: print cost preview, do not spawn (CLI: --dry-run). Default false. */
+  /** Dry-run mode: validate and report, do not spawn (CLI: --dry-run). Default false. */
   dryRun?: boolean;
 }
 
@@ -339,7 +309,6 @@ interface EffectiveAssignment {
   task: string;
   approachHint: string | null;
   scope: CastScopeOptions;
-  tokenEstimate: number;
   deadlineMs: number;
 }
 
@@ -524,12 +493,9 @@ export async function runCastCommand(
     );
   }
 
-  // Compute per-clone effective overlay (task / approach / scope / budget /
-  // deadline). Each field falls back to the cast-level default when the
-  // assignment omits it. Cumulative budget gate is Σ effective per-clone caps,
-  // not N×cap — asymmetric overrides are honoured.
+  // Compute per-clone effective overlay (task / approach / scope / deadline).
+  // Each field falls back to the cast-level default when the assignment omits it.
   const effective: Record<string, EffectiveAssignment> = {};
-  let totalTokenEstimate = 0;
   for (const id of cloneIds) {
     const a = assignments[id] ?? {};
     const e: EffectiveAssignment = {
@@ -542,45 +508,18 @@ export async function runCastCommand(
             maxFilesChanged: a.scope.max_files_changed,
           }
         : castScope,
-      tokenEstimate: a.token_estimate ?? opts.internalTokenEstimatePerClone,
       deadlineMs:
         a.deadline_seconds != null ? a.deadline_seconds * 1_000 : DEFAULT_DEADLINE_MS,
     };
     effective[id] = e;
-    totalTokenEstimate += e.tokenEstimate;
   }
 
-  // Per-cast usage ceiling. `--max-tokens-estimate` (when given) is a true
-  // per-cast ceiling that LOWERS the internal default — repivot audit #2: the
-  // flag is advertised as a per-cast ceiling, so it must gate the per-cast
-  // estimate here, NOT the daily-cap projection (which it used to be wired to,
-  // making name and behaviour disagree).
-  const perCastCeiling = Math.min(
-    opts.internalTokenEstimatePerCast,
-    opts.maxTokensEstimate ?? Number.POSITIVE_INFINITY,
-  );
-  if (totalTokenEstimate > perCastCeiling) {
-    const detail = cloneIds
-      .map((id) => `${id}=${effective[id]!.tokenEstimate}`)
-      .join(' + ');
-    const capSource =
-      opts.maxTokensEstimate !== undefined && opts.maxTokensEstimate < opts.internalTokenEstimatePerCast
-        ? `--max-tokens-estimate=${opts.maxTokensEstimate}`
-        : `the per-cast usage budget (${opts.internalTokenEstimatePerCast})`;
-    throw new CliError(
-      `cumulative per-clone usage estimate (${detail} = ${totalTokenEstimate}) exceeds ${capSource}. ` +
-        `Lower the per-clone overrides in --tasks, spawn fewer clones, or raise --max-tokens-estimate.`,
-      { kind: 'invalid_input' },
-    );
-  }
-
-  // Usage-aware gates (budget repivot 2026-05-31). Claude Code is a
-  // subscription, not pay-per-token, so the real constraints are PARALLELISM
-  // (how many clones run at once) and the cast RATE (how often you cast against
-  // your subscription's usage limit) — not a dollar budget. Both run here,
-  // before any state-committing call (charge debit / daily-spend record in the
-  // pre-spawn gate), so a rejected cast leaks no usage. Bug #60 NaN-reject is
-  // preserved at the flag boundary (parsePositiveIntOption).
+  // The ONLY cast constraint: PARALLELISM. Claude Code is a subscription, not
+  // pay-per-token, so there is no dollar/charge/cooldown/cast-rate budget — the
+  // single guard that protects the machine and the subscription rate limit is
+  // how many clone processes run at once. Runs before any clone spawns, so a
+  // rejected cast leaves no trace. Bug #60 NaN-reject is preserved at the flag
+  // boundary (parsePositiveIntOption).
   const parallelismCap = opts.maxParallelClones ?? budgetConfig.maxParallelClones;
   if (opts.cloneCount > parallelismCap) {
     throw new CliError(
@@ -591,67 +530,20 @@ export async function runCastCommand(
     );
   }
 
-  const castRateCap = opts.maxCastsPerHour ?? budgetConfig.maxCastsPerHour;
-  if (!(opts.dryRun ?? false)) {
-    const oneHourAgo = Date.now() - 3_600_000;
-    const log = await rt.ctx.charges.readLog();
-    const castsLastHour = log.filter(
-      (e) => e.type === 'cast_start' && e.ts >= oneHourAgo,
-    ).length;
-    if (castsLastHour >= castRateCap) {
-      throw new CliError(
-        `cast-rate cap reached: ${castsLastHour} cast(s) started in the last hour, limit is ` +
-          `--max-casts-per-hour=${castRateCap}. Wait for the window to roll, or raise the cap. ` +
-          `This protects your Claude Code subscription's usage/rate limit.`,
-        { kind: 'budget_gate_failed' },
-      );
-    }
-  }
-
-  // Bug #31: every operator-typo guard belongs before any state-committing call.
-  // `runPreSpawnGate` below debits charges and records daily-spend; if a
-  // refactor-wave partition typo trips later it would leak that budget. Pull
-  // the partition check up here alongside the other input validators.
+  // Bug #31: every operator-typo guard belongs before any clone spawns, so a
+  // refactor-wave partition typo aborts cleanly rather than mid-spawn.
   if (opts.mode === 'refactor-wave' && assignments) {
     validateDisjointPartitions(assignments);
   }
 
-  // B8: the MCP pre-flight runs BEFORE the pre-spawn gate, which is where the
-  // charge is debited and the daily spend is recorded (runPreSpawnGate step 7,
-  // `gate.committed`). Pre-fix the preflight ran AFTER that commit, so a user
-  // whose bus is not registered (e.g. plugin users hit by B1) drained charges
-  // to zero just retrying a cast that could never spawn. Same philosophy as
-  // bug #31: every precondition that can abort the cast must run before any
-  // state-committing call. Skipped on --dry-run (a cost preview needs no live
-  // bus) and when verifyMcp is explicitly false (fake-runner tests). The
-  // preflight is injectable so a test can drive the throw path without a real
-  // `claude` binary on PATH.
+  // The MCP pre-flight runs before any clone spawns: a user whose bus is not
+  // registered (e.g. plugin users hit by B1) gets a clean abort instead of a
+  // half-spawned cast whose clones can't reach the bus. Skipped on --dry-run (no
+  // live bus needed) and when verifyMcp is explicitly false (fake-runner tests).
+  // Injectable so a test can drive the throw path without a real `claude` binary.
   if (opts.verifyMcp !== false && !(opts.dryRun ?? false)) {
     const preflight = opts.preflight ?? (() => verifyMantaBusRegistered());
     await preflight();
-  }
-
-  // Phase 3: Pre-spawn gate (charge + daily budget + dry-run). `budgetConfig`
-  // was loaded above for the Aghs gate; reuse it (single read per cast).
-  const gateResult = await runPreSpawnGate({
-    mode: opts.mode,
-    cloneCount: opts.cloneCount,
-    castId: opts.castId,
-    dailyTokenCapOverride: opts.dailyTokenCapOverride,
-    force: opts.force ?? false,
-    noChargeCheck: opts.noChargeCheck ?? false,
-    dryRun: opts.dryRun ?? false,
-    config: budgetConfig,
-    charges: rt.ctx.charges,
-    dailySpend: rt.ctx.dailySpend,
-    reporter: opts.reporter,
-  });
-
-  if (!gateResult.passed) {
-    throw new CliError(
-      `Pre-spawn gate failed for ${opts.mode} × ${opts.cloneCount}`,
-      { kind: 'budget_gate_failed' },
-    );
   }
 
   if (opts.dryRun) {
@@ -660,9 +552,6 @@ export async function runCastCommand(
       stdout: `Dry run complete for cast ${opts.castId}. No clones spawned.`,
     };
   }
-
-  // (MCP pre-flight already ran above, before runPreSpawnGate's charge commit
-  // — B8. Nothing to do here.)
 
   const handles: CloneHandle[] = [];
   const worktrees: WorktreeRecord[] = [];
@@ -840,7 +729,6 @@ export async function runCastCommand(
         parentSessionId,
         resumeEnabled: cloneResumeEnabled,
         castId: opts.castId,
-        tokenEstimate: e.tokenEstimate,
         sessionMode,
         sessionId,
       });
@@ -1100,34 +988,6 @@ export async function runCastCommand(
           path: pm.path,
         });
       }
-    }
-
-    // Phase 3: Post-cast settlement
-    if (!(opts.noChargeCheck ?? false)) {
-      const allClones = await rt.ctx.registry.list();
-      const castClones = allClones.filter((c) => cloneIds.includes(c.clone_id));
-      const outcome = classifyCastOutcome({
-        clones: castClones,
-        budgetAborted: loopResult.aborted,
-      });
-
-      switch (outcome) {
-        case 'success':
-          await rt.ctx.charges.creditSuccess(opts.castId, opts.mode);
-          break;
-        case 'fail':
-          await rt.ctx.charges.creditFail(opts.castId, opts.mode);
-          break;
-        case 'neutral':
-          await rt.ctx.charges.creditNeutral(opts.castId, opts.mode);
-          break;
-      }
-
-      opts.reporter.info('cast.settlement', {
-        cast: opts.castId,
-        outcome,
-        charges: (await rt.ctx.charges.read()).current_charges,
-      });
     }
 
     if (opts.mode === 'bug-hunt' && !loopResult.aborted) {

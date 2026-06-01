@@ -33,21 +33,6 @@ describe('busPaths', () => {
     expect(() => p.castFile('cast/../bad')).toThrow();
   });
 
-  it('busPaths.charges points to stateDir/charges.json', () => {
-    const p = busPaths('/tmp/repo');
-    expect(p.charges).toBe('/tmp/repo/.manta/state/charges.json');
-  });
-
-  it('busPaths.chargesLog points to stateDir/charges.log', () => {
-    const p = busPaths('/tmp/repo');
-    expect(p.chargesLog).toBe('/tmp/repo/.manta/state/charges.log');
-  });
-
-  it('busPaths.dailySpend points to stateDir/daily-spend.json', () => {
-    const p = busPaths('/tmp/repo');
-    expect(p.dailySpend).toBe('/tmp/repo/.manta/state/daily-spend.json');
-  });
-
   it('busPaths.configDir points to .manta/config', () => {
     const p = busPaths('/tmp/repo');
     expect(p.configDir).toBe('/tmp/repo/.manta/config');

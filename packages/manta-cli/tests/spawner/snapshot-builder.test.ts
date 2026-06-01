@@ -14,7 +14,6 @@ describe('snapshot-builder', () => {
     parentPid: 1234,
     parentSessionId: 'sess-1',
     castId: 'cast-1',
-    tokenEstimate: 5,
   });
 
   it('builds a snapshot from a CloneSpawnRequest with the correct top-level shape', () => {
@@ -39,24 +38,11 @@ describe('snapshot-builder', () => {
     expect(snap.openFiles).toEqual([]);
   });
 
-  it('populates the 4-field Budget shape from tokenEstimate', () => {
-    const snap = buildCloneSnapshot(baseReq());
-    expect(snap.budget.tokensEstimatedTotal).toBe(5);
-    expect(snap.budget.tokensEstimatedUsed).toBe(0);
-    expect(snap.budget.tokensTotal).toBe(0);
-    expect(snap.budget.tokensUsed).toBe(0);
-  });
-
-  it('rejects invalid budget (must be positive)', () => {
-    expect(() => buildCloneSnapshot({ ...baseReq(), tokenEstimate: 0 })).toThrow();
-    expect(() => buildCloneSnapshot({ ...baseReq(), tokenEstimate: -1 })).toThrow();
-  });
-
   it('produces a snapshot that survives JSON round-trip without losing fields', () => {
     const snap = buildCloneSnapshot(baseReq());
     const round = JSON.parse(JSON.stringify(snap)) as typeof snap;
     expect(round.taskContract.cloneId).toBe('A');
     expect(round.castId).toBe('cast-1');
-    expect(round.budget.tokensEstimatedTotal).toBe(5);
+    expect(round.taskContract.deadlineSeconds).toBe(1_200);
   });
 });

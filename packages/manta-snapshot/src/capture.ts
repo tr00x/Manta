@@ -5,7 +5,6 @@ import type {
   Message,
   Todo,
   OpenFile,
-  Budget,
 } from './schema';
 
 export interface CaptureInput {
@@ -21,7 +20,6 @@ export interface CaptureInput {
   openFiles: OpenFile[];
   parentWorktree: string;
   cloneWorktree: string;
-  budget: Budget;
   ttlSeconds: number;
   siblingCloneIds: string[];
   sessionMode?: 'batch' | 'daemon' | undefined;
@@ -47,7 +45,6 @@ export function captureState(input: CaptureInput): Snapshot {
     parentWorktree: input.parentWorktree,
     cloneWorktree: input.cloneWorktree,
     mode: input.taskContract.mode,
-    budget: input.budget,
     ttlSeconds: input.ttlSeconds,
     siblingCloneIds: input.siblingCloneIds,
     sessionMode,

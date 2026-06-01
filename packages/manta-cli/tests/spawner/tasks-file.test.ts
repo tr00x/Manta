@@ -18,13 +18,13 @@ A:
 B:
   task: rewrite SQL
   approach_hint: denormalize
-  token_estimate: 4
+  deadline_seconds: 4
 `,
       );
       const out = parseTasksFile(f);
       expect(out.A!.task).toBe('rewrite SQL');
       expect(out.A!.approach_hint).toBe('use index');
-      expect(out.B!.token_estimate).toBe(4);
+      expect(out.B!.deadline_seconds).toBe(4);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -36,11 +36,11 @@ B:
       const f = join(dir, 'plan.json');
       writeFileSync(
         f,
-        JSON.stringify({ A: { task: 'a' }, B: { task: 'b', token_estimate: 2 } }),
+        JSON.stringify({ A: { task: 'a' }, B: { task: 'b', deadline_seconds: 2 } }),
       );
       const out = parseTasksFile(f);
       expect(out.A!.task).toBe('a');
-      expect(out.B!.token_estimate).toBe(2);
+      expect(out.B!.deadline_seconds).toBe(2);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

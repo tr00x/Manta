@@ -96,8 +96,6 @@ describe('buildCastArgv', () => {
       task: 'try two designs',
       clones: 3,
       maxParallelClones: 4,
-      maxCastsPerHour: 6,
-      maxTokensEstimate: 500_000,
       maxFilesChanged: 12,
       allowedPaths: ['packages/a', 'packages/b'],
       forbiddenPaths: ['.manta/state', 'secrets/'],
@@ -112,10 +110,6 @@ describe('buildCastArgv', () => {
       '3',
       '--max-parallel-clones',
       '4',
-      '--max-casts-per-hour',
-      '6',
-      '--max-tokens-estimate',
-      '500000',
       '--max-files-changed',
       '12',
       '--allowed-paths',
@@ -246,15 +240,6 @@ describe('createUserTools handlers (stub binary via MANTA_CLI_BIN)', () => {
     expect(out.json?.argv).toEqual(['inspect', 'A', '--json', '--events', '5']);
   });
 
-  it('manta.cost runs both `cost` and `charges`', async () => {
-    const out = (await tool('manta.cost').handle({ period: 'weekly' })) as {
-      cost: { stdout: string };
-      charges: { stdout: string };
-    };
-    expect(jsonArgv(out.cost.stdout)).toEqual(['cost', 'weekly']);
-    expect(jsonArgv(out.charges.stdout)).toEqual(['charges']);
-  });
-
   it('manta.kill maps {cloneId, reason} to `kill <id> --reason <reason>`', async () => {
     const out = (await tool('manta.kill').handle({ cloneId: 'B', reason: 'wedged' })) as {
       stdout: string;
@@ -273,7 +258,7 @@ describe('createUserTools handlers (stub binary via MANTA_CLI_BIN)', () => {
 // ---------------------------------------------------------------------------
 
 describe('user tools — MCP registration', () => {
-  it('the 6 user tools are listed with introspectable schemas', async () => {
+  it('the 5 user tools are listed with introspectable schemas', async () => {
     const { root, cleanup } = await makeTmpRoot();
     const { server } = await createBusServer({ repoRoot: root, clock: new FakeClock(1_000_000) });
     const [c, s] = InMemoryTransport.createLinkedPair();
@@ -283,7 +268,7 @@ describe('user tools — MCP registration', () => {
     try {
       const listed = await client.listTools();
       const byName = new Map(listed.tools.map((t) => [t.name, t]));
-      for (const name of ['manta.cast', 'manta.status', 'manta.cost', 'manta.inspect', 'manta.abort', 'manta.kill']) {
+      for (const name of ['manta.cast', 'manta.status', 'manta.inspect', 'manta.abort', 'manta.kill']) {
         expect(byName.has(name), `${name} must be registered`).toBe(true);
       }
       // The cast tool advertises a real parameter schema the orchestrator can read.

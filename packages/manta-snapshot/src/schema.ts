@@ -55,18 +55,6 @@ export const OpenFileSchema = z.object({
   reason: z.string().min(1),
 });
 
-// `tokensTotal`/`tokensUsed` track real transcript token accounting. The
-// `tokensEstimated*` pair is the clone's internal per-clone usage cap — a token
-// ESTIMATE (subscription usage proxy), NOT dollars. The 2026-05-31 budget
-// repivot renamed the former `dollarsTotal`/`dollarsUsed` fields: Claude Code is
-// a subscription (Pro/Max), not pay-per-token, so a dollar cap was meaningless.
-export const BudgetSchema = z.object({
-  tokensTotal: z.number().int().nonnegative(),
-  tokensUsed: z.number().int().nonnegative(),
-  tokensEstimatedTotal: z.number().nonnegative(),
-  tokensEstimatedUsed: z.number().nonnegative(),
-});
-
 export const SnapshotSchema = z
   .object({
     version: z.literal(CURRENT_SCHEMA_VERSION),
@@ -90,7 +78,6 @@ export const SnapshotSchema = z
     parentWorktree: z.string().min(1),
     cloneWorktree: z.string().min(1),
     mode: ModeSchema,
-    budget: BudgetSchema,
     ttlSeconds: z.number().int().positive(),
     siblingCloneIds: z.array(z.string().min(1)),
     sessionMode: SessionModeSchema.default('batch'),
@@ -112,4 +99,3 @@ export type Scope = z.infer<typeof ScopeSchema>;
 export type Todo = z.infer<typeof TodoSchema>;
 export type Message = z.infer<typeof MessageSchema>;
 export type OpenFile = z.infer<typeof OpenFileSchema>;
-export type Budget = z.infer<typeof BudgetSchema>;

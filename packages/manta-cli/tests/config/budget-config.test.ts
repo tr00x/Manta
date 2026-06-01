@@ -17,18 +17,22 @@ afterEach(async () => {
 describe('loadBudgetConfig', () => {
   it('returns defaults when no config file exists', async () => {
     const config = await loadBudgetConfig(tmpDir);
-    expect(config.tokenEstimatePerCast).toBe(BUDGET_DEFAULTS.tokenEstimatePerCast);
-    expect(config.tokenEstimatePerClone).toBe('auto');
-    expect(config.dailyTokenCap).toBe(BUDGET_DEFAULTS.dailyTokenCap);
-    expect(config.autoDowngrade.enabled).toBe(true);
-    expect(config.autoDowngrade.confirm).toBe(true);
-    expect(config.autoDowngrade.minClones).toBe(1);
-    expect(config.charges.initial).toBe(3);
-    expect(config.charges.max).toBe(5);
-    expect(config.charges.min).toBe(-1);
-    expect(config.charges.idleRecoveryMinutes).toBe(30);
-    expect(config.charges.cooldownHours).toBe(24);
+    // Claude Code is a subscription, not pay-per-token — the only tunable cast
+    // limit is parallelism. Cost/charges/cooldown/cast-rate accounting is gone.
+    expect(config.maxParallelClones).toBe(BUDGET_DEFAULTS.maxParallelClones);
     expect(config.triggersGlobalHourlyCap).toBe(6);
+    expect(config.aghsUnlocked).toEqual([]);
+  });
+
+  it('resolves max_parallel_clones override from file', async () => {
+    const configDir = path.join(tmpDir, '.manta', 'config');
+    await fs.mkdir(configDir, { recursive: true });
+    await fs.writeFile(
+      path.join(configDir, 'budget.json'),
+      JSON.stringify({ max_parallel_clones: 3 }),
+    );
+    const config = await loadBudgetConfig(tmpDir);
+    expect(config.maxParallelClones).toBe(3);
   });
 
   it('resolves triggers.global_hourly_cap override from file', async () => {
@@ -45,71 +49,22 @@ describe('loadBudgetConfig', () => {
   it('all fields in ResolvedBudgetConfig are required (not undefined)', async () => {
     const config = await loadBudgetConfig(tmpDir);
     const keys: (keyof ResolvedBudgetConfig)[] = [
-      'tokenEstimatePerCast', 'tokenEstimatePerClone', 'dailyTokenCap',
-      'tokenEstimates', 'autoDowngrade', 'charges', 'triggersGlobalHourlyCap',
+      'maxParallelClones', 'triggersGlobalHourlyCap', 'aghsUnlocked',
     ];
     for (const key of keys) {
       expect(config[key]).toBeDefined();
     }
   });
 
-  it('tokenEstimates has defaults for known modes', async () => {
-    const config = await loadBudgetConfig(tmpDir);
-    expect(config.tokenEstimates['recon-swarm']).toBe(150_000);
-    expect(config.tokenEstimates['forking-realities']).toBe(300_000);
-  });
-
-  it('merges partial config from file', async () => {
+  it('resolves aghs.unlocked from file', async () => {
     const configDir = path.join(tmpDir, '.manta', 'config');
     await fs.mkdir(configDir, { recursive: true });
     await fs.writeFile(
       path.join(configDir, 'budget.json'),
-      JSON.stringify({ daily_token_cap: 100, token_estimate_per_cast: 25 }),
+      JSON.stringify({ aghs: { unlocked: ['council'] } }),
     );
     const config = await loadBudgetConfig(tmpDir);
-    expect(config.dailyTokenCap).toBe(100);
-    expect(config.tokenEstimatePerCast).toBe(25);
-    expect(config.tokenEstimatePerClone).toBe('auto');
-    expect(config.charges.max).toBe(5);
-  });
-
-  it('merges nested auto_downgrade partial', async () => {
-    const configDir = path.join(tmpDir, '.manta', 'config');
-    await fs.mkdir(configDir, { recursive: true });
-    await fs.writeFile(
-      path.join(configDir, 'budget.json'),
-      JSON.stringify({ auto_downgrade: { min_clones: 2 } }),
-    );
-    const config = await loadBudgetConfig(tmpDir);
-    expect(config.autoDowngrade.minClones).toBe(2);
-    expect(config.autoDowngrade.enabled).toBe(true);
-    expect(config.autoDowngrade.confirm).toBe(true);
-  });
-
-  it('merges nested charges partial', async () => {
-    const configDir = path.join(tmpDir, '.manta', 'config');
-    await fs.mkdir(configDir, { recursive: true });
-    await fs.writeFile(
-      path.join(configDir, 'budget.json'),
-      JSON.stringify({ charges: { max: 10, cooldown_hours: 48 } }),
-    );
-    const config = await loadBudgetConfig(tmpDir);
-    expect(config.charges.max).toBe(10);
-    expect(config.charges.cooldownHours).toBe(48);
-    expect(config.charges.initial).toBe(3);
-    expect(config.charges.min).toBe(-1);
-  });
-
-  it('merges token_estimates partial', async () => {
-    const configDir = path.join(tmpDir, '.manta', 'config');
-    await fs.mkdir(configDir, { recursive: true });
-    await fs.writeFile(
-      path.join(configDir, 'budget.json'),
-      JSON.stringify({ token_estimates: { 'recon-swarm': 200_000 } }),
-    );
-    const config = await loadBudgetConfig(tmpDir);
-    expect(config.tokenEstimates['recon-swarm']).toBe(200_000);
-    expect(config.tokenEstimates['forking-realities']).toBe(300_000);
+    expect(config.aghsUnlocked).toEqual(['council']);
   });
 
   it('ignores malformed config file and returns defaults', async () => {
@@ -117,17 +72,6 @@ describe('loadBudgetConfig', () => {
     await fs.mkdir(configDir, { recursive: true });
     await fs.writeFile(path.join(configDir, 'budget.json'), 'not json');
     const config = await loadBudgetConfig(tmpDir);
-    expect(config.tokenEstimatePerCast).toBe(BUDGET_DEFAULTS.tokenEstimatePerCast);
-  });
-
-  it('tokenEstimatePerClone can be numeric from config', async () => {
-    const configDir = path.join(tmpDir, '.manta', 'config');
-    await fs.mkdir(configDir, { recursive: true });
-    await fs.writeFile(
-      path.join(configDir, 'budget.json'),
-      JSON.stringify({ token_estimate_per_clone: 8 }),
-    );
-    const config = await loadBudgetConfig(tmpDir);
-    expect(config.tokenEstimatePerClone).toBe(8);
+    expect(config.maxParallelClones).toBe(BUDGET_DEFAULTS.maxParallelClones);
   });
 });

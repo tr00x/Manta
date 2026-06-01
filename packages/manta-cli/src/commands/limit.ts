@@ -19,42 +19,9 @@ interface FlatEntry {
 }
 
 function flattenConfig(c: ResolvedBudgetConfig): FlatEntry[] {
-  return [
-    { key: 'max_parallel_clones', display: String(c.maxParallelClones) },
-    { key: 'max_casts_per_hour', display: String(c.maxCastsPerHour) },
-    { key: 'token_estimate_per_cast', display: String(c.tokenEstimatePerCast) },
-    {
-      key: 'token_estimate_per_clone',
-      display:
-        c.tokenEstimatePerClone === 'auto'
-          ? 'auto (computed: per_cast / N)'
-          : String(c.tokenEstimatePerClone),
-    },
-    { key: 'daily_token_cap', display: String(c.dailyTokenCap) },
-    {
-      key: 'auto_downgrade.enabled',
-      display: String(c.autoDowngrade.enabled),
-    },
-    {
-      key: 'auto_downgrade.confirm',
-      display: String(c.autoDowngrade.confirm),
-    },
-    {
-      key: 'auto_downgrade.min_clones',
-      display: String(c.autoDowngrade.minClones),
-    },
-    { key: 'charges.initial', display: String(c.charges.initial) },
-    { key: 'charges.max', display: String(c.charges.max) },
-    { key: 'charges.min', display: String(c.charges.min) },
-    {
-      key: 'charges.idle_recovery_minutes',
-      display: String(c.charges.idleRecoveryMinutes),
-    },
-    {
-      key: 'charges.cooldown_hours',
-      display: String(c.charges.cooldownHours),
-    },
-  ];
+  // Claude Code is a subscription, not pay-per-token, so the only tunable limit
+  // is parallelism — how many clone processes run at once.
+  return [{ key: 'max_parallel_clones', display: String(c.maxParallelClones) }];
 }
 
 function resolvedValue(
@@ -63,18 +30,6 @@ function resolvedValue(
 ): string | undefined {
   const map: Record<string, unknown> = {
     max_parallel_clones: config.maxParallelClones,
-    max_casts_per_hour: config.maxCastsPerHour,
-    token_estimate_per_cast: config.tokenEstimatePerCast,
-    token_estimate_per_clone: config.tokenEstimatePerClone,
-    daily_token_cap: config.dailyTokenCap,
-    'auto_downgrade.enabled': config.autoDowngrade.enabled,
-    'auto_downgrade.confirm': config.autoDowngrade.confirm,
-    'auto_downgrade.min_clones': config.autoDowngrade.minClones,
-    'charges.initial': config.charges.initial,
-    'charges.max': config.charges.max,
-    'charges.min': config.charges.min,
-    'charges.idle_recovery_minutes': config.charges.idleRecoveryMinutes,
-    'charges.cooldown_hours': config.charges.cooldownHours,
   };
   const v = map[key];
   return v !== undefined ? String(v) : undefined;

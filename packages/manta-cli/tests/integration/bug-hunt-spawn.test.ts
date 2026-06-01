@@ -40,8 +40,6 @@ describe('bug-hunt spawn integration', () => {
       cycleIntervalMs: 50,
       tickBudgetMs: 30_000,
       castId: 'cast-int-bh-1',
-      internalTokenEstimatePerClone: 5,
-      internalTokenEstimatePerCast: 15,
       cloneAssignments: {
         A: { task: 'investigate API layer', approach_hint: 'trace request lifecycle' },
         B: { task: 'investigate DB layer', approach_hint: 'check connection pool' },

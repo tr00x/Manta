@@ -12,9 +12,6 @@ export interface BusPaths {
   readonly contractsDir: string;
   readonly castsDir: string;
   readonly lockfileDir: string;
-  readonly charges: string;
-  readonly chargesLog: string;
-  readonly dailySpend: string;
   readonly configDir: string;
   readonly budgetConfig: string;
   readonly workQueue: string;
@@ -43,9 +40,6 @@ export function busPaths(repoRoot: string): BusPaths {
     contractsDir: path.join(stateDir, 'contracts'),
     castsDir: path.join(stateDir, 'casts'),
     lockfileDir: path.join(stateDir, '.locks'),
-    charges: path.join(stateDir, 'charges.json'),
-    chargesLog: path.join(stateDir, 'charges.log'),
-    dailySpend: path.join(stateDir, 'daily-spend.json'),
     configDir,
     budgetConfig: path.join(configDir, 'budget.json'),
     workQueue: path.join(stateDir, 'work-queue.json'),

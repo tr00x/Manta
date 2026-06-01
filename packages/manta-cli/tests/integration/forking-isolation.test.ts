@@ -42,8 +42,6 @@ describe('forking-realities end-to-end isolation', () => {
       cycleIntervalMs: 50,
       tickBudgetMs: 30_000,
       castId: 'cast-iso-1',
-      internalTokenEstimatePerClone: 1,
-      internalTokenEstimatePerCast: 5,
       cloneAssignments: {
         A: { task: 'algorithm-only' },
         B: { task: 'index-based' },

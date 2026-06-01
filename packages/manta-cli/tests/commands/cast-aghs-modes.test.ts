@@ -29,8 +29,6 @@ const baseOpts = {
   cycleIntervalMs: 50,
   reporter: createReporter({ sink: new MemorySink() }),
   tickBudgetMs: 5_000,
-  internalTokenEstimatePerClone: 4,
-  internalTokenEstimatePerCast: 15,
   verifyMcp: false as const,
 };
 

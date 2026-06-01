@@ -1,5 +1,4 @@
 import { captureState, type Mode, type Scope, type Snapshot } from '@manta/snapshot';
-import { CliError } from '../errors.js';
 
 export interface CloneSpawnRequest {
   cloneId: string;
@@ -17,19 +16,12 @@ export interface CloneSpawnRequest {
   /** Boot the clone as a continuation of the parent transcript. Default false. */
   resumeEnabled?: boolean | undefined;
   castId: string;
-  tokenEstimate: number;
-  budgetTokens?: number;
   approachHint?: string | null;
   sessionMode?: 'batch' | 'daemon' | undefined;
   sessionId?: string | undefined;
 }
 
 export function buildCloneSnapshot(req: CloneSpawnRequest): Snapshot {
-  if (req.tokenEstimate <= 0) {
-    throw new CliError(`invalid token estimate for clone ${req.cloneId}: must be > 0`, {
-      kind: 'invalid_input',
-    });
-  }
   const deadlineSeconds = Math.max(1, Math.ceil(req.deadlineMs / 1000));
   const sessionMode = req.sessionMode ?? 'batch';
   return captureState({
@@ -52,12 +44,6 @@ export function buildCloneSnapshot(req: CloneSpawnRequest): Snapshot {
     openFiles: [],
     parentWorktree: req.parentWorktree,
     cloneWorktree: req.cloneWorktree,
-    budget: {
-      tokensTotal: req.budgetTokens ?? 0,
-      tokensUsed: 0,
-      tokensEstimatedTotal: req.tokenEstimate,
-      tokensEstimatedUsed: 0,
-    },
     ttlSeconds: deadlineSeconds,
     siblingCloneIds: req.siblingClones,
     sessionMode,
