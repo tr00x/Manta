@@ -45,6 +45,17 @@ export async function loadScoringConfig(repoRoot: string): Promise<ScoringConfig
 export interface RawCandidateMetrics {
   cloneId: string;
   testsPassed: boolean;
+  /**
+   * Bug #M9: did a test gate actually RUN for this candidate? A candidate is
+   * disqualified only when a real test gate ran AND failed (`testsRan &&
+   * !testsPassed`) — NOT when no test gate is applicable (`testsRan === false`,
+   * e.g. an unrecognised toolchain or a project with no test command). Without
+   * this, every non-JS candidate was silently DQ'd on `test_gate` because
+   * `pnpm test` errored on a project that never had pnpm. Optional for
+   * backward compatibility: a missing value is treated as `true` (a test ran),
+   * preserving the original DQ-on-!testsPassed behaviour for existing callers.
+   */
+  testsRan?: boolean;
   coverageDelta: number;
   diffLinesChanged: number;
   complexityDelta: number;
@@ -96,11 +107,19 @@ function normalizeLowerBetterLog(values: number[]): number[] {
 }
 
 export function normalizeCohort(candidates: RawCandidateMetrics[]): (NormalizedCandidate | DisqualifiedCandidate)[] {
+  // Bug #M9: disqualify ONLY when a test gate ran and failed. When no gate ran
+  // (`testsRan === false` — unrecognised toolchain, no test command), the
+  // candidate is NOT disqualified: it survives into scoring on its other
+  // dimensions, rather than being silently thrown out. `testsRan === undefined`
+  // (legacy callers) means "a test ran", so the original behaviour holds.
+  const gateRanAndFailed = (c: RawCandidateMetrics): boolean =>
+    c.testsRan !== false && !c.testsPassed;
+
   const disqualified: DisqualifiedCandidate[] = candidates
-    .filter((c) => !c.testsPassed)
+    .filter(gateRanAndFailed)
     .map((c) => ({ cloneId: c.cloneId, disqualified: true as const, reason: 'test_gate' as const, raw: c }));
 
-  const surviving = candidates.filter((c) => c.testsPassed);
+  const surviving = candidates.filter((c) => !gateRanAndFailed(c));
   if (surviving.length === 0) return disqualified;
 
   const coverageNorm = normalizeHigherBetter(surviving.map((c) => c.coverageDelta));

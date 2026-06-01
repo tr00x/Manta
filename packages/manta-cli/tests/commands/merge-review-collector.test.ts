@@ -20,6 +20,23 @@ const { execaMock, execaCalls } = vi.hoisted(() => {
 
 vi.mock('execa', () => ({ execa: execaMock }));
 
+// Bug #M9: the collector now detects the worktree's toolchain (via existsSync on
+// marker files) and drives the gate from it. These bug #63 tests use synthetic
+// paths like `/wt` that don't exist on disk, so the real detector would return
+// `unknown` (no gate commands). Force the pnpm toolchain — Manta's own canonical
+// gate — so these tests keep asserting the exact pnpm install/build/test/tsc/lint
+// command sequence they were written for. (#M9's own behaviour is covered by
+// toolchain.test.ts + scoring.test.ts.)
+vi.mock('../../src/commands/toolchain.js', () => ({
+  detectToolchain: () => ({
+    kind: 'pnpm',
+    install: ['pnpm', 'install', '--frozen-lockfile', '--prefer-offline'],
+    build: ['pnpm', '-r', '--filter', './packages/*', 'build'],
+    test: ['pnpm', 'test'],
+    isTypeScript: true,
+  }),
+}));
+
 const { createMetricCollector, prepareWorktreeForGate } = await import(
   '../../src/commands/merge-review-collector.js'
 );

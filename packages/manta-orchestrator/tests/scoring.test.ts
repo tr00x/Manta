@@ -89,6 +89,36 @@ describe('normalizeCohort', () => {
     expect(result.every((r) => r.disqualified)).toBe(true);
   });
 
+  // Bug #M9: a candidate whose test gate did NOT run (unrecognised toolchain,
+  // no test command — testsRan:false) must NOT be disqualified. The old code
+  // DQ'd it on test_gate because `pnpm test` errored on a non-JS project,
+  // killing forking-realities for the entire non-JS world.
+  it('does NOT disqualify a candidate whose test gate did not run (testsRan:false)', () => {
+    const candidates = [makeMetrics({ cloneId: 'a', testsPassed: false, testsRan: false })];
+    const result = normalizeCohort(candidates);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.disqualified).toBe(false);
+  });
+
+  it('still disqualifies when a test gate ran AND failed (testsRan:true)', () => {
+    const candidates = [makeMetrics({ cloneId: 'a', testsPassed: false, testsRan: true })];
+    const result = normalizeCohort(candidates);
+    expect(result[0]!.disqualified).toBe(true);
+    expect((result[0]! as DisqualifiedCandidate).reason).toBe('test_gate');
+  });
+
+  it('mixed cohort: ran-and-failed is DQ\'d, gate-skipped survives', () => {
+    const candidates = [
+      makeMetrics({ cloneId: 'failed', testsPassed: false, testsRan: true }),
+      makeMetrics({ cloneId: 'skipped', testsPassed: false, testsRan: false }),
+    ];
+    const result = normalizeCohort(candidates);
+    const failed = result.find((r) => r.cloneId === 'failed')!;
+    const skipped = result.find((r) => r.cloneId === 'skipped')!;
+    expect(failed.disqualified).toBe(true);
+    expect(skipped.disqualified).toBe(false);
+  });
+
   it('normalizes 3 varied candidates correctly', () => {
     const candidates = [
       makeMetrics({ cloneId: 'a', coverageDelta: 10, diffLinesChanged: 50, complexityDelta: 1 }),

@@ -2,6 +2,7 @@ import { execa } from 'execa';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { MetricCollector, RawCandidateMetrics } from '@manta/orchestrator';
+import { detectToolchain, type Toolchain } from './toolchain.js';
 
 const INSTALL_TIMEOUT_MS = 300_000;
 const BUILD_TIMEOUT_MS = 300_000;
@@ -54,34 +55,50 @@ function runSerialized<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 export async function prepareWorktreeForGate(worktreePath: string): Promise<void> {
+  const tc = detectToolchain(worktreePath);
   await runSerialized(async () => {
-    // --frozen-lockfile: the worktree is checked out from a committed branch
-    // whose pnpm-lock.yaml is authoritative; a warm store makes this a near-noop
-    // and it can NEVER rewrite the tracked lockfile (which would dirty
-    // `git diff --stat HEAD` in the diff-size metric). --prefer-offline keeps it
-    // store-local.
-    await execa('pnpm', ['install', '--frozen-lockfile', '--prefer-offline'], {
-      cwd: worktreePath,
-      timeout: INSTALL_TIMEOUT_MS,
-      reject: false,
-    });
-    await execa('pnpm', ['-r', '--filter', './packages/*', 'build'], {
-      cwd: worktreePath,
-      timeout: BUILD_TIMEOUT_MS,
-      reject: false,
-    });
+    // Bug #M9: install/build are toolchain-specific (pnpm for Manta's own repo;
+    // npm/pip/cargo/go elsewhere; null = nothing to do). bug #63 reasoning still
+    // holds for the pnpm path: a fresh worktree has no node_modules/dist, so the
+    // @manta/* aliases must be installed + built BEFORE measuring tsc/test or
+    // good work false-REDs. Errors are swallowed (reject:false): a worktree that
+    // genuinely can't install/build surfaces as a downstream test/tsc RED — the
+    // correct true-RED — instead of throwing here.
+    if (tc.install) {
+      await execa(tc.install[0], [...tc.install.slice(1)], {
+        cwd: worktreePath,
+        timeout: INSTALL_TIMEOUT_MS,
+        reject: false,
+      });
+    }
+    if (tc.build) {
+      await execa(tc.build[0], [...tc.build.slice(1)], {
+        cwd: worktreePath,
+        timeout: BUILD_TIMEOUT_MS,
+        reject: false,
+      });
+    }
   });
 }
 
-async function runTests(worktreePath: string): Promise<boolean> {
+interface TestOutcome {
+  /** A test gate was applicable and was executed. */
+  ran: boolean;
+  /** Tests passed. Only meaningful when `ran` is true. */
+  passed: boolean;
+}
+
+async function runTests(worktreePath: string, tc: Toolchain): Promise<TestOutcome> {
+  // Bug #M9: no detectable test command (unrecognised toolchain, or an npm
+  // project with no `test` script) → the gate is SKIPPED, not failed. Returning
+  // ran:false keeps the candidate in scoring instead of silently DQ-ing it on
+  // test_gate (the old `pnpm test` hardcode DQ'd every non-JS candidate).
+  if (!tc.test) return { ran: false, passed: false };
   try {
-    // bug #63: canonical gate test step = root `pnpm test` (`vitest run
-    // --passWithNoTests`), mirroring `pnpm gate` exactly — not an ad-hoc
-    // per-package `pnpm -r test`.
-    await execa('pnpm', ['test'], { cwd: worktreePath, timeout: TEST_TIMEOUT_MS });
-    return true;
+    await execa(tc.test[0], [...tc.test.slice(1)], { cwd: worktreePath, timeout: TEST_TIMEOUT_MS });
+    return { ran: true, passed: true };
   } catch {
-    return false;
+    return { ran: true, passed: false };
   }
 }
 
@@ -205,23 +222,31 @@ async function readEslintResults(worktreePath: string): Promise<{ warnings: numb
 export function createMetricCollector(): MetricCollector {
   return {
     async collect(cloneId: string, worktreePath: string, baseBranch: string): Promise<CollectedMetrics> {
-      // bug #63: prepare the worktree (install + build) BEFORE measuring any gate
-      // dimension. Without this, tsc/test score missing build artifacts, not real
-      // quality, and good committed work is false-negatived.
+      // Bug #M9: detect the worktree's toolchain once and drive every gate step
+      // from it. bug #63: prepare (install + build) BEFORE measuring, so a fresh
+      // worktree doesn't false-RED on missing build artifacts.
+      const tc = detectToolchain(worktreePath);
       await prepareWorktreeForGate(worktreePath);
-      const testsPassed = await runTests(worktreePath);
+      const test = await runTests(worktreePath, tc);
+      // tsc + eslint are TypeScript-specific. For a non-TS project they would
+      // always red (no tsconfig, no workspace eslint) and unfairly tank the
+      // score — so they only run for a TS toolchain; otherwise they're neutral
+      // (0 errors / 0 warnings), letting coverage + diff + complexity decide.
       const [coverageDelta, diffLinesChanged, complexityDelta, tscErrors, eslintResults] =
         await Promise.all([
           readCoverageDelta(worktreePath),
           readDiffSize(worktreePath, baseBranch),
           readComplexityDelta(worktreePath, baseBranch),
-          readTscErrors(worktreePath),
-          readEslintResults(worktreePath),
+          tc.isTypeScript ? readTscErrors(worktreePath) : Promise.resolve(0),
+          tc.isTypeScript
+            ? readEslintResults(worktreePath)
+            : Promise.resolve({ warnings: 0, errors: 0 }),
         ]);
 
       return {
         cloneId,
-        testsPassed,
+        testsPassed: test.passed,
+        testsRan: test.ran,
         coverageDelta,
         diffLinesChanged,
         complexityDelta,

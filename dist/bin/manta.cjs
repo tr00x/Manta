@@ -24862,8 +24862,9 @@ function normalizeLowerBetterLog(values) {
   return logs.map((l) => 1 - (l - min) / (max - min));
 }
 function normalizeCohort(candidates) {
-  const disqualified = candidates.filter((c) => !c.testsPassed).map((c) => ({ cloneId: c.cloneId, disqualified: true, reason: "test_gate", raw: c }));
-  const surviving = candidates.filter((c) => c.testsPassed);
+  const gateRanAndFailed = (c) => c.testsRan !== false && !c.testsPassed;
+  const disqualified = candidates.filter(gateRanAndFailed).map((c) => ({ cloneId: c.cloneId, disqualified: true, reason: "test_gate", raw: c }));
+  const surviving = candidates.filter((c) => !gateRanAndFailed(c));
   if (surviving.length === 0) return disqualified;
   const coverageNorm = normalizeHigherBetter(surviving.map((c) => c.coverageDelta));
   const diffNorm = normalizeLowerBetterLog(surviving.map((c) => c.diffLinesChanged));
@@ -42691,14 +42692,82 @@ function classifyCastOutcome(input) {
 
 // src/commands/cast.ts
 init_src3();
-var import_node_path8 = require("path");
+var import_node_path9 = require("path");
 var import_node_crypto3 = require("crypto");
 
 // src/commands/merge-review-collector.ts
 init_cjs_shims();
 init_execa();
 var import_promises6 = require("fs/promises");
+var import_node_path7 = require("path");
+
+// src/commands/toolchain.ts
+init_cjs_shims();
+var import_node_fs4 = require("fs");
 var import_node_path6 = require("path");
+function has(root, name) {
+  return (0, import_node_fs4.existsSync)((0, import_node_path6.join)(root, name));
+}
+function packageJsonHasTestScript(root) {
+  try {
+    const pkg = JSON.parse((0, import_node_fs4.readFileSync)((0, import_node_path6.join)(root, "package.json"), "utf-8"));
+    return typeof pkg.scripts?.test === "string" && pkg.scripts.test.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+function detectToolchain(worktreePath) {
+  if (has(worktreePath, "pnpm-lock.yaml") || has(worktreePath, "pnpm-workspace.yaml")) {
+    return {
+      kind: "pnpm",
+      install: ["pnpm", "install", "--frozen-lockfile", "--prefer-offline"],
+      build: ["pnpm", "-r", "--filter", "./packages/*", "build"],
+      test: ["pnpm", "test"],
+      isTypeScript: true
+    };
+  }
+  if (has(worktreePath, "package.json")) {
+    return {
+      kind: "npm",
+      install: has(worktreePath, "package-lock.json") ? ["npm", "ci"] : ["npm", "install"],
+      build: null,
+      // a bare package.json may have no build; tsc step is skipped unless present
+      test: packageJsonHasTestScript(worktreePath) ? ["npm", "test"] : null,
+      isTypeScript: has(worktreePath, "tsconfig.json") || has(worktreePath, "tsconfig.base.json")
+    };
+  }
+  if (has(worktreePath, "pyproject.toml") || has(worktreePath, "setup.py")) {
+    return {
+      kind: "python",
+      install: ["pip", "install", "-e", "."],
+      build: null,
+      test: ["python", "-m", "pytest", "-q"],
+      isTypeScript: false
+    };
+  }
+  if (has(worktreePath, "Cargo.toml")) {
+    return {
+      kind: "cargo",
+      install: null,
+      // cargo test fetches+builds as needed
+      build: ["cargo", "build"],
+      test: ["cargo", "test"],
+      isTypeScript: false
+    };
+  }
+  if (has(worktreePath, "go.mod")) {
+    return {
+      kind: "go",
+      install: null,
+      build: ["go", "build", "./..."],
+      test: ["go", "test", "./..."],
+      isTypeScript: false
+    };
+  }
+  return { kind: "unknown", install: null, build: null, test: null, isTypeScript: false };
+}
+
+// src/commands/merge-review-collector.ts
 var INSTALL_TIMEOUT_MS = 3e5;
 var BUILD_TIMEOUT_MS = 3e5;
 var TEST_TIMEOUT_MS = 3e5;
@@ -42715,30 +42784,36 @@ function runSerialized(fn2) {
   return run;
 }
 async function prepareWorktreeForGate(worktreePath) {
+  const tc = detectToolchain(worktreePath);
   await runSerialized(async () => {
-    await execa("pnpm", ["install", "--frozen-lockfile", "--prefer-offline"], {
-      cwd: worktreePath,
-      timeout: INSTALL_TIMEOUT_MS,
-      reject: false
-    });
-    await execa("pnpm", ["-r", "--filter", "./packages/*", "build"], {
-      cwd: worktreePath,
-      timeout: BUILD_TIMEOUT_MS,
-      reject: false
-    });
+    if (tc.install) {
+      await execa(tc.install[0], [...tc.install.slice(1)], {
+        cwd: worktreePath,
+        timeout: INSTALL_TIMEOUT_MS,
+        reject: false
+      });
+    }
+    if (tc.build) {
+      await execa(tc.build[0], [...tc.build.slice(1)], {
+        cwd: worktreePath,
+        timeout: BUILD_TIMEOUT_MS,
+        reject: false
+      });
+    }
   });
 }
-async function runTests(worktreePath) {
+async function runTests(worktreePath, tc) {
+  if (!tc.test) return { ran: false, passed: false };
   try {
-    await execa("pnpm", ["test"], { cwd: worktreePath, timeout: TEST_TIMEOUT_MS });
-    return true;
+    await execa(tc.test[0], [...tc.test.slice(1)], { cwd: worktreePath, timeout: TEST_TIMEOUT_MS });
+    return { ran: true, passed: true };
   } catch {
-    return false;
+    return { ran: true, passed: false };
   }
 }
 async function readCoverageDelta(worktreePath) {
   try {
-    const raw = await (0, import_promises6.readFile)((0, import_node_path6.join)(worktreePath, "coverage", "coverage-summary.json"), "utf-8");
+    const raw = await (0, import_promises6.readFile)((0, import_node_path7.join)(worktreePath, "coverage", "coverage-summary.json"), "utf-8");
     const summary = JSON.parse(raw);
     return summary.total?.lines?.pct ?? 0;
   } catch {
@@ -42837,18 +42912,20 @@ async function readEslintResults(worktreePath) {
 function createMetricCollector() {
   return {
     async collect(cloneId, worktreePath, baseBranch) {
+      const tc = detectToolchain(worktreePath);
       await prepareWorktreeForGate(worktreePath);
-      const testsPassed = await runTests(worktreePath);
+      const test = await runTests(worktreePath, tc);
       const [coverageDelta, diffLinesChanged, complexityDelta, tscErrors, eslintResults] = await Promise.all([
         readCoverageDelta(worktreePath),
         readDiffSize(worktreePath, baseBranch),
         readComplexityDelta(worktreePath, baseBranch),
-        readTscErrors(worktreePath),
-        readEslintResults(worktreePath)
+        tc.isTypeScript ? readTscErrors(worktreePath) : Promise.resolve(0),
+        tc.isTypeScript ? readEslintResults(worktreePath) : Promise.resolve({ warnings: 0, errors: 0 })
       ]);
       return {
         cloneId,
-        testsPassed,
+        testsPassed: test.passed,
+        testsRan: test.ran,
         coverageDelta,
         diffLinesChanged,
         complexityDelta,
@@ -42864,7 +42941,7 @@ function createMetricCollector() {
 // src/commands/rubric-prepass.ts
 init_cjs_shims();
 var import_promises7 = require("fs/promises");
-var import_node_path7 = require("path");
+var import_node_path8 = require("path");
 async function adjustWeightsFromProject(repoRoot, baseConfig) {
   const adjustments = [];
   const weights = { ...baseConfig.weights };
@@ -42881,7 +42958,7 @@ async function adjustWeightsFromProject(repoRoot, baseConfig) {
 }
 async function applyTsconfigAdjustments(repoRoot, weights, adjustments) {
   try {
-    const raw = await (0, import_promises7.readFile)((0, import_node_path7.join)(repoRoot, "tsconfig.json"), "utf-8");
+    const raw = await (0, import_promises7.readFile)((0, import_node_path8.join)(repoRoot, "tsconfig.json"), "utf-8");
     const tsconfig = JSON.parse(raw);
     const co2 = tsconfig.compilerOptions;
     if (!co2?.strict) return;
@@ -42921,7 +42998,7 @@ async function applyEslintAdjustments(repoRoot, weights, adjustments) {
   ];
   for (const name of candidates) {
     try {
-      const raw = await (0, import_promises7.readFile)((0, import_node_path7.join)(repoRoot, name), "utf-8");
+      const raw = await (0, import_promises7.readFile)((0, import_node_path8.join)(repoRoot, name), "utf-8");
       const rulePattern = /["'][\w/@-]+["']\s*:\s*["'[]/g;
       const matches = raw.match(rulePattern);
       if (matches && matches.length > 100) {
@@ -42943,7 +43020,7 @@ async function applyVitestAdjustments(repoRoot, weights, adjustments) {
   const candidates = ["vitest.config.ts", "vitest.config.js", "vitest.config.mts"];
   for (const name of candidates) {
     try {
-      const raw = await (0, import_promises7.readFile)((0, import_node_path7.join)(repoRoot, name), "utf-8");
+      const raw = await (0, import_promises7.readFile)((0, import_node_path8.join)(repoRoot, name), "utf-8");
       const thresholdMatch = raw.match(/thresholds?\s*[:{]/);
       const highThreshold = raw.match(/(?:lines|branches|functions|statements)\s*:\s*(\d+)/);
       if (thresholdMatch && highThreshold) {
@@ -43552,7 +43629,7 @@ function getMantaCliVersion() {
 }
 
 // src/commands/cast.ts
-var import_node_fs4 = require("fs");
+var import_node_fs5 = require("fs");
 var BUILTIN_MODES = /* @__PURE__ */ new Set([
   "recon-swarm",
   "forking-realities",
@@ -43617,7 +43694,7 @@ async function loadModeRegistry(rt2) {
     const installDir = rt2.localStore.pathFor(packageName, entry.version);
     let manifestRaw;
     try {
-      manifestRaw = await import_node_fs4.promises.readFile((0, import_node_path8.join)(installDir, "manta-package.json"), "utf8");
+      manifestRaw = await import_node_fs5.promises.readFile((0, import_node_path9.join)(installDir, "manta-package.json"), "utf8");
     } catch {
       continue;
     }
@@ -43993,7 +44070,7 @@ async function runCastCommand(rt2, opts) {
       }
     } : null;
     const startedAt = rt2.ctx.clock.now();
-    const timelinePath = (0, import_node_path8.join)(
+    const timelinePath = (0, import_node_path9.join)(
       rt2.repoRoot,
       rt2.thresholds.timelinesDir,
       `${opts.castId}.ndjson`
@@ -44098,10 +44175,10 @@ async function runCastCommand(rt2, opts) {
     );
     await timeline.seal(rt2.ctx.clock.now());
     {
-      const postMortemDir = (0, import_node_path8.join)(rt2.repoRoot, rt2.thresholds.postMortemDir);
+      const postMortemDir = (0, import_node_path9.join)(rt2.repoRoot, rt2.thresholds.postMortemDir);
       let existingFilenames = [];
       try {
-        existingFilenames = await import_node_fs4.promises.readdir(postMortemDir);
+        existingFilenames = await import_node_fs5.promises.readdir(postMortemDir);
       } catch {
       }
       const settlementPostMortems = await ensureSelfDeathPostMortems(rt2.ctx, {
@@ -44244,15 +44321,26 @@ async function runMergeAllPipeline(rt2, opts, cloneIds) {
     deadClones,
     async runQualityGate(worktreePath) {
       const errors = [];
+      const tc = detectToolchain(worktreePath);
       await prepareWorktreeForGate(worktreePath);
       const diffRes = await execa2("git", ["diff", "--stat", "HEAD"], { cwd: worktreePath, reject: false });
       const hasDiff = diffRes.stdout.trim().length > 0;
-      const tscRes = await execa2("pnpm", ["typecheck"], { cwd: worktreePath, reject: false });
-      const tscOk = tscRes.exitCode === 0;
-      if (!tscOk) errors.push(`tsc: ${(tscRes.stderr || tscRes.stdout).slice(0, 200)}`);
-      const testRes = await execa2("pnpm", ["test"], { cwd: worktreePath, reject: false, timeout: 3e5 });
-      const testsOk = testRes.exitCode === 0;
-      if (!testsOk) errors.push(`tests: exit ${testRes.exitCode}`);
+      let tscOk = true;
+      if (tc.isTypeScript) {
+        const tscRes = await execa2("pnpm", ["typecheck"], { cwd: worktreePath, reject: false });
+        tscOk = tscRes.exitCode === 0;
+        if (!tscOk) errors.push(`tsc: ${(tscRes.stderr || tscRes.stdout).slice(0, 200)}`);
+      }
+      let testsOk = true;
+      if (tc.test) {
+        const testRes = await execa2(tc.test[0], [...tc.test.slice(1)], {
+          cwd: worktreePath,
+          reject: false,
+          timeout: 3e5
+        });
+        testsOk = testRes.exitCode === 0;
+        if (!testsOk) errors.push(`tests: exit ${testRes.exitCode}`);
+      }
       return { passed: tscOk && testsOk, hasDiff, tscOk, testsOk, errors };
     },
     async gitMerge(repoRoot, branch) {
@@ -45086,7 +45174,7 @@ async function runDoctorCommand(opts = {}) {
 // src/commands/limit.ts
 init_cjs_shims();
 var import_promises8 = require("fs/promises");
-var import_node_path9 = require("path");
+var import_node_path10 = require("path");
 init_src2();
 function flattenConfig(c) {
   return [{ key: "max_parallel_clones", display: String(c.maxParallelClones) }];
@@ -45144,7 +45232,7 @@ async function handleSet(rt2, opts) {
   if (oldVal === void 0) {
     return { exitCode: 1, stdout: `Unknown key: ${opts.key}` };
   }
-  const configPath = (0, import_node_path9.join)(rt2.repoRoot, ".manta", "config", "budget.json");
+  const configPath = (0, import_node_path10.join)(rt2.repoRoot, ".manta", "config", "budget.json");
   let existing = {};
   try {
     const raw = await (0, import_promises8.readFile)(configPath, "utf-8");
@@ -45160,7 +45248,7 @@ async function handleSet(rt2, opts) {
       stdout: `Invalid value: ${validation.error.issues.map((i) => i.message).join(", ")}`
     };
   }
-  await (0, import_promises8.mkdir)((0, import_node_path9.dirname)(configPath), { recursive: true });
+  await (0, import_promises8.mkdir)((0, import_node_path10.dirname)(configPath), { recursive: true });
   await (0, import_promises8.writeFile)(configPath, JSON.stringify(existing, null, 2) + "\n", "utf-8");
   opts.reporter.info("limit.set", { key: opts.key, old: oldVal, new: String(parsedValue) });
   return {
@@ -45278,35 +45366,35 @@ var import_fs = __toESM(require("fs"), 1);
 var import_node_events = require("events");
 var import_node_stream = __toESM(require("stream"), 1);
 var import_node_string_decoder = require("string_decoder");
-var import_node_path10 = __toESM(require("path"), 1);
-var import_node_fs5 = __toESM(require("fs"), 1);
+var import_node_path11 = __toESM(require("path"), 1);
+var import_node_fs6 = __toESM(require("fs"), 1);
 var import_path = require("path");
 var import_events4 = require("events");
 var import_assert = __toESM(require("assert"), 1);
 var import_buffer2 = require("buffer");
 var vs = __toESM(require("zlib"), 1);
 var import_zlib = __toESM(require("zlib"), 1);
-var import_node_path11 = require("path");
 var import_node_path12 = require("path");
+var import_node_path13 = require("path");
 var import_fs2 = __toESM(require("fs"), 1);
 var import_fs3 = __toESM(require("fs"), 1);
 var import_path2 = __toESM(require("path"), 1);
-var import_node_path13 = require("path");
+var import_node_path14 = require("path");
 var import_path3 = __toESM(require("path"), 1);
-var import_node_fs6 = __toESM(require("fs"), 1);
+var import_node_fs7 = __toESM(require("fs"), 1);
 var import_node_assert = __toESM(require("assert"), 1);
 var import_node_crypto4 = require("crypto");
-var import_node_fs7 = __toESM(require("fs"), 1);
-var import_node_path14 = __toESM(require("path"), 1);
-var import_fs4 = __toESM(require("fs"), 1);
 var import_node_fs8 = __toESM(require("fs"), 1);
 var import_node_path15 = __toESM(require("path"), 1);
+var import_fs4 = __toESM(require("fs"), 1);
 var import_node_fs9 = __toESM(require("fs"), 1);
-var import_promises9 = __toESM(require("fs/promises"), 1);
 var import_node_path16 = __toESM(require("path"), 1);
-var import_node_path17 = require("path");
 var import_node_fs10 = __toESM(require("fs"), 1);
-var import_node_path18 = __toESM(require("path"), 1);
+var import_promises9 = __toESM(require("fs/promises"), 1);
+var import_node_path17 = __toESM(require("path"), 1);
+var import_node_path18 = require("path");
+var import_node_fs11 = __toESM(require("fs"), 1);
+var import_node_path19 = __toESM(require("path"), 1);
 var vr = Object.defineProperty;
 var Mr = (s3, t) => {
   for (var e in t) vr(s3, e, { get: t[e], enumerable: true });
@@ -46199,12 +46287,12 @@ var k = class {
   }
 };
 var ln = (s3, t) => {
-  let i = s3, r = "", n, o = import_node_path11.posix.parse(s3).root || ".";
+  let i = s3, r = "", n, o = import_node_path12.posix.parse(s3).root || ".";
   if (Buffer.byteLength(i) < 100) n = [i, r, false];
   else {
-    r = import_node_path11.posix.dirname(i), i = import_node_path11.posix.basename(i);
+    r = import_node_path12.posix.dirname(i), i = import_node_path12.posix.basename(i);
     do
-      Buffer.byteLength(i) <= 100 && Buffer.byteLength(r) <= t ? n = [i, r, false] : Buffer.byteLength(i) > 100 && Buffer.byteLength(r) <= t ? n = [i.slice(0, 99), r, true] : (i = import_node_path11.posix.join(import_node_path11.posix.basename(r), i), r = import_node_path11.posix.dirname(r));
+      Buffer.byteLength(i) <= 100 && Buffer.byteLength(r) <= t ? n = [i, r, false] : Buffer.byteLength(i) > 100 && Buffer.byteLength(r) <= t ? n = [i.slice(0, 99), r, true] : (i = import_node_path12.posix.join(import_node_path12.posix.basename(r), i), r = import_node_path12.posix.dirname(r));
     while (r !== o && n === void 0);
     n || (n = [s3.slice(0, 99), "", true]);
   }
@@ -46250,7 +46338,7 @@ var ct = class s {
     if (t === "") return Buffer.allocUnsafe(0);
     let e = Buffer.byteLength(t), i = 512 * Math.ceil(1 + e / 512), r = Buffer.allocUnsafe(i);
     for (let n = 0; n < 512; n++) r[n] = 0;
-    new k({ path: ("PaxHeader/" + (0, import_node_path12.basename)(this.path ?? "")).slice(0, 99), mode: this.mode || 420, uid: this.uid, gid: this.gid, size: e, mtime: this.mtime, type: this.global ? "GlobalExtendedHeader" : "ExtendedHeader", linkpath: "", uname: this.uname || "", gname: this.gname || "", devmaj: 0, devmin: 0, atime: this.atime, ctime: this.ctime }).encode(r), r.write(t, 512, e, "utf8");
+    new k({ path: ("PaxHeader/" + (0, import_node_path13.basename)(this.path ?? "")).slice(0, 99), mode: this.mode || 420, uid: this.uid, gid: this.gid, size: e, mtime: this.mtime, type: this.global ? "GlobalExtendedHeader" : "ExtendedHeader", linkpath: "", uname: this.uname || "", gname: this.gname || "", devmaj: 0, devmin: 0, atime: this.atime, ctime: this.ctime }).encode(r), r.write(t, 512, e, "utf8");
     for (let n = e + 512; n < r.length; n++) r[n] = 0;
     return r;
   }
@@ -46625,15 +46713,15 @@ var $i = (s3, t) => {
 var An = (s3) => {
   let t = new st(s3), e = s3.file, i;
   try {
-    i = import_node_fs5.default.openSync(e, "r");
-    let r = import_node_fs5.default.fstatSync(i), n = s3.maxReadSize || 16 * 1024 * 1024;
+    i = import_node_fs6.default.openSync(e, "r");
+    let r = import_node_fs6.default.fstatSync(i), n = s3.maxReadSize || 16 * 1024 * 1024;
     if (r.size < n) {
-      let o = Buffer.allocUnsafe(r.size), h = import_node_fs5.default.readSync(i, o, 0, r.size, 0);
+      let o = Buffer.allocUnsafe(r.size), h = import_node_fs6.default.readSync(i, o, 0, r.size, 0);
       t.end(h === o.byteLength ? o : o.subarray(0, h));
     } else {
       let o = 0, h = Buffer.allocUnsafe(n);
       for (; o < r.size; ) {
-        let a = import_node_fs5.default.readSync(i, h, 0, n, o);
+        let a = import_node_fs6.default.readSync(i, h, 0, n, o);
         if (a === 0) break;
         o += a, t.write(h.subarray(0, a));
       }
@@ -46641,7 +46729,7 @@ var An = (s3) => {
     }
   } finally {
     if (typeof i == "number") try {
-      import_node_fs5.default.closeSync(i);
+      import_node_fs6.default.closeSync(i);
     } catch {
     }
   }
@@ -46649,7 +46737,7 @@ var An = (s3) => {
 var In = (s3, t) => {
   let e = new st(s3), i = s3.maxReadSize || 16 * 1024 * 1024, r = s3.file;
   return new Promise((o, h) => {
-    e.on("error", h), e.on("end", o), import_node_fs5.default.stat(r, (a, l) => {
+    e.on("error", h), e.on("end", o), import_node_fs6.default.stat(r, (a, l) => {
       if (a) h(a);
       else {
         let c = new _t(r, { readSize: i, size: l.size });
@@ -46662,7 +46750,7 @@ var Ct = K(An, In, (s3) => new st(s3), (s3) => new st(s3), (s3, t) => {
   t?.length && $i(s3, t), s3.noResume || Dn(s3);
 });
 var Xi = (s3, t, e) => (s3 &= 4095, e && (s3 = (s3 | 384) & -19), t && (s3 & 256 && (s3 |= 64), s3 & 32 && (s3 |= 8), s3 & 4 && (s3 |= 1)), s3);
-var { isAbsolute: kn, parse: Ks } = import_node_path13.win32;
+var { isAbsolute: kn, parse: Ks } = import_node_path14.win32;
 var ce = (s3) => {
   let t = "", e = Ks(s3);
   for (; kn(s3) || e.root; ) {
@@ -47371,11 +47459,11 @@ var Wn = (s3, t) => {
 };
 var hr = (s3, t) => {
   t.forEach((e) => {
-    e.charAt(0) === "@" ? Ct({ file: import_node_path10.default.resolve(s3.cwd, e.slice(1)), sync: true, noResume: true, onReadEntry: (i) => s3.add(i) }) : s3.add(e);
+    e.charAt(0) === "@" ? Ct({ file: import_node_path11.default.resolve(s3.cwd, e.slice(1)), sync: true, noResume: true, onReadEntry: (i) => s3.add(i) }) : s3.add(e);
   }), s3.end();
 };
 var ar = async (s3, t) => {
-  for (let e of t) e.charAt(0) === "@" ? await Ct({ file: import_node_path10.default.resolve(String(s3.cwd), e.slice(1)), noResume: true, onReadEntry: (i) => {
+  for (let e of t) e.charAt(0) === "@" ? await Ct({ file: import_node_path11.default.resolve(String(s3.cwd), e.slice(1)), noResume: true, onReadEntry: (i) => {
     s3.add(i);
   } }) : s3.add(e);
   s3.end();
@@ -47402,29 +47490,29 @@ var cr = !dr && typeof lr == "number" ? lr | mr | ur | pr : null;
 var fs29 = cr !== null ? () => cr : Vn ? (s3) => s3 < $n ? Xn : "w" : () => "w";
 var ds = (s3, t, e) => {
   try {
-    return import_node_fs8.default.lchownSync(s3, t, e);
+    return import_node_fs9.default.lchownSync(s3, t, e);
   } catch (i) {
     if (i?.code !== "ENOENT") throw i;
   }
 };
 var pi = (s3, t, e, i) => {
-  import_node_fs8.default.lchown(s3, t, e, (r) => {
+  import_node_fs9.default.lchown(s3, t, e, (r) => {
     i(r && r?.code !== "ENOENT" ? r : null);
   });
 };
 var qn = (s3, t, e, i, r) => {
-  if (t.isDirectory()) us(import_node_path15.default.resolve(s3, t.name), e, i, (n) => {
+  if (t.isDirectory()) us(import_node_path16.default.resolve(s3, t.name), e, i, (n) => {
     if (n) return r(n);
-    let o = import_node_path15.default.resolve(s3, t.name);
+    let o = import_node_path16.default.resolve(s3, t.name);
     pi(o, e, i, r);
   });
   else {
-    let n = import_node_path15.default.resolve(s3, t.name);
+    let n = import_node_path16.default.resolve(s3, t.name);
     pi(n, e, i, r);
   }
 };
 var us = (s3, t, e, i) => {
-  import_node_fs8.default.readdir(s3, { withFileTypes: true }, (r, n) => {
+  import_node_fs9.default.readdir(s3, { withFileTypes: true }, (r, n) => {
     if (r) {
       if (r.code === "ENOENT") return i();
       if (r.code !== "ENOTDIR" && r.code !== "ENOTSUP") return i(r);
@@ -47440,12 +47528,12 @@ var us = (s3, t, e, i) => {
   });
 };
 var Qn = (s3, t, e, i) => {
-  t.isDirectory() && ms(import_node_path15.default.resolve(s3, t.name), e, i), ds(import_node_path15.default.resolve(s3, t.name), e, i);
+  t.isDirectory() && ms(import_node_path16.default.resolve(s3, t.name), e, i), ds(import_node_path16.default.resolve(s3, t.name), e, i);
 };
 var ms = (s3, t, e) => {
   let i;
   try {
-    i = import_node_fs8.default.readdirSync(s3, { withFileTypes: true });
+    i = import_node_fs9.default.readdirSync(s3, { withFileTypes: true });
   } catch (r) {
     let n = r;
     if (n?.code === "ENOENT") return;
@@ -47479,32 +47567,32 @@ var St = class extends Error {
   }
 };
 var jn = (s3, t) => {
-  import_node_fs9.default.stat(s3, (e, i) => {
+  import_node_fs10.default.stat(s3, (e, i) => {
     (e || !i.isDirectory()) && (e = new Se(s3, e?.code || "ENOTDIR")), t(e);
   });
 };
 var wr = (s3, t, e) => {
   s3 = f(s3);
   let i = t.umask ?? 18, r = t.mode | 448, n = (r & i) !== 0, o = t.uid, h = t.gid, a = typeof o == "number" && typeof h == "number" && (o !== t.processUid || h !== t.processGid), l = t.preserve, c = t.unlink, d = f(t.cwd), S = (E, x) => {
-    E ? e(E) : x && a ? us(x, o, h, (Le) => S(Le)) : n ? import_node_fs9.default.chmod(s3, r, e) : e();
+    E ? e(E) : x && a ? us(x, o, h, (Le) => S(Le)) : n ? import_node_fs10.default.chmod(s3, r, e) : e();
   };
   if (s3 === d) return jn(s3, S);
   if (l) return import_promises9.default.mkdir(s3, { mode: r, recursive: true }).then((E) => S(null, E ?? void 0), S);
-  let N = f(import_node_path16.default.relative(d, s3)).split("/");
+  let N = f(import_node_path17.default.relative(d, s3)).split("/");
   ps(d, N, r, c, d, void 0, S);
 };
 var ps = (s3, t, e, i, r, n, o) => {
   if (t.length === 0) return o(null, n);
-  let h = t.shift(), a = f(import_node_path16.default.resolve(s3 + "/" + h));
-  import_node_fs9.default.mkdir(a, e, Sr(a, t, e, i, r, n, o));
+  let h = t.shift(), a = f(import_node_path17.default.resolve(s3 + "/" + h));
+  import_node_fs10.default.mkdir(a, e, Sr(a, t, e, i, r, n, o));
 };
 var Sr = (s3, t, e, i, r, n, o) => (h) => {
-  h ? import_node_fs9.default.lstat(s3, (a, l) => {
+  h ? import_node_fs10.default.lstat(s3, (a, l) => {
     if (a) a.path = a.path && f(a.path), o(a);
     else if (l.isDirectory()) ps(s3, t, e, i, r, n, o);
-    else if (i) import_node_fs9.default.unlink(s3, (c) => {
+    else if (i) import_node_fs10.default.unlink(s3, (c) => {
       if (c) return o(c);
-      import_node_fs9.default.mkdir(s3, e, Sr(s3, t, e, i, r, n, o));
+      import_node_fs10.default.mkdir(s3, e, Sr(s3, t, e, i, r, n, o));
     });
     else {
       if (l.isSymbolicLink()) return o(new St(s3, s3 + "/" + t.join("/")));
@@ -47515,7 +47603,7 @@ var Sr = (s3, t, e, i, r, n, o) => (h) => {
 var to = (s3) => {
   let t = false, e;
   try {
-    t = import_node_fs9.default.statSync(s3).isDirectory();
+    t = import_node_fs10.default.statSync(s3).isDirectory();
   } catch (i) {
     e = i?.code;
   } finally {
@@ -47525,20 +47613,20 @@ var to = (s3) => {
 var yr = (s3, t) => {
   s3 = f(s3);
   let e = t.umask ?? 18, i = t.mode | 448, r = (i & e) !== 0, n = t.uid, o = t.gid, h = typeof n == "number" && typeof o == "number" && (n !== t.processUid || o !== t.processGid), a = t.preserve, l = t.unlink, c = f(t.cwd), d = (E) => {
-    E && h && ms(E, n, o), r && import_node_fs9.default.chmodSync(s3, i);
+    E && h && ms(E, n, o), r && import_node_fs10.default.chmodSync(s3, i);
   };
   if (s3 === c) return to(c), d();
-  if (a) return d(import_node_fs9.default.mkdirSync(s3, { mode: i, recursive: true }) ?? void 0);
-  let T = f(import_node_path16.default.relative(c, s3)).split("/"), N;
+  if (a) return d(import_node_fs10.default.mkdirSync(s3, { mode: i, recursive: true }) ?? void 0);
+  let T = f(import_node_path17.default.relative(c, s3)).split("/"), N;
   for (let E = T.shift(), x = c; E && (x += "/" + E); E = T.shift()) {
-    x = f(import_node_path16.default.resolve(x));
+    x = f(import_node_path17.default.resolve(x));
     try {
-      import_node_fs9.default.mkdirSync(x, i), N = N || x;
+      import_node_fs10.default.mkdirSync(x, i), N = N || x;
     } catch {
-      let Le = import_node_fs9.default.lstatSync(x);
+      let Le = import_node_fs10.default.lstatSync(x);
       if (Le.isDirectory()) continue;
       if (l) {
-        import_node_fs9.default.unlinkSync(x), import_node_fs9.default.mkdirSync(x, i), N = N || x;
+        import_node_fs10.default.unlinkSync(x), import_node_fs10.default.mkdirSync(x, i), N = N || x;
         continue;
       } else if (Le.isSymbolicLink()) return new St(x, x + "/" + T.join("/"));
     }
@@ -47560,14 +47648,14 @@ var eo = process.env.TESTING_TAR_FAKE_PLATFORM || process.platform;
 var io = eo === "win32";
 var so = (s3) => s3.split("/").slice(0, -1).reduce((e, i) => {
   let r = e.at(-1);
-  return r !== void 0 && (i = (0, import_node_path17.join)(r, i)), e.push(i || "/"), e;
+  return r !== void 0 && (i = (0, import_node_path18.join)(r, i)), e.push(i || "/"), e;
 }, []);
 var Si = class {
   #t = /* @__PURE__ */ new Map();
   #i = /* @__PURE__ */ new Map();
   #s = /* @__PURE__ */ new Set();
   reserve(t, e) {
-    t = io ? ["win32 parallelization disabled"] : t.map((r) => mt((0, import_node_path17.join)(gr(r))));
+    t = io ? ["win32 parallelization disabled"] : t.map((r) => mt((0, import_node_path18.join)(gr(r))));
     let i = new Set(t.map((r) => so(r)).reduce((r, n) => r.concat(n)));
     this.#i.set(e, { dirs: i, paths: t });
     for (let r of t) {
@@ -47657,17 +47745,17 @@ var no = process.env.TESTING_TAR_FAKE_PLATFORM || process.platform;
 var Te = no === "win32";
 var oo = 1024;
 var ho = (s3, t) => {
-  if (!Te) return import_node_fs7.default.unlink(s3, t);
+  if (!Te) return import_node_fs8.default.unlink(s3, t);
   let e = s3 + ".DELETE." + (0, import_node_crypto4.randomBytes)(16).toString("hex");
-  import_node_fs7.default.rename(s3, e, (i) => {
+  import_node_fs8.default.rename(s3, e, (i) => {
     if (i) return t(i);
-    import_node_fs7.default.unlink(e, t);
+    import_node_fs8.default.unlink(e, t);
   });
 };
 var ao = (s3) => {
-  if (!Te) return import_node_fs7.default.unlinkSync(s3);
+  if (!Te) return import_node_fs8.default.unlinkSync(s3);
   let t = s3 + ".DELETE." + (0, import_node_crypto4.randomBytes)(16).toString("hex");
-  import_node_fs7.default.renameSync(s3, t), import_node_fs7.default.unlinkSync(t);
+  import_node_fs8.default.renameSync(s3, t), import_node_fs8.default.unlinkSync(t);
 };
 var Ir = (s3, t, e) => s3 !== void 0 && s3 === s3 >>> 0 ? s3 : t !== void 0 && t === t >>> 0 ? t : e;
 var qt = class extends st {
@@ -47707,7 +47795,7 @@ var qt = class extends st {
       if (t.preserveOwner) throw new TypeError("cannot preserve owner in archive and also set owner explicitly");
       this.uid = t.uid, this.gid = t.gid, this.setOwner = true;
     } else this.uid = void 0, this.gid = void 0, this.setOwner = false;
-    this.preserveOwner = t.preserveOwner === void 0 && typeof t.uid != "number" ? !!(process.getuid && process.getuid() === 0) : !!t.preserveOwner, this.processUid = (this.preserveOwner || this.setOwner) && process.getuid ? process.getuid() : void 0, this.processGid = (this.preserveOwner || this.setOwner) && process.getgid ? process.getgid() : void 0, this.maxDepth = typeof t.maxDepth == "number" ? t.maxDepth : oo, this.forceChown = t.forceChown === true, this.win32 = !!t.win32 || Te, this.newer = !!t.newer, this.keep = !!t.keep, this.noMtime = !!t.noMtime, this.preservePaths = !!t.preservePaths, this.unlink = !!t.unlink, this.cwd = f(import_node_path14.default.resolve(t.cwd || process.cwd())), this.strip = Number(t.strip) || 0, this.processUmask = this.chmod ? typeof t.processUmask == "number" ? t.processUmask : _r() : 0, this.umask = typeof t.umask == "number" ? t.umask : this.processUmask, this.dmode = t.dmode || 511 & ~this.umask, this.fmode = t.fmode || 438 & ~this.umask, this.on("entry", (e) => this[Or](e));
+    this.preserveOwner = t.preserveOwner === void 0 && typeof t.uid != "number" ? !!(process.getuid && process.getuid() === 0) : !!t.preserveOwner, this.processUid = (this.preserveOwner || this.setOwner) && process.getuid ? process.getuid() : void 0, this.processGid = (this.preserveOwner || this.setOwner) && process.getgid ? process.getgid() : void 0, this.maxDepth = typeof t.maxDepth == "number" ? t.maxDepth : oo, this.forceChown = t.forceChown === true, this.win32 = !!t.win32 || Te, this.newer = !!t.newer, this.keep = !!t.keep, this.noMtime = !!t.noMtime, this.preservePaths = !!t.preservePaths, this.unlink = !!t.unlink, this.cwd = f(import_node_path15.default.resolve(t.cwd || process.cwd())), this.strip = Number(t.strip) || 0, this.processUmask = this.chmod ? typeof t.processUmask == "number" ? t.processUmask : _r() : 0, this.umask = typeof t.umask == "number" ? t.umask : this.processUmask, this.dmode = t.dmode || 511 & ~this.umask, this.fmode = t.fmode || 438 & ~this.umask, this.on("entry", (e) => this[Or](e));
   }
   warn(t, e, i = {}) {
     return (t === "TAR_BAD_ARCHIVE" || t === "TAR_ABORT") && (i.recoverable = false), super.warn(t, e, i);
@@ -47721,7 +47809,7 @@ var qt = class extends st {
     let [n, o] = ce(i), h = o.replaceAll(/\\/g, "/").split("/");
     if (h.includes("..") || Te && /^[a-z]:\.\.$/i.test(h[0] ?? "")) {
       if (e === "path" || r === "Link") return this.warn("TAR_ENTRY_ERROR", `${e} contains '..'`, { entry: t, [e]: i }), false;
-      let a = import_node_path14.default.posix.dirname(t.path), l = import_node_path14.default.posix.normalize(import_node_path14.default.posix.join(a, h.join("/")));
+      let a = import_node_path15.default.posix.dirname(t.path), l = import_node_path15.default.posix.normalize(import_node_path15.default.posix.join(a, h.join("/")));
       if (l.startsWith("../") || l === "..") return this.warn("TAR_ENTRY_ERROR", `${e} escapes extraction directory`, { entry: t, [e]: i }), false;
     }
     return n && (t[e] = String(o), this.warn("TAR_ENTRY_INFO", `stripping ${n} from absolute ${e}`, { entry: t, [e]: i })), true;
@@ -47739,12 +47827,12 @@ var qt = class extends st {
     }
     if (isFinite(this.maxDepth) && i.length > this.maxDepth) return this.warn("TAR_ENTRY_ERROR", "path excessively deep", { entry: t, path: e, depth: i.length, maxDepth: this.maxDepth }), false;
     if (!this[ws](t, "path") || !this[ws](t, "linkpath")) return false;
-    if (t.absolute = import_node_path14.default.isAbsolute(t.path) ? f(import_node_path14.default.resolve(t.path)) : f(import_node_path14.default.resolve(this.cwd, t.path)), !this.preservePaths && typeof t.absolute == "string" && t.absolute.indexOf(this.cwd + "/") !== 0 && t.absolute !== this.cwd) return this.warn("TAR_ENTRY_ERROR", "path escaped extraction target", { entry: t, path: f(t.path), resolvedPath: t.absolute, cwd: this.cwd }), false;
+    if (t.absolute = import_node_path15.default.isAbsolute(t.path) ? f(import_node_path15.default.resolve(t.path)) : f(import_node_path15.default.resolve(this.cwd, t.path)), !this.preservePaths && typeof t.absolute == "string" && t.absolute.indexOf(this.cwd + "/") !== 0 && t.absolute !== this.cwd) return this.warn("TAR_ENTRY_ERROR", "path escaped extraction target", { entry: t, path: f(t.path), resolvedPath: t.absolute, cwd: this.cwd }), false;
     if (t.absolute === this.cwd && t.type !== "Directory" && t.type !== "GNUDumpDir") return false;
     if (this.win32) {
-      let { root: r } = import_node_path14.default.win32.parse(String(t.absolute));
+      let { root: r } = import_node_path15.default.win32.parse(String(t.absolute));
       t.absolute = r + Qi(String(t.absolute).slice(r.length));
-      let { root: n } = import_node_path14.default.win32.parse(t.path);
+      let { root: n } = import_node_path15.default.win32.parse(t.path);
       t.path = n + Qi(t.path.slice(n.length));
     }
     return true;
@@ -47783,16 +47871,16 @@ var qt = class extends st {
   [bs](t, e) {
     let i = typeof t.mode == "number" ? t.mode & 4095 : this.fmode, r = new tt(String(t.absolute), { flags: fs29(t.size), mode: i, autoClose: false });
     r.on("error", (a) => {
-      r.fd && import_node_fs7.default.close(r.fd, () => {
+      r.fd && import_node_fs8.default.close(r.fd, () => {
       }), r.write = () => true, this[O](a, t), e();
     });
     let n = 1, o = (a) => {
       if (a) {
-        r.fd && import_node_fs7.default.close(r.fd, () => {
+        r.fd && import_node_fs8.default.close(r.fd, () => {
         }), this[O](a, t), e();
         return;
       }
-      --n === 0 && r.fd !== void 0 && import_node_fs7.default.close(r.fd, (l) => {
+      --n === 0 && r.fd !== void 0 && import_node_fs8.default.close(r.fd, (l) => {
         l ? this[O](l, t) : this[Xt](), e();
       });
     };
@@ -47801,12 +47889,12 @@ var qt = class extends st {
       if (typeof l == "number" && t.mtime && !this.noMtime) {
         n++;
         let c = t.atime || /* @__PURE__ */ new Date(), d = t.mtime;
-        import_node_fs7.default.futimes(l, c, d, (S) => S ? import_node_fs7.default.utimes(a, c, d, (T) => o(T && S)) : o());
+        import_node_fs8.default.futimes(l, c, d, (S) => S ? import_node_fs8.default.utimes(a, c, d, (T) => o(T && S)) : o());
       }
       if (typeof l == "number" && this[ge](t)) {
         n++;
         let c = this[be](t), d = this[_e](t);
-        typeof c == "number" && typeof d == "number" && import_node_fs7.default.fchown(l, c, d, (S) => S ? import_node_fs7.default.chown(a, c, d, (T) => o(T && S)) : o());
+        typeof c == "number" && typeof d == "number" && import_node_fs8.default.fchown(l, c, d, (S) => S ? import_node_fs8.default.chown(a, c, d, (T) => o(T && S)) : o());
       }
       o();
     });
@@ -47825,20 +47913,20 @@ var qt = class extends st {
       let n = 1, o = () => {
         --n === 0 && (e(), this[Xt](), t.resume());
       };
-      t.mtime && !this.noMtime && (n++, import_node_fs7.default.utimes(String(t.absolute), t.atime || /* @__PURE__ */ new Date(), t.mtime, o)), this[ge](t) && (n++, import_node_fs7.default.chown(String(t.absolute), Number(this[be](t)), Number(this[_e](t)), o)), o();
+      t.mtime && !this.noMtime && (n++, import_node_fs8.default.utimes(String(t.absolute), t.atime || /* @__PURE__ */ new Date(), t.mtime, o)), this[ge](t) && (n++, import_node_fs8.default.chown(String(t.absolute), Number(this[be](t)), Number(this[_e](t)), o)), o();
     });
   }
   [Nr](t) {
     t.unsupported = true, this.warn("TAR_ENTRY_UNSUPPORTED", `unsupported entry type: ${t.type}`, { entry: t }), t.resume();
   }
   [xr](t, e) {
-    let i = f(import_node_path14.default.relative(this.cwd, import_node_path14.default.resolve(import_node_path14.default.dirname(String(t.absolute)), String(t.linkpath)))).split("/");
+    let i = f(import_node_path15.default.relative(this.cwd, import_node_path15.default.resolve(import_node_path15.default.dirname(String(t.absolute)), String(t.linkpath)))).split("/");
     this[Re](t, this.cwd, i, () => this[Ri](t, String(t.linkpath), "symlink", e), (r) => {
       this[O](r, t), e();
     });
   }
   [Lr](t, e) {
-    let i = f(import_node_path14.default.resolve(this.cwd, String(t.linkpath))), r = f(String(t.linkpath)).split("/");
+    let i = f(import_node_path15.default.resolve(this.cwd, String(t.linkpath))), r = f(String(t.linkpath)).split("/");
     this[Re](t, this.cwd, r, () => this[Ri](t, i, "link", e), (n) => {
       this[O](n, t), e();
     });
@@ -47846,10 +47934,10 @@ var qt = class extends st {
   [Re](t, e, i, r, n) {
     let o = i.shift();
     if (this.preservePaths || o === void 0) return r();
-    let h = import_node_path14.default.resolve(e, o);
-    import_node_fs7.default.lstat(h, (a, l) => {
+    let h = import_node_path15.default.resolve(e, o);
+    import_node_fs8.default.lstat(h, (a, l) => {
       if (a) return r();
-      if (l?.isSymbolicLink()) return n(new St(h, import_node_path14.default.resolve(h, i.join("/"))));
+      if (l?.isSymbolicLink()) return n(new St(h, import_node_path15.default.resolve(h, i.join("/"))));
       this[Re](t, h, i, r, n);
     });
   }
@@ -47883,7 +47971,7 @@ var qt = class extends st {
       });
     }, n = () => {
       if (t.absolute !== this.cwd) {
-        let h = f(import_node_path14.default.dirname(String(t.absolute)));
+        let h = f(import_node_path15.default.dirname(String(t.absolute)));
         if (h !== this.cwd) return this[yt](h, this.dmode, (a) => {
           if (a) {
             this[O](a, t), i();
@@ -47894,7 +47982,7 @@ var qt = class extends st {
       }
       o();
     }, o = () => {
-      import_node_fs7.default.lstat(String(t.absolute), (h, a) => {
+      import_node_fs8.default.lstat(String(t.absolute), (h, a) => {
         if (a && (this.keep || this.newer && a.mtime > (t.mtime ?? a.mtime))) {
           this[Os](t), i();
           return;
@@ -47903,9 +47991,9 @@ var qt = class extends st {
         if (a.isDirectory()) {
           if (t.type === "Directory") {
             let l = this.chmod && t.mode && (a.mode & 4095) !== t.mode, c = (d) => this[P](d ?? null, t, i);
-            return l ? import_node_fs7.default.chmod(String(t.absolute), Number(t.mode), c) : c();
+            return l ? import_node_fs8.default.chmod(String(t.absolute), Number(t.mode), c) : c();
           }
-          if (t.absolute !== this.cwd) return import_node_fs7.default.rmdir(String(t.absolute), (l) => this[P](l ?? null, t, i));
+          if (t.absolute !== this.cwd) return import_node_fs8.default.rmdir(String(t.absolute), (l) => this[P](l ?? null, t, i));
         }
         if (t.absolute === this.cwd) return this[P](null, t, i);
         ho(String(t.absolute), (l) => this[P](l ?? null, t, i));
@@ -47933,7 +48021,7 @@ var qt = class extends st {
     }
   }
   [Ri](t, e, i, r) {
-    import_node_fs7.default[i](e, String(t.absolute), (n) => {
+    import_node_fs8.default[i](e, String(t.absolute), (n) => {
       n ? this[O](n, t) : (this[Xt](), t.resume()), r();
     });
   }
@@ -47958,23 +48046,23 @@ var xe = class extends qt {
       this[Oe] = true;
     }
     if (t.absolute !== this.cwd) {
-      let n = f(import_node_path14.default.dirname(String(t.absolute)));
+      let n = f(import_node_path15.default.dirname(String(t.absolute)));
       if (n !== this.cwd) {
         let o = this[yt](n, this.dmode);
         if (o) return this[O](o, t);
       }
     }
-    let [e, i] = ye(() => import_node_fs7.default.lstatSync(String(t.absolute)));
+    let [e, i] = ye(() => import_node_fs8.default.lstatSync(String(t.absolute)));
     if (i && (this.keep || this.newer && i.mtime > (t.mtime ?? i.mtime))) return this[Os](t);
     if (e || this[gs](t, i)) return this[P](null, t);
     if (i.isDirectory()) {
       if (t.type === "Directory") {
         let o = this.chmod && t.mode && (i.mode & 4095) !== t.mode, [h] = o ? ye(() => {
-          import_node_fs7.default.chmodSync(String(t.absolute), Number(t.mode));
+          import_node_fs8.default.chmodSync(String(t.absolute), Number(t.mode));
         }) : [];
         return this[P](h, t);
       }
-      let [n] = ye(() => import_node_fs7.default.rmdirSync(String(t.absolute)));
+      let [n] = ye(() => import_node_fs8.default.rmdirSync(String(t.absolute)));
       this[P](n, t);
     }
     let [r] = t.absolute === this.cwd ? [] : ye(() => ao(String(t.absolute)));
@@ -47984,21 +48072,21 @@ var xe = class extends qt {
     let i = typeof t.mode == "number" ? t.mode & 4095 : this.fmode, r = (h) => {
       let a;
       try {
-        import_node_fs7.default.closeSync(n);
+        import_node_fs8.default.closeSync(n);
       } catch (l) {
         a = l;
       }
       (h || a) && this[O](h || a, t), e();
     }, n;
     try {
-      n = import_node_fs7.default.openSync(String(t.absolute), fs29(t.size), i);
+      n = import_node_fs8.default.openSync(String(t.absolute), fs29(t.size), i);
     } catch (h) {
       return r(h);
     }
     let o = this.transform && this.transform(t) || t;
     o !== t && (o.on("error", (h) => this[O](h, t)), t.pipe(o)), o.on("data", (h) => {
       try {
-        import_node_fs7.default.writeSync(n, h, 0, h.length);
+        import_node_fs8.default.writeSync(n, h, 0, h.length);
       } catch (a) {
         r(a);
       }
@@ -48007,10 +48095,10 @@ var xe = class extends qt {
       if (t.mtime && !this.noMtime) {
         let a = t.atime || /* @__PURE__ */ new Date(), l = t.mtime;
         try {
-          import_node_fs7.default.futimesSync(n, a, l);
+          import_node_fs8.default.futimesSync(n, a, l);
         } catch (c) {
           try {
-            import_node_fs7.default.utimesSync(String(t.absolute), a, l);
+            import_node_fs8.default.utimesSync(String(t.absolute), a, l);
           } catch {
             h = c;
           }
@@ -48019,10 +48107,10 @@ var xe = class extends qt {
       if (this[ge](t)) {
         let a = this[be](t), l = this[_e](t);
         try {
-          import_node_fs7.default.fchownSync(n, Number(a), Number(l));
+          import_node_fs8.default.fchownSync(n, Number(a), Number(l));
         } catch (c) {
           try {
-            import_node_fs7.default.chownSync(String(t.absolute), Number(a), Number(l));
+            import_node_fs8.default.chownSync(String(t.absolute), Number(a), Number(l));
           } catch {
             h = h || c;
           }
@@ -48038,11 +48126,11 @@ var xe = class extends qt {
       return;
     }
     if (t.mtime && !this.noMtime) try {
-      import_node_fs7.default.utimesSync(String(t.absolute), t.atime || /* @__PURE__ */ new Date(), t.mtime);
+      import_node_fs8.default.utimesSync(String(t.absolute), t.atime || /* @__PURE__ */ new Date(), t.mtime);
     } catch {
     }
     if (this[ge](t)) try {
-      import_node_fs7.default.chownSync(String(t.absolute), Number(this[be](t)), Number(this[_e](t)));
+      import_node_fs8.default.chownSync(String(t.absolute), Number(this[be](t)), Number(this[_e](t)));
     } catch {
     }
     e(), t.resume();
@@ -48058,30 +48146,30 @@ var xe = class extends qt {
     if (this.preservePaths || i.length === 0) return r();
     let o = e;
     for (let h of i) {
-      o = import_node_path14.default.resolve(o, h);
-      let [a, l] = ye(() => import_node_fs7.default.lstatSync(o));
+      o = import_node_path15.default.resolve(o, h);
+      let [a, l] = ye(() => import_node_fs8.default.lstatSync(o));
       if (a) return r();
-      if (l.isSymbolicLink()) return n(new St(o, import_node_path14.default.resolve(e, i.join("/"))));
+      if (l.isSymbolicLink()) return n(new St(o, import_node_path15.default.resolve(e, i.join("/"))));
     }
     r();
   }
   [Ri](t, e, i, r) {
     let n = `${i}Sync`;
     try {
-      import_node_fs7.default[n](e, String(t.absolute)), r(), t.resume();
+      import_node_fs8.default[n](e, String(t.absolute)), r(), t.resume();
     } catch (o) {
       return this[O](o, t);
     }
   }
 };
 var lo = (s3) => {
-  let t = new xe(s3), e = s3.file, i = import_node_fs6.default.statSync(e), r = s3.maxReadSize || 16 * 1024 * 1024;
+  let t = new xe(s3), e = s3.file, i = import_node_fs7.default.statSync(e), r = s3.maxReadSize || 16 * 1024 * 1024;
   new Be(e, { readSize: r, size: i.size }).pipe(t);
 };
 var co = (s3, t) => {
   let e = new qt(s3), i = s3.maxReadSize || 16 * 1024 * 1024, r = s3.file;
   return new Promise((o, h) => {
-    e.on("error", h), e.on("close", o), import_node_fs6.default.stat(r, (a, l) => {
+    e.on("error", h), e.on("close", o), import_node_fs7.default.stat(r, (a, l) => {
       if (a) h(a);
       else {
         let c = new _t(r, { readSize: i, size: l.size });
@@ -48097,15 +48185,15 @@ var uo = (s3, t) => {
   let e = new Ft(s3), i = true, r, n;
   try {
     try {
-      r = import_node_fs10.default.openSync(s3.file, "r+");
+      r = import_node_fs11.default.openSync(s3.file, "r+");
     } catch (a) {
-      if (a?.code === "ENOENT") r = import_node_fs10.default.openSync(s3.file, "w+");
+      if (a?.code === "ENOENT") r = import_node_fs11.default.openSync(s3.file, "w+");
       else throw a;
     }
-    let o = import_node_fs10.default.fstatSync(r), h = Buffer.alloc(512);
+    let o = import_node_fs11.default.fstatSync(r), h = Buffer.alloc(512);
     t: for (n = 0; n < o.size; n += 512) {
       for (let c = 0, d = 0; c < 512; c += d) {
-        if (d = import_node_fs10.default.readSync(r, h, c, h.length - c, n + c), n === 0 && h[0] === 31 && h[1] === 139) throw new Error("cannot append to compressed archives");
+        if (d = import_node_fs11.default.readSync(r, h, c, h.length - c, n + c), n === 0 && h[0] === 31 && h[1] === 139) throw new Error("cannot append to compressed archives");
         if (!d) break t;
       }
       let a = new k(h);
@@ -48117,7 +48205,7 @@ var uo = (s3, t) => {
     i = false, mo(s3, e, n, r, t);
   } finally {
     if (i) try {
-      import_node_fs10.default.closeSync(r);
+      import_node_fs11.default.closeSync(r);
     } catch {
     }
   }
@@ -48130,29 +48218,29 @@ var po = (s3, t) => {
   t = Array.from(t);
   let e = new wt(s3), i = (n, o, h) => {
     let a = (T, N) => {
-      T ? import_node_fs10.default.close(n, (E) => h(T)) : h(null, N);
+      T ? import_node_fs11.default.close(n, (E) => h(T)) : h(null, N);
     }, l = 0;
     if (o === 0) return a(null, 0);
     let c = 0, d = Buffer.alloc(512), S = (T, N) => {
       if (T || N === void 0) return a(T);
-      if (c += N, c < 512 && N) return import_node_fs10.default.read(n, d, c, d.length - c, l + c, S);
+      if (c += N, c < 512 && N) return import_node_fs11.default.read(n, d, c, d.length - c, l + c, S);
       if (l === 0 && d[0] === 31 && d[1] === 139) return a(new Error("cannot append to compressed archives"));
       if (c < 512) return a(null, l);
       let E = new k(d);
       if (!E.cksumValid) return a(null, l);
       let x = 512 * Math.ceil((E.size ?? 0) / 512);
       if (l + x + 512 > o || (l += x + 512, l >= o)) return a(null, l);
-      s3.mtimeCache && E.mtime && s3.mtimeCache.set(String(E.path), E.mtime), c = 0, import_node_fs10.default.read(n, d, 0, 512, l, S);
+      s3.mtimeCache && E.mtime && s3.mtimeCache.set(String(E.path), E.mtime), c = 0, import_node_fs11.default.read(n, d, 0, 512, l, S);
     };
-    import_node_fs10.default.read(n, d, 0, 512, l, S);
+    import_node_fs11.default.read(n, d, 0, 512, l, S);
   };
   return new Promise((n, o) => {
     e.on("error", o);
     let h = "r+", a = (l, c) => {
-      if (l && l.code === "ENOENT" && h === "r+") return h = "w+", import_node_fs10.default.open(s3.file, h, a);
+      if (l && l.code === "ENOENT" && h === "r+") return h = "w+", import_node_fs11.default.open(s3.file, h, a);
       if (l || !c) return o(l);
-      import_node_fs10.default.fstat(c, (d, S) => {
-        if (d) return import_node_fs10.default.close(c, () => o(d));
+      import_node_fs11.default.fstat(c, (d, S) => {
+        if (d) return import_node_fs11.default.close(c, () => o(d));
         i(c, S.size, (T, N) => {
           if (T) return o(T);
           let E = new tt(s3.file, { fd: c, start: N });
@@ -48160,16 +48248,16 @@ var po = (s3, t) => {
         });
       });
     };
-    import_node_fs10.default.open(s3.file, h, a);
+    import_node_fs11.default.open(s3.file, h, a);
   });
 };
 var Eo = (s3, t) => {
   t.forEach((e) => {
-    e.charAt(0) === "@" ? Ct({ file: import_node_path18.default.resolve(s3.cwd, e.slice(1)), sync: true, noResume: true, onReadEntry: (i) => s3.add(i) }) : s3.add(e);
+    e.charAt(0) === "@" ? Ct({ file: import_node_path19.default.resolve(s3.cwd, e.slice(1)), sync: true, noResume: true, onReadEntry: (i) => s3.add(i) }) : s3.add(e);
   }), s3.end();
 };
 var wo = async (s3, t) => {
-  for (let e of t) e.charAt(0) === "@" ? await Ct({ file: import_node_path18.default.resolve(String(s3.cwd), e.slice(1)), noResume: true, onReadEntry: (i) => s3.add(i) }) : s3.add(e);
+  for (let e of t) e.charAt(0) === "@" ? await Ct({ file: import_node_path19.default.resolve(String(s3.cwd), e.slice(1)), noResume: true, onReadEntry: (i) => s3.add(i) }) : s3.add(e);
   s3.end();
 };
 var vt = K(uo, po, () => {

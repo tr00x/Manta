@@ -27,6 +27,7 @@ import { loadScoringConfig, runMergeReview, Orchestrator, makeProbe, fsPostMorte
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createMetricCollector, prepareWorktreeForGate } from './merge-review-collector.js';
+import { detectToolchain } from './toolchain.js';
 import { adjustWeightsFromProject } from './rubric-prepass.js';
 import { listWorktrees } from '../spawner/worktree.js';
 import { loadBudgetConfig } from '../config/budget-config.js';
@@ -1166,18 +1167,33 @@ async function runMergeAllPipeline(
     async runQualityGate(worktreePath: string) {
       const errors: string[] = [];
       // bug #63: build the worktree before gating so the merge-all scorer mirrors
-      // the canonical pre-merge `pnpm gate` (install + build, then `tsc -b` +
-      // test) instead of a build-naive `tsc --noEmit` that reds on every
-      // `@manta/*` build-time alias. Shared prepare = one source of truth.
+      // the canonical pre-merge gate (install + build, then typecheck + test)
+      // instead of a build-naive check that reds on every `@manta/*` build-time
+      // alias. Shared prepare = one source of truth.
+      // bug #M9: the gate is toolchain-aware — typecheck is TS-only, and the test
+      // command comes from the detected toolchain (pnpm/npm/pytest/cargo/go). A
+      // non-JS project no longer false-REDs on a missing `pnpm test`; a project
+      // with no detectable test gate passes the test dimension (nothing to fail).
+      const tc = detectToolchain(worktreePath);
       await prepareWorktreeForGate(worktreePath);
       const diffRes = await execa('git', ['diff', '--stat', 'HEAD'], { cwd: worktreePath, reject: false });
       const hasDiff = diffRes.stdout.trim().length > 0;
-      const tscRes = await execa('pnpm', ['typecheck'], { cwd: worktreePath, reject: false });
-      const tscOk = tscRes.exitCode === 0;
-      if (!tscOk) errors.push(`tsc: ${(tscRes.stderr || tscRes.stdout).slice(0, 200)}`);
-      const testRes = await execa('pnpm', ['test'], { cwd: worktreePath, reject: false, timeout: 300_000 });
-      const testsOk = testRes.exitCode === 0;
-      if (!testsOk) errors.push(`tests: exit ${testRes.exitCode}`);
+      let tscOk = true;
+      if (tc.isTypeScript) {
+        const tscRes = await execa('pnpm', ['typecheck'], { cwd: worktreePath, reject: false });
+        tscOk = tscRes.exitCode === 0;
+        if (!tscOk) errors.push(`tsc: ${(tscRes.stderr || tscRes.stdout).slice(0, 200)}`);
+      }
+      let testsOk = true;
+      if (tc.test) {
+        const testRes = await execa(tc.test[0], [...tc.test.slice(1)], {
+          cwd: worktreePath,
+          reject: false,
+          timeout: 300_000,
+        });
+        testsOk = testRes.exitCode === 0;
+        if (!testsOk) errors.push(`tests: exit ${testRes.exitCode}`);
+      }
       return { passed: tscOk && testsOk, hasDiff, tscOk, testsOk, errors };
     },
     async gitMerge(repoRoot: string, branch: string) {
