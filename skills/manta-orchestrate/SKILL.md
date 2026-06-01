@@ -2,7 +2,7 @@
 name: manta-orchestrate
 description: End-to-end playbook for the main agent driving Manta. After you decide to cast, how to launch, observe, review, merge, and recover — plus the reliability gotchas that bite in real projects.
 audience: main
-version: 0.0.1
+version: 0.1.0
 related:
   - manta-cast-decide
   - manta-merge-review
@@ -16,6 +16,14 @@ related:
 You are the **main agent** in a Claude Code session, working on the user's project. Manta lets you clone yourself to work in parallel. `manta-cast-decide` told you *whether* to cast and which mode. This skill is the **operating playbook for everything after that decision**: launching the cast, watching it without wasting tokens, reviewing what clones produced, merging the good work, and recovering from the failure modes that actually happen on large projects.
 
 Your role once clones are running is **curator, not co-implementer**: you scope, observe, review, and merge. You do **not** climb into a clone's worktree and code alongside it unless it's wedged.
+
+**Be proactive.** Don't wait to be told "cast it." When a task in the conversation matches a cast shape, *offer* it — name the mode, the rough clone count, and the win. Concrete triggers:
+- User describes a rename/migration touching many files → *"That's a refactor-wave across ~N places — want me to cast clones to do it in parallel?"*
+- "Map / understand / where does X live" across the codebase → *"I can cast a recon-swarm to map this without burning your context — 2–3 clones?"*
+- A bug with no obvious cause spanning layers → *"This looks like a bug-hunt — cast a clone to root-cause it?"*
+- Two plausible designs and you're unsure → *"There are two real approaches here — want a forking-realities cast to build both and score them?"*
+- Feature that needs tests too → *"test-storm could build it with a test wall — coder + tester + fuzzer?"*
+Run `manta-cast-decide` first to confirm it's worth it; if it says solo, say so and do it solo.
 
 ## Allowed
 
@@ -34,8 +42,8 @@ Your role once clones are running is **curator, not co-implementer**: you scope,
 
 **Reliability gotchas (these bite on real, large projects):**
 - **Run casts SERIALLY.** Two casts overlapping in time can collide on clone-letter/worktree allocation (a data-loss guard exists, but the structural fix is pending). Wait for one cast's clones to be DEAD before launching the next.
-- **Cast from a reasonably fresh session.** A clone boots by forking your current transcript. Late in a *very* long session the transcript gets large and clone cold-start can exceed the 300s startup grace → the clone is reaped before its first heartbeat (`outcome=fail`, empty worktree). Workaround: `--startup-grace-ms 600000`, or start the cast from a fresher session.
-- **Mind the budget.** Every cast costs charges + money + some of your own context. Check `manta charges` / `manta cost`. A forking cast where one clone does heavy work can starve a sibling on the shared tick-budget.
+- **Long session? Force full inheritance, don't fear it.** A clone boots **warm** by forking your current transcript — that's the whole point. There's a safe **default** auto-fork threshold (~2 MB, tunable via `--distill-threshold-bytes`) so a cast doesn't blindly copy a huge transcript across every clone; above it the clone boots cold **with a loud warning** (never silently). When the task depends on what was just discussed, pass **`--force-full-transcript`** to fork the whole thing regardless of size (proven on an 18 MB session: the clone recalled the conversation). The default startup grace is **300 s** (`--startup-grace-ms`); a very large forked transcript can slow the clone's cold-start, so if a clone is reaped before its first heartbeat, bump it (e.g. `--startup-grace-ms 600000`).
+- **Mind your usage budget (not money).** Claude Code is a subscription, so a cast costs **charges + some of your subscription's usage/rate limit + some of your own context** — never dollars. Check `manta charges` (charges + cooldown) / `manta cost` (casts/clones/rate this window). The usage caps are `--max-parallel-clones`, `--max-casts-per-hour`, `--max-tokens-estimate`. A forking cast where one clone does heavy work can starve a sibling on the shared tick-budget.
 - **Single-clone tasks: pass the task inline** (`--task "$(cat task.txt)"`) rather than a per-clone `--tasks` file — clone-letter keys in the file must match the allocated roster, which you don't control.
 
 **Native MCP tools (alternative to shelling out).** The Manta Bus MCP server exposes user/orchestrator tools so you can drive Manta with **native tool calls** instead of `Bash`-ing the `/manta:*` slash commands: `manta_cast`, `manta_status`, `manta_cost`, `manta_inspect`, `manta_abort`, `manta_kill`. They run the same `manta` CLI under the hood (the bus spawns the binary — no logic duplication), return structured data, and **complement** (do not replace) the slash commands. `manta_cast` is non-blocking — it returns the cast id once clones start spawning, so the launch tool call doesn't hang for the whole cast; then observe with `manta_status`. Full reference: `docs/user/mcp-tools.md`. Everything in this playbook (decide → scope → launch → observe → ceremony → recover) applies identically whether you launch via the slash command or the native tool.
@@ -61,8 +69,11 @@ Your role once clones are running is **curator, not co-implementer**: you scope,
 **A second task while the first is still running.**
 Don't. `manta status` shows clones still WORKING → wait. Launching now risks a worktree collision. Queue it.
 
-**Cast failed with `outcome=fail`, empty worktree, "startup grace exceeded".**
-Your session transcript is large and the clone couldn't cold-start in time. Retry with `--startup-grace-ms 600000`, or run the cast from a fresh session. Nothing was lost (the worktree is clean).
+**A clone booted cold — it didn't seem to know the conversation.**
+Inheritance was skipped because the transcript was over the ~2 MB auto-fork threshold (you'd have seen a loud warning). Re-cast with `--force-full-transcript` to fork the full transcript so the clone boots warm. Verified on an 18 MB session.
+
+**Cast failed with `outcome=fail`, empty worktree.**
+Rare. If it says "startup grace exceeded", the clone missed its first heartbeat (often a large forked transcript) — bump `--startup-grace-ms` past the 300 s default (e.g. `600000`) and re-cast. Nothing was lost — the worktree is clean.
 
 **A clone committed `node_modules` or a `last-gasp-report.md` to its branch.**
 Strip those before merging — they're clone artifacts, not deliverables. Merge only the real change.

@@ -75,9 +75,19 @@ The real question is "am I within my subscription's usage budget?", never "can I
   usage estimate exceeds the value. A usage proxy, **not** dollars. It's a true per-cast ceiling.
 - Inspect current usage with `manta cost` (casts/clones/rate this window) and `manta charges` (charges +
   cooldown). Nothing here is denominated in dollars.
-- **Cooldown** between casts is enforced by the charge ledger (Phase 3+). If the previous cast hasn't
+- **Cooldown** between casts is enforced by the charge ledger. If the previous cast hasn't
   settled (`manta status` shows a clone still WORKING), wait.
 - Use **`--dry-run`** to preview usage + the cost estimate without spawning.
+
+### Long session? Force full inheritance.
+
+The whole point of Manta is a **warm** clone — it boots from a fork of your live transcript, so it
+already knows what you and the user worked out. There's a safe **default** auto-fork threshold (~2 MB,
+tunable via `--distill-threshold-bytes`) so a cast doesn't blindly copy a huge transcript across every
+clone; above it the clone boots cold **with a loud warning** (never silently). For a long, context-rich
+session where inheritance is the point, pass **`--force-full-transcript`** — it forks the entire
+transcript regardless of size (proven on an 18 MB session: the clone recalled the conversation). Use it
+whenever the task depends on what was just discussed.
 
 ## Forbidden
 
