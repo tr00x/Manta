@@ -35,7 +35,7 @@ with **no arguments**. It self-registers the bus MCP, resolving `server.cjs` fro
 
 ### c) From source (this walkthrough) — explicit path
 
-**From-source only.** This form points at *this checkout's* freshly-built bus binary, so it works **only inside a git clone** that has completed §1's `pnpm -r build` (which is what produces `packages/manta-bus/dist/bin/server.cjs`). Do **not** use it after an npm/plugin install — the `packages/…` tree does not exist in those artifacts; use (a) or (b) instead.
+**From-source only.** This form points at _this checkout's_ freshly-built bus binary, so it works **only inside a git clone** that has completed §1's `pnpm -r build` (which is what produces `packages/manta-bus/dist/bin/server.cjs`). Do **not** use it after an npm/plugin install — the `packages/…` tree does not exist in those artifacts; use (a) or (b) instead.
 
 ```
 claude mcp add -s user manta-bus -- node "$(pwd)/packages/manta-bus/dist/bin/server.cjs"
@@ -73,7 +73,7 @@ Expected: 3/3 passing.
 
 ## 5. Run a real recon-swarm cast
 
-> **Precondition (v1):** `manta cast` must run from **inside a Manta-enabled git checkout** — a repo/worktree that carries the `skills/` directory and is a git repo (the cast does `git worktree add`, and each clone's first action is to load the `manta-as-clone` skill from disk). A from-source checkout (this walkthrough) satisfies it. After `npx @tr00x/manta@latest install` into an *arbitrary* empty dir the bin works but `manta cast` does not — casting from an arbitrary directory isn't supported.
+> **Precondition (v1):** `manta cast` must run from **inside a Manta-enabled git checkout** — a repo/worktree that carries the `skills/` directory and is a git repo (the cast does `git worktree add`, and each clone's first action is to load the `manta-as-clone` skill from disk). A from-source checkout (this walkthrough) satisfies it. After `npx @tr00x/manta@latest install` into an _arbitrary_ empty dir the bin works but `manta cast` does not — casting from an arbitrary directory isn't supported.
 
 In a repo of your choice (or use the sample fixture in `packages/manta-e2e/tests/fixtures/sample-repo/`):
 
@@ -88,6 +88,7 @@ Each clone carries an internal per-clone usage budget automatically — Claude C
 is a subscription, so there are no per-clone dollar flags to set.
 
 The CLI:
+
 1. Creates `.manta/worktrees/clone-A` and `.manta/worktrees/clone-B`.
 2. Writes per-clone snapshots to `.manta/snapshots/cast-<ts>/`.
 3. Spawns two `claude --print` subprocesses, each pointing at its worktree.
@@ -118,7 +119,7 @@ Manta passes the snapshot path to each clone via the `MANTA_SNAPSHOT_PATH` env v
 `claude --print --append-system-prompt <text> --permission-mode bypassPermissions <prompt>`
 with a fixed Manta preamble that loads the `manta-as-clone` skill and instructs
 it to heartbeat first. The CLI spawner pre-registers the clone in the Bus
-*before* launching the `claude` process (Phase-1 lockdown).
+_before_ launching the `claude` process (Phase-1 lockdown).
 
 If `manta status` shows clones spawned but never moving past `STARTING`:
 
@@ -163,7 +164,7 @@ internals: `docs/internals/plugin-packaging.md`. This walkthrough above is the f
 
 > **`/manta:*` missing when cwd = the Manta repo?** Known Claude Code limitation
 > ([#14929](https://github.com/anthropics/claude-code/issues/14929)): with cwd inside this repo, CC
-> discovers the repo's own `.claude-plugin/marketplace.json` as a *directory* marketplace, whose slash
+> discovers the repo's own `.claude-plugin/marketplace.json` as a _directory_ marketplace, whose slash
 > commands silently fail to register. The marketplace is named `manta-dev` (not `manta`) precisely so it
 > can't name-collide with the installed `manta` plugin — but the directory-source discovery bug is
 > upstream. Contributor workaround: launch from a sibling dir with
@@ -174,12 +175,49 @@ internals: `docs/internals/plugin-packaging.md`. This walkthrough above is the f
 
 Prefer programmatic, structured tool calls over shelling out to `/manta:*`? The
 Manta Bus MCP server also exposes **user/orchestrator tools** — `manta_cast`,
-`manta_status`, `manta_cost`, `manta_inspect`, `manta_abort`, `manta_kill` — so a
-Claude Code orchestrator can drive Manta natively. They run the same `manta` CLI
-under the hood and **complement** (do not replace) the slash commands. `manta_cast`
-is non-blocking: it returns the cast id once clones start spawning, then you watch
+`manta_status`, `manta_inspect`, `manta_abort`, `manta_kill` — so a Claude Code
+orchestrator can drive Manta natively. They run the same `manta` CLI under the
+hood and **complement** (do not replace) the slash commands. `manta_cast` is
+non-blocking: it returns the cast id once clones start spawning, then you watch
 with `manta_status`. See **[docs/user/mcp-tools.md](./mcp-tools.md)** for the full
 list, inputs, and binary resolution.
+
+## Make your orchestrator actually USE Manta (point it at the docs)
+
+Installing the plugin gives your Claude Code session the `manta-*` skills and
+`/manta:*` commands — but a skill is a _soft_ prior: the agent may forget to load
+it, guess a flag, or under-use a mode. The reliable fix is to add a short Manta
+block to your project's **`CLAUDE.md`** (or `CLAUDE.local.md`). That file loads in
+full every session, so it's the one place that durably tells the orchestrator
+"Manta exists, here's how to use it, and **read the guide before casting**".
+
+Paste this into your project `CLAUDE.md`:
+
+```markdown
+## Manta (parallel self-cloning) — use it, don't guess
+
+This project has Manta installed. When a task is big, branchy, repetitive, or
+has rival approaches, cast clones instead of grinding solo.
+
+- **Before casting**, load the `manta-cast-decide` skill (cast vs solo? which of
+  the modes?) and the `manta-orchestrate` skill (the end-to-end playbook).
+- **Read the mode's guide before you cast it** — `docs/user/<mode>.md` has the
+  exact flags, contract shape, and ceremony. Don't cast from memory.
+  Modes: recon-swarm · bug-hunt · refactor-wave · forking-realities ·
+  pair-programming · test-storm · documentation-chase · council · decoy.
+- **Be proactive**: when you spot a cast-shaped task mid-conversation, offer it
+  ("this is a refactor-wave across ~N files — want me to cast it?").
+- **The only usage limit is `--max-parallel-clones`** (Claude Code is a
+  subscription — no charges/cooldown/dollar budgets).
+- **After a cast**: read the deliverables / `docs/merge-reviews/<id>.md`, re-run
+  the gate yourself before claiming green, then GC worktrees/branches.
+- Quick reference: `/manta:help`. Health check: `manta doctor`.
+```
+
+The clone side is already wired — Manta copies your `CLAUDE.md` into each clone's
+worktree at spawn, so clones inherit the same project rules (see "Project
+instructions" inheritance). This block is about the **orchestrator** side: making
+your main agent reach for Manta and read the docs instead of half-remembering.
 
 > **`[manta] not a git repo root`?** Manta's state (registry, charges, worktrees) is **per-repo**, keyed
 > on the git root — so the stateful CLI commands (`status`, `cost`, `charges`, `cast`, `cleanup`, …) must
