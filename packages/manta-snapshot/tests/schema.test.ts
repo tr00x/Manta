@@ -29,7 +29,6 @@ const validSnapshot = {
   parentWorktree: '/tmp/parent',
   cloneWorktree: '/tmp/clone-A',
   mode: 'recon-swarm',
-  budget: { tokensTotal: 100000, tokensUsed: 0, tokensEstimatedTotal: 5, tokensEstimatedUsed: 0 },
   ttlSeconds: 1200,
   siblingCloneIds: [],
 };

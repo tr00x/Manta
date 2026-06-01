@@ -1,6 +1,6 @@
 ---
 name: manta-cast-decide
-description: Pre-cast self-check for the main agent. Do I actually need clones? Which of the 9 modes? Am I within my subscription's usage/rate limit and cooldown? Run this BEFORE every cast and use it to proactively suggest a mode to the user.
+description: Pre-cast self-check for the main agent. Do I actually need clones? Which of the 9 modes? Am I within my subscription's usage/rate limit? Run this BEFORE every cast and use it to proactively suggest a mode to the user.
 audience: main
 version: 0.1.0
 related: [manta-orchestrate]
@@ -11,11 +11,11 @@ related: [manta-orchestrate]
 ## Purpose
 
 You're the main agent (the user's Claude Code orchestrator). A task arrived. Before you `manta cast`,
-run this skill: every cast burns charges, eats into your Claude Code subscription's usage/rate limit,
-and costs your own context. Claude Code is a **subscription** (Pro/Max), not pay-per-token — the
-constraint is never dollars; it's how much of your **usage/rate budget** you spend and how many clones
-you run **in parallel**. Many "feels parallel" tasks are actually serial and a single agent does them
-faster with less usage.
+run this skill: every cast eats into your Claude Code subscription's usage/rate limit and costs your own
+context. Claude Code is a **subscription** (Pro/Max), not pay-per-token — the constraint is never
+dollars, and there are no charges or cooldowns; it's how much of your **subscription's usage** you spend
+and how many clones you run **in parallel** (the one hard cap, `--max-parallel-clones`). Many "feels
+parallel" tasks are actually serial and a single agent does them faster with less usage.
 
 This skill does two jobs: (1) decide *whether* to cast, and (2) pick *which mode*. Use it reactively
 (before a cast) **and** proactively — when you spot a task shape below mid-conversation, suggest the
@@ -61,23 +61,17 @@ opted in: `.manta/config/budget.json` → `aghs.unlocked: ["council","decoy"]`, 
 **`phantom-lance` (recursive self-cast) does NOT ship** — `manta cast phantom-lance` is rejected as "not
 supported". Don't suggest it.
 
-### Step 3 — Usage / rate self-check (before you spawn)
+### Step 3 — Usage self-check (before you spawn)
 
-The real question is "am I within my subscription's usage budget?", never "can I afford the dollars?"
-(there are none). Check:
+The real question is "am I within my subscription's usage?", never "can I afford the dollars?" (there
+are none — no charges, no cooldown, no dollar budget). Check:
 
-- **Rate**: how many casts this hour? `--max-casts-per-hour` (default 6) is a hard ceiling, and the
-  charge ledger gates frequency on top of it. Near the cap or in cooldown → wait. Exhausting your Claude
-  Code usage limit blocks you for *hours*.
-- **Parallelism**: how many clones at once? `--max-parallel-clones` (default 5) caps it. More parallel
-  clones drain your rate limit faster — spawn the fewest that actually parallelize.
-- **Per-cast ceiling** (optional): `--max-tokens-estimate` rejects the cast if its cumulative per-clone
-  usage estimate exceeds the value. A usage proxy, **not** dollars. It's a true per-cast ceiling.
-- Inspect current usage with `manta cost` (casts/clones/rate this window) and `manta charges` (charges +
-  cooldown). Nothing here is denominated in dollars.
-- **Cooldown** between casts is enforced by the charge ledger. If the previous cast hasn't
-  settled (`manta status` shows a clone still WORKING), wait.
-- Use **`--dry-run`** to preview usage + the cost estimate without spawning.
+- **Parallelism**: how many clones at once? `--max-parallel-clones` (default 5) is the one hard cap. More
+  parallel clones drain your subscription's rate limit faster and load your machine harder — spawn the
+  fewest that actually parallelize. Exhausting your Claude Code usage limit blocks you for *hours*.
+- **Serial casts**: don't pile casts back-to-back. If the previous cast hasn't settled (`manta status`
+  shows a clone still WORKING), wait for it before launching the next.
+- Use **`--dry-run`** to preview the plan (modes, clone count, scope) without spawning.
 
 ### Long session? Force full inheritance.
 
@@ -91,7 +85,7 @@ whenever the task depends on what was just discussed.
 
 ## Forbidden
 
-- **Casting "to be safe".** A speculative cast is wasted charges. Can't articulate why parallel beats
+- **Casting "to be safe".** A speculative cast is wasted usage. Can't articulate why parallel beats
   serial? Do it serial.
 - **Skipping Step 1** because the task "feels big." Big ≠ parallelizable.
 - **Recursive cast from this check.** The pre-cast decision is always a solo decision.

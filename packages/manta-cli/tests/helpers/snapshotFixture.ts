@@ -10,7 +10,6 @@ export interface SnapshotFor {
   scope?: { allowedPaths?: string[]; forbiddenPaths?: string[]; maxFilesChanged?: number };
   siblingClones?: string[];
   deadlineMs?: number;
-  tokenEstimate?: number;
   /** Optional per-clone approach hint; null/undefined → contract.approachHint = null. */
   approachHint?: string | null;
   sessionMode?: 'batch' | 'daemon';
@@ -41,7 +40,6 @@ export function makeSnapshotFor(opts: SnapshotFor): Snapshot {
       opts.parentSessionId !== undefined ? opts.parentSessionId : 'parent-session-test',
     resumeEnabled: opts.resumeEnabled ?? false,
     castId: opts.castId ?? 'cast-test',
-    tokenEstimate: opts.tokenEstimate ?? 5,
     approachHint: opts.approachHint ?? null,
     sessionMode: opts.sessionMode,
     sessionId: opts.sessionId,

@@ -316,9 +316,6 @@ export const CloneAssignmentSchema = z
     task: z.string().min(1).max(8_000).optional(),
     approach_hint: z.string().max(8_000).optional(),
     scope: ScopeSchema.optional(),
-    // Per-clone usage cap as a token ESTIMATE (subscription usage proxy), NOT
-    // dollars. Renamed from `budget_usd` in the 2026-05-31 budget repivot.
-    token_estimate: z.number().positive().optional(),
     deadline_seconds: z.number().int().positive().optional(),
     role: CloneRoleSchema.optional(),
   })
@@ -387,117 +384,15 @@ export const CreateCastInputSchema = z
   })
   .strict();
 
-// Phase 3 — Charge system schemas
-
-export const MODE_CHARGE_COST: Readonly<Record<Mode, number>> = {
-  'recon-swarm': 1,
-  'pair-programming': 1,
-  'documentation-chase': 1,
-  'forking-realities': 2,
-  'test-storm': 2,
-  'refactor-wave': 2,
-  'bug-hunt': 2,
-  'decoy': 2,
-  'council': 3,
-  'phantom-lance': 3,
-};
-
-export const ChargeStateSchema = z
-  .object({
-    version: z.literal(1),
-    current_charges: z.number().int(),
-    charges_max: z.number().int().positive(),
-    charges_min: z.number().int(),
-    last_idle_recovery_at: z.number().int().nonnegative(),
-    last_cast_ended_at: z.number().int().nonnegative(),
-    cooldown_until: z.number().int().nonnegative().nullable(),
-    total_successes: z.number().int().nonnegative(),
-    total_failures: z.number().int().nonnegative(),
-    total_casts: z.number().int().nonnegative(),
-  })
-  .strict();
-
-export const ChargeEventTypeSchema = z.enum([
-  'cast_start',
-  'cast_success',
-  'cast_fail',
-  'cast_neutral',
-  'idle_recovery',
-  'manual_refresh',
-  'cooldown_triggered',
-  'cooldown_cleared',
-]);
-
-export const ChargeEventSchema = z
-  .object({
-    ts: z.number().int().nonnegative(),
-    type: ChargeEventTypeSchema,
-    delta: z.number().int(),
-    cast_id: z.string().nullable(),
-    mode: ModeSchema.nullable(),
-    cost: z.number().int().nonnegative().optional(),
-    prev_charges: z.number().int(),
-    next_charges: z.number().int(),
-    reason: z.string().optional(),
-  })
-  .strict();
-
-// Usage ledger entry. Claude Code is a subscription (Pro/Max), not pay-per-
-// token, so the unit here is a TOKEN ESTIMATE — a rough proxy for how much of
-// your subscription's usage/rate budget a cast consumes — NOT dollars. The
-// repivot (2026-05-31) replaced the dollar accounting with this usage model.
-export const DailySpendEntrySchema = z
-  .object({
-    cast_id: z.string(),
-    mode: ModeSchema,
-    clone_count: z.number().int().positive(),
-    estimated_tokens: z.number().nonnegative(),
-    estimate_type: z.enum(['estimate', 'actual']),
-    started_at: z.number().int().nonnegative(),
-  })
-  .strict();
-
-export const DailySpendStateSchema = z
-  .object({
-    version: z.literal(1),
-    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    tokens_estimated: z.number().nonnegative(),
-    entries: z.array(DailySpendEntrySchema),
-  })
-  .strict();
-
+// Parallelism / reactive-trigger config. Claude Code is a subscription
+// (Pro/Max), not pay-per-token, so the only real cast constraint is PARALLELISM
+// — how many clone processes run at once (machine + subscription rate guard).
+// The former cost/charges/cooldown/cast-rate/token-estimate budget machinery
+// was removed; `max_parallel_clones` is the single user-facing limit.
 export const BudgetConfigSchema = z
   .object({
-    // Usage-aware caps (token estimates, not dollars). `auto` per-clone =
-    // per-cast / clone_count.
-    token_estimate_per_cast: z.number().positive(),
-    token_estimate_per_clone: z.union([z.number().positive(), z.literal('auto')]),
-    daily_token_cap: z.number().positive(),
     // Parallelism cap: max clones a single cast may spawn concurrently.
     max_parallel_clones: z.number().int().positive(),
-    // Cast-rate cap: max casts allowed to start within a rolling hour. Backed
-    // by the charge ledger's cast_start events. The charge system remains the
-    // primary rate primitive; this is a hard per-hour ceiling on top of it.
-    max_casts_per_hour: z.number().int().positive(),
-    token_estimates: z.record(ModeSchema, z.number().nonnegative()),
-    auto_downgrade: z
-      .object({
-        enabled: z.boolean(),
-        confirm: z.boolean(),
-        min_clones: z.number().int().positive(),
-      })
-      .partial()
-      .strict(),
-    charges: z
-      .object({
-        initial: z.number().int().nonnegative(),
-        max: z.number().int().positive(),
-        min: z.number().int(),
-        idle_recovery_minutes: z.number().int().positive(),
-        cooldown_hours: z.number().int().positive(),
-      })
-      .partial()
-      .strict(),
   })
   .partial()
   .strict()
@@ -556,11 +451,6 @@ export type CastManifest = z.infer<typeof CastManifestSchema>;
 export type CreateCastInput = z.infer<typeof CreateCastInputSchema>;
 export type CastTriggerProvenance = z.infer<typeof CastTriggerProvenanceSchema>;
 export type CastMetadata = z.infer<typeof CastMetadataSchema>;
-export type ChargeState = z.infer<typeof ChargeStateSchema>;
-export type ChargeEvent = z.infer<typeof ChargeEventSchema>;
-export type ChargeEventType = z.infer<typeof ChargeEventTypeSchema>;
-export type DailySpendEntry = z.infer<typeof DailySpendEntrySchema>;
-export type DailySpendState = z.infer<typeof DailySpendStateSchema>;
 export type BudgetConfig = z.infer<typeof BudgetConfigSchema>;
 export type RetaskInput = z.infer<typeof RetaskInputSchema>;
 export type PauseInput = z.infer<typeof PauseInputSchema>;

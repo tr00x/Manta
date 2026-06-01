@@ -28,9 +28,8 @@ If the clone exits without `report_death`, the orchestrator detects the stale he
 
 ## Usage & time budget
 
-- **Usage per clone**: each clone carries an internal per-clone token-estimate budget automatically (Claude Code is a subscription, not pay-per-token — there are no per-clone dollar flags). Cast-wide usage is capped by `--max-parallel-clones` and `--max-casts-per-hour`.
+- **Usage**: Claude Code is a subscription, not pay-per-token — there are no charges, cooldown, or token/dollar budgets. The only cast limit is `--max-parallel-clones` (how many clones run at once), which protects your machine and your subscription's rate limit.
 - **Time per clone (TTL)**: hard ceiling 20 min via `taskContract.deadline_ms`; soft ceiling 25 min via the cast's `--tick-budget-ms`.
-- **Charges / cooldowns**: see [docs/user/charge-system.md](./charge-system.md) for how casts are rate-limited. Watch your usage manually.
 
 ## Reading the output
 

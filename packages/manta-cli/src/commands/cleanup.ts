@@ -12,7 +12,7 @@ import type { ClaudeMcpResult } from './mcp-preflight.js';
  * Manta plugin, the per-repo footprint is left behind: `.manta/worktrees/*`
  * (each a real git worktree on a `manta/cast-*` branch), any dangling
  * `manta/cast-*` branches, the `manta-bus` MCP registration, and `.manta/state`
- * (registry, locks, charges, events). This command removes all of it.
+ * (registry, locks, events). This command removes all of it.
  *
  * Idempotent: a second run is a no-op (nothing left to remove). Dry-runnable:
  * `dryRun` computes the plan and mutates nothing — and (like `install

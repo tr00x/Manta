@@ -20109,9 +20109,6 @@ var CloneAssignmentSchema = external_exports.object({
   task: external_exports.string().min(1).max(8e3).optional(),
   approach_hint: external_exports.string().max(8e3).optional(),
   scope: ScopeSchema.optional(),
-  // Per-clone usage cap as a token ESTIMATE (subscription usage proxy), NOT
-  // dollars. Renamed from `budget_usd` in the 2026-05-31 budget repivot.
-  token_estimate: external_exports.number().positive().optional(),
   deadline_seconds: external_exports.number().int().positive().optional(),
   role: CloneRoleSchema.optional()
 }).strict();
@@ -20153,90 +20150,9 @@ var CreateCastInputSchema = external_exports.object({
   policy: CastPolicySchema,
   metadata: CastMetadataSchema.optional()
 }).strict();
-var MODE_CHARGE_COST = {
-  "recon-swarm": 1,
-  "pair-programming": 1,
-  "documentation-chase": 1,
-  "forking-realities": 2,
-  "test-storm": 2,
-  "refactor-wave": 2,
-  "bug-hunt": 2,
-  "decoy": 2,
-  "council": 3,
-  "phantom-lance": 3
-};
-var ChargeStateSchema = external_exports.object({
-  version: external_exports.literal(1),
-  current_charges: external_exports.number().int(),
-  charges_max: external_exports.number().int().positive(),
-  charges_min: external_exports.number().int(),
-  last_idle_recovery_at: external_exports.number().int().nonnegative(),
-  last_cast_ended_at: external_exports.number().int().nonnegative(),
-  cooldown_until: external_exports.number().int().nonnegative().nullable(),
-  total_successes: external_exports.number().int().nonnegative(),
-  total_failures: external_exports.number().int().nonnegative(),
-  total_casts: external_exports.number().int().nonnegative()
-}).strict();
-var ChargeEventTypeSchema = external_exports.enum([
-  "cast_start",
-  "cast_success",
-  "cast_fail",
-  "cast_neutral",
-  "idle_recovery",
-  "manual_refresh",
-  "cooldown_triggered",
-  "cooldown_cleared"
-]);
-var ChargeEventSchema = external_exports.object({
-  ts: external_exports.number().int().nonnegative(),
-  type: ChargeEventTypeSchema,
-  delta: external_exports.number().int(),
-  cast_id: external_exports.string().nullable(),
-  mode: ModeSchema.nullable(),
-  cost: external_exports.number().int().nonnegative().optional(),
-  prev_charges: external_exports.number().int(),
-  next_charges: external_exports.number().int(),
-  reason: external_exports.string().optional()
-}).strict();
-var DailySpendEntrySchema = external_exports.object({
-  cast_id: external_exports.string(),
-  mode: ModeSchema,
-  clone_count: external_exports.number().int().positive(),
-  estimated_tokens: external_exports.number().nonnegative(),
-  estimate_type: external_exports.enum(["estimate", "actual"]),
-  started_at: external_exports.number().int().nonnegative()
-}).strict();
-var DailySpendStateSchema = external_exports.object({
-  version: external_exports.literal(1),
-  date: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  tokens_estimated: external_exports.number().nonnegative(),
-  entries: external_exports.array(DailySpendEntrySchema)
-}).strict();
 var BudgetConfigSchema = external_exports.object({
-  // Usage-aware caps (token estimates, not dollars). `auto` per-clone =
-  // per-cast / clone_count.
-  token_estimate_per_cast: external_exports.number().positive(),
-  token_estimate_per_clone: external_exports.union([external_exports.number().positive(), external_exports.literal("auto")]),
-  daily_token_cap: external_exports.number().positive(),
   // Parallelism cap: max clones a single cast may spawn concurrently.
-  max_parallel_clones: external_exports.number().int().positive(),
-  // Cast-rate cap: max casts allowed to start within a rolling hour. Backed
-  // by the charge ledger's cast_start events. The charge system remains the
-  // primary rate primitive; this is a hard per-hour ceiling on top of it.
-  max_casts_per_hour: external_exports.number().int().positive(),
-  token_estimates: external_exports.record(ModeSchema, external_exports.number().nonnegative()),
-  auto_downgrade: external_exports.object({
-    enabled: external_exports.boolean(),
-    confirm: external_exports.boolean(),
-    min_clones: external_exports.number().int().positive()
-  }).partial().strict(),
-  charges: external_exports.object({
-    initial: external_exports.number().int().nonnegative(),
-    max: external_exports.number().int().positive(),
-    min: external_exports.number().int(),
-    idle_recovery_minutes: external_exports.number().int().positive(),
-    cooldown_hours: external_exports.number().int().positive()
-  }).partial().strict()
+  max_parallel_clones: external_exports.number().int().positive()
 }).partial().strict().extend({
   triggers: external_exports.object({
     global_hourly_cap: external_exports.number().int().positive().default(6)
@@ -20343,9 +20259,6 @@ function busPaths(repoRoot) {
     contractsDir: path.join(stateDir, "contracts"),
     castsDir: path.join(stateDir, "casts"),
     lockfileDir: path.join(stateDir, ".locks"),
-    charges: path.join(stateDir, "charges.json"),
-    chargesLog: path.join(stateDir, "charges.log"),
-    dailySpend: path.join(stateDir, "daily-spend.json"),
     configDir,
     budgetConfig: path.join(configDir, "budget.json"),
     workQueue: path.join(stateDir, "work-queue.json"),
@@ -20650,6 +20563,17 @@ var Registry = class {
     const r = file.clones[cloneId];
     if (!r) throw new BusNotFoundError("clone", cloneId);
     return r;
+  }
+  /**
+   * bug #70: read a clone's current state, or null if the record is gone.
+   * Non-throwing variant of `get`, used by the spawner's booting-ticker to
+   * decide whether to keep emitting cold-boot heartbeats (STARTING) or stop
+   * (any settled/absent state). Avoids the caller having to try/catch
+   * BusNotFoundError on every tick.
+   */
+  async getState(cloneId) {
+    const file = await atomicReadJson(this.paths.registry, empty);
+    return file.clones[cloneId]?.state ?? null;
   }
   async list() {
     const file = await atomicReadJson(this.paths.registry, empty);
@@ -21088,416 +21012,6 @@ var CastsStore = class {
       if (raw != null) out.push(CastManifestSchema.parse(raw));
     }
     return out;
-  }
-};
-
-// ../manta-bus/src/state/charge-store.ts
-init_cjs_shims();
-var DEFAULT_CHARGE_CONFIG = {
-  initial: 3,
-  max: 5,
-  min: -1,
-  idleRecoveryMinutes: 30,
-  cooldownHours: 24
-};
-var ChargeStore = class {
-  constructor(paths, clock, config2 = DEFAULT_CHARGE_CONFIG) {
-    this.paths = paths;
-    this.clock = clock;
-    this.config = config2;
-  }
-  paths;
-  clock;
-  config;
-  async read() {
-    return atomicReadJson(this.paths.charges, () => this.defaultState());
-  }
-  async deductForCast(castId, mode) {
-    const cost = MODE_CHARGE_COST[mode];
-    let prevCharges = 0;
-    let nextCharges = 0;
-    const result = await atomicMutateJson(
-      this.paths.charges,
-      () => this.defaultState(),
-      (current) => {
-        if (current.cooldown_until != null && this.clock.now() < current.cooldown_until) {
-          throw new BusConflictError(
-            `Cooldown active until ${new Date(current.cooldown_until).toISOString()}. Use /manta refresh to clear.`
-          );
-        }
-        if (current.current_charges < cost) {
-          throw new BusConflictError(
-            `Insufficient charges: have ${current.current_charges}, need ${cost} for ${mode}. Wait for idle recovery or /manta refresh.`
-          );
-        }
-        if (current.current_charges < 0 && cost > 1) {
-          throw new BusConflictError(
-            `In overdraft (${current.current_charges}): only cost-1 modes allowed. ${mode} costs ${cost}.`
-          );
-        }
-        prevCharges = current.current_charges;
-        nextCharges = current.current_charges - cost;
-        return {
-          ...current,
-          current_charges: nextCharges,
-          total_casts: current.total_casts + 1
-        };
-      },
-      async () => {
-        const event = {
-          ts: this.clock.now(),
-          type: "cast_start",
-          delta: -cost,
-          cast_id: castId,
-          mode,
-          cost,
-          prev_charges: prevCharges,
-          next_charges: nextCharges
-        };
-        ChargeEventSchema.parse(event);
-        await appendJsonLine(this.paths.chargesLog, event);
-      }
-    );
-    return result;
-  }
-  /**
-   * Append a `cast_start` audit event WITHOUT mutating charge state. The
-   * `--max-casts-per-hour` rate cap and the `cost` week-view both count
-   * `cast_start` events from the charge log; under `--no-charge-check`,
-   * `deductForCast` is skipped, so without this the subscription rate guard
-   * (the budget repivot's core control) would be silently disabled and the
-   * usage history would undercount. delta/cost are 0 (no debit); prev/next
-   * reflect the unchanged balance. Exactly one of deductForCast/this runs per
-   * cast, so the rate cap never double-counts.
-   */
-  async recordCastStartAudit(castId, mode) {
-    const current = await this.read();
-    const event = {
-      ts: this.clock.now(),
-      type: "cast_start",
-      delta: 0,
-      cast_id: castId,
-      mode,
-      cost: 0,
-      prev_charges: current.current_charges,
-      next_charges: current.current_charges,
-      reason: "audit (no-charge-check)"
-    };
-    ChargeEventSchema.parse(event);
-    await appendJsonLine(this.paths.chargesLog, event);
-  }
-  async creditSuccess(castId, mode) {
-    let prevCharges = 0;
-    let nextCharges = 0;
-    const result = await atomicMutateJson(
-      this.paths.charges,
-      () => this.defaultState(),
-      (current) => {
-        prevCharges = current.current_charges;
-        nextCharges = Math.min(current.current_charges + 1, current.charges_max);
-        return {
-          ...current,
-          current_charges: nextCharges,
-          total_successes: current.total_successes + 1,
-          last_cast_ended_at: this.clock.now()
-        };
-      },
-      async () => {
-        const event = {
-          ts: this.clock.now(),
-          type: "cast_success",
-          delta: nextCharges - prevCharges,
-          cast_id: castId,
-          mode,
-          prev_charges: prevCharges,
-          next_charges: nextCharges
-        };
-        ChargeEventSchema.parse(event);
-        await appendJsonLine(this.paths.chargesLog, event);
-      }
-    );
-    return result;
-  }
-  async creditFail(castId, mode) {
-    let prevCharges = 0;
-    let nextCharges = 0;
-    let shouldCooldown = false;
-    const result = await atomicMutateJson(
-      this.paths.charges,
-      () => this.defaultState(),
-      (current) => {
-        prevCharges = current.current_charges;
-        nextCharges = current.current_charges - 1;
-        shouldCooldown = nextCharges < current.charges_min;
-        return {
-          ...current,
-          current_charges: nextCharges,
-          total_failures: current.total_failures + 1,
-          last_cast_ended_at: this.clock.now()
-        };
-      },
-      async () => {
-        const event = {
-          ts: this.clock.now(),
-          type: "cast_fail",
-          delta: -1,
-          cast_id: castId,
-          mode,
-          prev_charges: prevCharges,
-          next_charges: nextCharges
-        };
-        ChargeEventSchema.parse(event);
-        await appendJsonLine(this.paths.chargesLog, event);
-      }
-    );
-    if (shouldCooldown) {
-      return this.triggerCooldown();
-    }
-    return result;
-  }
-  async creditNeutral(castId, mode) {
-    let currentCharges = 0;
-    const result = await atomicMutateJson(
-      this.paths.charges,
-      () => this.defaultState(),
-      (current) => {
-        currentCharges = current.current_charges;
-        return {
-          ...current,
-          last_cast_ended_at: this.clock.now()
-        };
-      },
-      async () => {
-        const event = {
-          ts: this.clock.now(),
-          type: "cast_neutral",
-          delta: 0,
-          cast_id: castId,
-          mode,
-          prev_charges: currentCharges,
-          next_charges: currentCharges
-        };
-        ChargeEventSchema.parse(event);
-        await appendJsonLine(this.paths.chargesLog, event);
-      }
-    );
-    return result;
-  }
-  async applyPassiveRecovery() {
-    const recoveryMs = this.config.idleRecoveryMinutes * 6e4;
-    let creditsApplied = 0;
-    let prevCharges = 0;
-    const state = await atomicMutateJson(
-      this.paths.charges,
-      () => this.defaultState(),
-      (current) => {
-        prevCharges = current.current_charges;
-        const baseline = Math.max(current.last_idle_recovery_at, current.last_cast_ended_at);
-        const elapsed = this.clock.now() - baseline;
-        const slots = Math.floor(elapsed / recoveryMs);
-        if (slots <= 0 || current.current_charges >= current.charges_max) {
-          return current;
-        }
-        const maxCredits = current.charges_max - current.current_charges;
-        creditsApplied = Math.min(slots, maxCredits);
-        return {
-          ...current,
-          current_charges: current.current_charges + creditsApplied,
-          last_idle_recovery_at: baseline + creditsApplied * recoveryMs
-        };
-      },
-      async () => {
-        if (creditsApplied > 0) {
-          const event = {
-            ts: this.clock.now(),
-            type: "idle_recovery",
-            delta: creditsApplied,
-            cast_id: null,
-            mode: null,
-            prev_charges: prevCharges,
-            next_charges: prevCharges + creditsApplied
-          };
-          ChargeEventSchema.parse(event);
-          await appendJsonLine(this.paths.chargesLog, event);
-        }
-      }
-    );
-    return { creditsApplied, state };
-  }
-  async triggerCooldown() {
-    const cooldownMs = this.config.cooldownHours * 36e5;
-    let prevCharges = 0;
-    let nextCharges = 0;
-    const result = await atomicMutateJson(
-      this.paths.charges,
-      () => this.defaultState(),
-      (current) => {
-        prevCharges = current.current_charges;
-        nextCharges = current.current_charges;
-        return {
-          ...current,
-          cooldown_until: this.clock.now() + cooldownMs
-        };
-      },
-      async () => {
-        const event = {
-          ts: this.clock.now(),
-          type: "cooldown_triggered",
-          delta: 0,
-          cast_id: null,
-          mode: null,
-          prev_charges: prevCharges,
-          next_charges: nextCharges,
-          reason: `Charges below min (${prevCharges}). Cooldown for ${this.config.cooldownHours}h.`
-        };
-        ChargeEventSchema.parse(event);
-        await appendJsonLine(this.paths.chargesLog, event);
-      }
-    );
-    return result;
-  }
-  async clearCooldown() {
-    let prevCharges = 0;
-    const result = await atomicMutateJson(
-      this.paths.charges,
-      () => this.defaultState(),
-      (current) => {
-        prevCharges = current.current_charges;
-        return {
-          ...current,
-          cooldown_until: null,
-          current_charges: 0
-        };
-      },
-      async () => {
-        const event = {
-          ts: this.clock.now(),
-          type: "cooldown_cleared",
-          delta: 0 - prevCharges,
-          cast_id: null,
-          mode: null,
-          prev_charges: prevCharges,
-          next_charges: 0,
-          reason: "Manual refresh via /manta refresh"
-        };
-        ChargeEventSchema.parse(event);
-        await appendJsonLine(this.paths.chargesLog, event);
-      }
-    );
-    return result;
-  }
-  async reset() {
-    const state = this.defaultState();
-    const result = await atomicMutateJson(
-      this.paths.charges,
-      () => state,
-      () => state
-    );
-    return result;
-  }
-  async readLog() {
-    const { readFile: readFile5 } = await import("fs/promises");
-    let raw;
-    try {
-      raw = await readFile5(this.paths.chargesLog, "utf8");
-    } catch (err) {
-      if (err && typeof err === "object" && "code" in err && err.code === "ENOENT") {
-        return [];
-      }
-      throw err;
-    }
-    if (!raw.trim()) return [];
-    const events = [];
-    for (const line of raw.trim().split("\n")) {
-      try {
-        events.push(ChargeEventSchema.parse(JSON.parse(line)));
-      } catch {
-      }
-    }
-    return events;
-  }
-  defaultState() {
-    return {
-      version: 1,
-      current_charges: this.config.initial,
-      charges_max: this.config.max,
-      charges_min: this.config.min,
-      last_idle_recovery_at: this.clock.now(),
-      last_cast_ended_at: 0,
-      cooldown_until: null,
-      total_successes: 0,
-      total_failures: 0,
-      total_casts: 0
-    };
-  }
-};
-
-// ../manta-bus/src/state/daily-spend.ts
-init_cjs_shims();
-var DailySpendLedger = class {
-  constructor(paths, clock) {
-    this.paths = paths;
-    this.clock = clock;
-  }
-  paths;
-  clock;
-  async read() {
-    const raw = await atomicReadJson(
-      this.paths.dailySpend,
-      () => this.defaultState()
-    );
-    const parsed = DailySpendStateSchema.safeParse(raw);
-    if (!parsed.success || parsed.data.date !== this.localDate()) {
-      return this.defaultState();
-    }
-    return parsed.data;
-  }
-  async recordCastStart(entry) {
-    const ts = this.clock.now();
-    return atomicMutateJson(
-      this.paths.dailySpend,
-      () => this.defaultState(),
-      (current) => {
-        const today = this.localDate();
-        const fullEntry = { ...entry, started_at: ts };
-        if (current.date !== today) {
-          return {
-            version: 1,
-            date: today,
-            tokens_estimated: entry.estimated_tokens,
-            entries: [fullEntry]
-          };
-        }
-        return {
-          ...current,
-          tokens_estimated: current.tokens_estimated + entry.estimated_tokens,
-          entries: [...current.entries, fullEntry]
-        };
-      }
-    );
-  }
-  async getRemaining(dailyTokenCap) {
-    const state = await this.read();
-    return Math.max(0, dailyTokenCap - state.tokens_estimated);
-  }
-  /**
-   * Number of casts started today (usage signal — replaces the old dollar
-   * spend total as the headline daily metric).
-   */
-  async castsToday() {
-    const state = await this.read();
-    return state.entries.length;
-  }
-  defaultState() {
-    return {
-      version: 1,
-      date: this.localDate(),
-      tokens_estimated: 0,
-      entries: []
-    };
-  }
-  localDate() {
-    return new Date(this.clock.now()).toLocaleDateString("en-CA");
   }
 };
 
@@ -22848,12 +22362,6 @@ var OpenFileSchema = external_exports.object({
   path: external_exports.string().min(1),
   reason: external_exports.string().min(1)
 });
-var BudgetSchema = external_exports.object({
-  tokensTotal: external_exports.number().int().nonnegative(),
-  tokensUsed: external_exports.number().int().nonnegative(),
-  tokensEstimatedTotal: external_exports.number().nonnegative(),
-  tokensEstimatedUsed: external_exports.number().nonnegative()
-});
 var SnapshotSchema = external_exports.object({
   version: external_exports.literal(CURRENT_SCHEMA_VERSION),
   castId: external_exports.string().min(1),
@@ -22876,7 +22384,6 @@ var SnapshotSchema = external_exports.object({
   parentWorktree: external_exports.string().min(1),
   cloneWorktree: external_exports.string().min(1),
   mode: ModeSchema2,
-  budget: BudgetSchema,
   ttlSeconds: external_exports.number().int().positive(),
   siblingCloneIds: external_exports.array(external_exports.string().min(1)),
   sessionMode: SessionModeSchema.default("batch"),
@@ -23081,15 +22588,10 @@ var CastInputSchema = external_exports.object({
   task: external_exports.string().min(1),
   clones: positiveInt.optional(),
   maxParallelClones: positiveInt.optional(),
-  maxCastsPerHour: positiveInt.optional(),
-  maxTokensEstimate: positiveInt.optional(),
   allowedPaths: external_exports.array(external_exports.string().min(1)).optional(),
   forbiddenPaths: external_exports.array(external_exports.string().min(1)).optional(),
   maxFilesChanged: nonNegativeInt.optional(),
   dryRun: external_exports.boolean().optional()
-});
-var CostInputSchema = external_exports.object({
-  period: external_exports.enum(["today", "weekly"]).optional()
 });
 var InspectInputSchema = external_exports.object({
   cloneId: external_exports.string().min(1),
@@ -23111,10 +22613,6 @@ function buildCastArgv(input) {
   if (input.clones !== void 0) argv.push("--clones", String(input.clones));
   if (input.maxParallelClones !== void 0)
     argv.push("--max-parallel-clones", String(input.maxParallelClones));
-  if (input.maxCastsPerHour !== void 0)
-    argv.push("--max-casts-per-hour", String(input.maxCastsPerHour));
-  if (input.maxTokensEstimate !== void 0)
-    argv.push("--max-tokens-estimate", String(input.maxTokensEstimate));
   if (input.maxFilesChanged !== void 0)
     argv.push("--max-files-changed", String(input.maxFilesChanged));
   if (input.allowedPaths !== void 0 && input.allowedPaths.length > 0)
@@ -23133,8 +22631,6 @@ var castSchema = {
     task: { type: "string", description: "Task description handed to every clone." },
     clones: { type: "integer", minimum: 1, description: "Number of clones (mode-specific bounds apply; default 2)." },
     maxParallelClones: { type: "integer", minimum: 1, description: "Parallelism cap (--max-parallel-clones)." },
-    maxCastsPerHour: { type: "integer", minimum: 1, description: "Rolling-hour cast-rate cap (--max-casts-per-hour)." },
-    maxTokensEstimate: { type: "integer", minimum: 1, description: "Per-cast usage ceiling, token-estimate proxy (--max-tokens-estimate)." },
     allowedPaths: { type: "array", items: { type: "string" }, description: "Paths each clone may read/write (joined to CSV for --allowed-paths)." },
     forbiddenPaths: { type: "array", items: { type: "string" }, description: "Paths each clone must not touch (joined to CSV for --forbidden-paths)." },
     maxFilesChanged: { type: "integer", minimum: 0, description: "Per-clone file-write cap; 0 = read-only (--max-files-changed)." },
@@ -23142,13 +22638,6 @@ var castSchema = {
   }
 };
 var emptyObjectSchema = { type: "object", additionalProperties: false, properties: {} };
-var costSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    period: { type: "string", enum: ["today", "weekly"], description: "Cost window (default today)." }
-  }
-};
 var inspectSchema = {
   type: "object",
   additionalProperties: false,
@@ -23207,18 +22696,6 @@ function createUserTools(deps) {
       return r;
     }
   };
-  const cost = {
-    name: "manta.cost",
-    description: "Usage/activity snapshot. Runs `manta cost [period]` and `manta charges`, returning both as raw text (neither has a --json mode). Usage-aware, NOT dollars (the budget repivot is done). Read-only. Native alternative to /manta:cost + /manta:charges.",
-    inputSchema: costSchema,
-    handle: async (args) => {
-      const input = parse3(CostInputSchema, args, "manta.cost");
-      const costArgv = input.period !== void 0 ? ["cost", input.period] : ["cost"];
-      const costResult = await runCliCapture(resolveBin(), costArgv, runOpts());
-      const chargesResult = await runCliCapture(resolveBin(), ["charges"], runOpts());
-      return { cost: costResult, charges: chargesResult };
-    }
-  };
   const inspect = {
     name: "manta.inspect",
     description: "Deep-dive into one clone \u2014 registry, contract, locks, recent events. Runs `manta inspect <id> --json`. Read-only. Returns the parsed JSON (plus raw text + exit code). Native alternative to /manta:inspect.",
@@ -23266,12 +22743,11 @@ function createUserTools(deps) {
       return r;
     }
   };
-  return [cast, status, cost, inspect, abort, kill];
+  return [cast, status, inspect, abort, kill];
 }
 var USER_TOOL_NAMES = [
   "manta.cast",
   "manta.status",
-  "manta.cost",
   "manta.inspect",
   "manta.abort",
   "manta.kill"
@@ -23289,8 +22765,6 @@ async function createBusServer(opts) {
   const claims = new ClaimsStore(paths, clock);
   const contracts = new ContractsStore(paths, clock);
   const casts = new CastsStore(paths, clock);
-  const charges = new ChargeStore(paths, clock);
-  const dailySpend = new DailySpendLedger(paths, clock);
   const events = new EventsLog(paths, clock);
   const workQueue = new WorkQueueStore(paths, clock);
   const memoryWriters = opts.memoryWriters ?? fsMemoryWriters({ repoRoot: opts.repoRoot, clock });
@@ -23302,8 +22776,6 @@ async function createBusServer(opts) {
     claims,
     contracts,
     casts,
-    charges,
-    dailySpend,
     events,
     memoryWriters,
     workQueue,

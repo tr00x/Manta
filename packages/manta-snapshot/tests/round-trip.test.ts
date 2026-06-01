@@ -39,7 +39,6 @@ describe('snapshot round-trip', () => {
       openFiles: [{ path: 'src/x.ts', reason: 'open' }],
       parentWorktree: '/p',
       cloneWorktree: '/c',
-      budget: { tokensTotal: 1000, tokensUsed: 100, tokensEstimatedTotal: 5, tokensEstimatedUsed: 0.5 },
       ttlSeconds: 600,
       siblingCloneIds: ['B'],
     });

@@ -12,14 +12,15 @@ describe('Phase-0 pre-flight (cheap, always runs)', () => {
     expect(r.exitCode, r.stderr || r.stdout).toBe(0);
   });
 
-  it('skill-validator finds 16 skills and 13 commands, zero errors', async () => {
-    // Phase 8 added manta-decoy + manta-council (Aghs-locked mode skills) → 16.
+  it('skill-validator finds 16 skills and 11 commands, zero errors', async () => {
+    // 16 skills (incl. Aghs-locked manta-decoy + manta-council). 11 commands:
+    // the budget strip (2026-06-01) removed cost + charges (subscription-based).
     const result = await validateAll(repoRoot);
     expect(result.errorCount).toBe(0);
     const skills = result.reports.filter((r) => r.path.startsWith('skills/'));
     const commands = result.reports.filter((r) => r.path.startsWith('commands/'));
     expect(skills).toHaveLength(16);
-    expect(commands).toHaveLength(13);
+    expect(commands).toHaveLength(11);
   });
 
   it('manta CLI is built and `manta status` runs cleanly on an empty tmp repo', { timeout: 5 * 60 * 1000 }, async () => {

@@ -59,7 +59,7 @@ If you skip this, the CLI's pre-flight (`runCastCommand` calls `verifyMantaBusRe
 node packages/manta-skill-validator/dist/bin/manta-validate-skills.cjs --root .
 ```
 
-Expected: `29 file(s), 0 error(s), 0 warning(s)` (16 skills + 13 slash commands).
+Expected: `27 file(s), 0 error(s), 0 warning(s)` (16 skills + 11 slash commands).
 
 ## 4. Run the pre-flight smoke
 
@@ -129,10 +129,11 @@ If `manta status` shows clones spawned but never moving past `STARTING`:
 
 ## 8. Known limitations (v1)
 
-What ships now: all 9 cast modes, 13 `/manta:*` slash commands, the usage-aware
-charge/cooldown system, native MCP orchestrator tools (§ "Native MCP tools"), and
-full observability (status / inspect / tail / replay / post-mortems). The honest
-edges:
+What ships now: all 9 cast modes, the `/manta:*` slash commands, a single
+subscription-aware usage guardrail (`--max-parallel-clones` — no charges,
+cooldown, or dollar budgets), native MCP orchestrator tools (§ "Native MCP
+tools"), and full observability (status / inspect / tail / replay /
+post-mortems). The honest edges:
 
 - **`manta cast` must run from inside a Manta-enabled git checkout** (carries `skills/`, is a git repo) — see the precondition in §5. Casting from an arbitrary empty directory is not supported.
 - **`council` and `decoy` are Aghs-locked** — opt in via `.manta/config/budget.json` (`aghs.unlocked: [...]`) or the `MANTA_UNLOCK_AGHS` env var. `phantom-lance` (recursive self-cast) is intentionally **not** shipped.

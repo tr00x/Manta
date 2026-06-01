@@ -119,8 +119,6 @@ describe('cast command — library mode integration', () => {
         reporter: createReporter({ sink: new MemorySink() }),
         tickBudgetMs: 1_000,
         castId: 'cast-unknown',
-        internalTokenEstimatePerClone: 5,
-        internalTokenEstimatePerCast: 15,
         verifyMcp: false,
       });
     } catch (err) {
@@ -165,8 +163,6 @@ describe('cast command — library mode integration', () => {
         reporter: createReporter({ sink: new MemorySink() }),
         tickBudgetMs: 1_000,
         castId: 'cast-compat',
-        internalTokenEstimatePerClone: 5,
-        internalTokenEstimatePerCast: 15,
         verifyMcp: false,
       });
     } catch (err) {
@@ -201,8 +197,6 @@ describe('cast command — library mode integration', () => {
       reporter: createReporter({ sink }),
       tickBudgetMs: 15_000,
       castId: 'cast-library-mode',
-      internalTokenEstimatePerClone: 5,
-      internalTokenEstimatePerCast: 15,
       verifyMcp: false,
     });
     expect(result.exitCode).toBe(0);

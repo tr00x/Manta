@@ -14,10 +14,7 @@ import { runInspectCommand } from '../commands/inspect.js';
 import { runTailCommand } from '../commands/tail.js';
 import { runReplayCommand } from '../commands/replay.js';
 import { runAuditCommand } from '../commands/audit.js';
-import { runCostCommand, normalizeCostPeriod } from '../commands/cost.js';
-import { runChargesCommand } from '../commands/charges.js';
 import { runDoctorCommand } from '../commands/doctor.js';
-import { runRefreshCommand } from '../commands/refresh.js';
 import { runLimitCommand } from '../commands/limit.js';
 import { runDaemonStatusCommand, runDaemonStopCommand } from '../commands/daemon.js';
 import { runRetaskCommand } from '../commands/retask.js';
@@ -178,15 +175,6 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Internal per-clone / per-cast usage budget handed to the spawner so every
-  // clone snapshot carries a positive resource cap. These are a token-estimate
-  // proxy, NOT dollars, and NOT user-tunable — Claude Code is subscription-
-  // based; the user-facing controls are --max-parallel-clones / --max-casts-
-  // per-hour. Kept as plain constants so the spawner contract (snapshot budget)
-  // stays satisfied without resurrecting the removed dollar flags.
-  const INTERNAL_PER_CLONE_TOKEN_ESTIMATE = 300_000;
-  const INTERNAL_PER_CAST_TOKEN_ESTIMATE = 1_500_000;
-
   const program = new Command();
   program
     .name('manta')
@@ -207,22 +195,14 @@ async function main(): Promise<void> {
     // default — so the default must already be the post-coercion type.
     .option('--cycle-interval-ms <ms>', 'orchestrator cycle interval', parsePositiveIntOption, 5000)
     .option('--tick-budget-ms <ms>', 'overall budget before abort', parsePositiveIntOption, 1_500_000)
-    // Usage-aware caps (budget repivot). Claude Code is subscription-based, not
-    // pay-per-token — the real constraints are PARALLELISM and cast RATE, not a
-    // dollar budget. NaN-reject preserved via parsePositiveIntOption (bug #60).
+    // The ONLY cast constraint is parallelism. Claude Code is subscription-based,
+    // not pay-per-token, so there is no dollar/charge/cooldown/cast-rate budget —
+    // this caps how many clone processes run at once, which is what protects the
+    // machine and the subscription rate limit. NaN-reject preserved via
+    // parsePositiveIntOption (bug #60).
     .option(
       '--max-parallel-clones <n>',
       'max clones a single cast may spawn at once (parallelism cap). Default: from config or 5.',
-      parsePositiveIntOption,
-    )
-    .option(
-      '--max-casts-per-hour <n>',
-      'max casts allowed to start in a rolling hour (cast-rate cap, protects your subscription usage/rate limit). Default: from config or 6.',
-      parsePositiveIntOption,
-    )
-    .option(
-      '--max-tokens-estimate <n>',
-      'optional per-cast usage ceiling (token-estimate proxy, NOT dollars). Rejects the cast if its cumulative per-clone estimate exceeds this.',
       parsePositiveIntOption,
     )
     .option(
@@ -245,9 +225,7 @@ async function main(): Promise<void> {
       '--tasks <path>',
       "path to a YAML/JSON file with per-clone task overlays. Combines with --task: clones present in the file use the file's entry; clones absent fall back to --task. See docs/user/forking-realities.md for the schema.",
     )
-    .option('--dry-run', 'Show usage preview without spawning', false)
-    .option('--force', 'Force cast even if the daily usage cap would be exceeded', false)
-    .option('--charge-check', 'Enable charge system check (use --no-charge-check to skip)', true)
+    .option('--dry-run', 'Validate and report without spawning', false)
     .option(
       '--heartbeat-timeout-ms <ms>',
       'Override default 300s heartbeat-stale threshold. Use for heavy-generation tasks (plan-drafting, complex synthesis) where >5min thinking gaps between tool calls are normal — the PostToolUse hook can\'t fire during generation. Bug #52.',
@@ -288,14 +266,10 @@ async function main(): Promise<void> {
           cycleIntervalMs: number;
           tickBudgetMs: number;
           maxParallelClones?: number;
-          maxCastsPerHour?: number;
-          maxTokensEstimate?: number;
           maxFilesChanged: number;
           allowedPaths: string;
           forbiddenPaths: string;
           dryRun: boolean;
-          force: boolean;
-          chargeCheck: boolean;
           heartbeatTimeoutMs?: number;
           startupGraceMs?: number;
           parentSessionId?: string;
@@ -330,20 +304,12 @@ async function main(): Promise<void> {
             task: options.task,
             // --clones stays a raw parseInt: NaN flows into cast.ts's
             // Number.isInteger(cloneCount) guard, which already rejects it with
-            // a 1..5 range error (not a money/timing guard, so out of bug #60's
-            // scope). The timing/money fields below are pre-coerced numbers.
+            // a 1..5 range error (not a timing guard, so out of bug #60's scope).
+            // The timing fields below are pre-coerced numbers.
             cloneCount: parseInt(options.clones, 10),
             cycleIntervalMs: options.cycleIntervalMs,
             tickBudgetMs: options.tickBudgetMs,
-            // Internal per-clone/per-cast usage budget (token-estimate proxy)
-            // handed to the spawner so each snapshot carries a positive cap.
-            // No longer user-tunable — Claude Code is subscription-based; the
-            // user-facing controls are --max-parallel-clones / --max-casts-per-hour.
-            internalTokenEstimatePerClone: INTERNAL_PER_CLONE_TOKEN_ESTIMATE,
-            internalTokenEstimatePerCast: INTERNAL_PER_CAST_TOKEN_ESTIMATE,
             ...(options.maxParallelClones !== undefined ? { maxParallelClones: options.maxParallelClones } : {}),
-            ...(options.maxCastsPerHour !== undefined ? { maxCastsPerHour: options.maxCastsPerHour } : {}),
-            ...(options.maxTokensEstimate !== undefined ? { maxTokensEstimate: options.maxTokensEstimate } : {}),
             scope: {
               allowedPaths: splitCsv(options.allowedPaths),
               forbiddenPaths: splitCsv(options.forbiddenPaths),
@@ -361,8 +327,6 @@ async function main(): Promise<void> {
             runner: runClaudeCli(),
             reporter,
             dryRun: options.dryRun,
-            force: options.force,
-            noChargeCheck: !options.chargeCheck,
           }),
           hasOverrides ? thresholdOverrides : undefined,
         );
@@ -499,27 +463,8 @@ async function main(): Promise<void> {
     });
 
   program
-    .command('cost [period]')
-    .description('Show spend summary. period: "today" (default) or "weekly"')
-    .action(async (period: string | undefined) => {
-      // M3: normalize the raw token (today/day/daily | week/weekly) and reject
-      // anything else with exit 1 — `cost weekly` used to collapse silently to
-      // the daily report. Throwing here propagates to main()'s top-level error
-      // renderer (clean `[manta]` line, exit 1).
-      const p = normalizeCostPeriod(period);
-      await runWithRuntime((rt) => runCostCommand(rt, { period: p, reporter }));
-    });
-
-  program
-    .command('charges')
-    .description('Show charge system state — current charges, cooldown, mode availability')
-    .action(async () => {
-      await runWithRuntime((rt) => runChargesCommand(rt, { reporter }));
-    });
-
-  program
     .command('doctor')
-    .description('Health-check your Manta environment — node, claude, bus MCP, git, charges')
+    .description('Health-check your Manta environment — node, claude, bus MCP, git, version')
     .action(async () => {
       // doctor deliberately does NOT use runWithRuntime: it must run when the
       // environment is broken (no git repo, no bus), which createRuntime refuses.
@@ -530,16 +475,9 @@ async function main(): Promise<void> {
       process.exitCode = r.exitCode;
     });
 
-  program
-    .command('refresh')
-    .description('Reset cooldown with double-confirm')
-    .action(async () => {
-      await runWithRuntime((rt) => runRefreshCommand(rt, { reporter }));
-    });
-
   const limitCmd = program
     .command('limit')
-    .description('Read/write budget configuration');
+    .description('Read/write the parallelism limit (max_parallel_clones)');
 
   limitCmd
     .command('get [key]')

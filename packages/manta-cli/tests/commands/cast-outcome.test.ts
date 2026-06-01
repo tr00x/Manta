@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyCastOutcome } from '../../src/budget/cast-outcome.js';
+import { classifyCastOutcome } from '../../src/commands/cast-outcome.js';
 import type { CloneRecord } from '@manta/bus';
 
 function makeClone(overrides: Partial<CloneRecord> = {}): CloneRecord {
@@ -23,15 +23,15 @@ describe('classifyCastOutcome', () => {
         makeClone({ death_reason: 'graceful shutdown' }),
         makeClone({ clone_id: 'B', death_reason: 'task completed' }),
       ],
-      budgetAborted: false,
+      aborted: false,
     });
     expect(result).toBe('success');
   });
 
-  it('budget abort triggered → FAIL', () => {
+  it('cast aborted → FAIL', () => {
     const result = classifyCastOutcome({
       clones: [makeClone()],
-      budgetAborted: true,
+      aborted: true,
     });
     expect(result).toBe('fail');
   });
@@ -42,17 +42,23 @@ describe('classifyCastOutcome', () => {
         makeClone({ death_reason: 'heartbeat timeout exceeded' }),
         makeClone({ clone_id: 'B', death_reason: 'graceful shutdown' }),
       ],
-      budgetAborted: false,
+      aborted: false,
     });
     expect(result).toBe('fail');
   });
 
   it('one clone startup grace exceeded → FAIL', () => {
     const result = classifyCastOutcome({
-      clones: [
-        makeClone({ death_reason: 'startup grace period exceeded' }),
-      ],
-      budgetAborted: false,
+      clones: [makeClone({ death_reason: 'startup grace period exceeded' })],
+      aborted: false,
+    });
+    expect(result).toBe('fail');
+  });
+
+  it('one clone hit the startup hard cap → FAIL', () => {
+    const result = classifyCastOutcome({
+      clones: [makeClone({ death_reason: 'startup hard cap 1801000ms (stuck in STARTING)' })],
+      aborted: false,
     });
     expect(result).toBe('fail');
   });
@@ -63,7 +69,7 @@ describe('classifyCastOutcome', () => {
         makeClone({ death_reason: 'manual kill by operator' }),
         makeClone({ clone_id: 'B', death_reason: 'manual termination' }),
       ],
-      budgetAborted: false,
+      aborted: false,
     });
     expect(result).toBe('neutral');
   });
@@ -74,7 +80,7 @@ describe('classifyCastOutcome', () => {
         makeClone({ death_reason: 'graceful shutdown' }),
         makeClone({ clone_id: 'B', death_reason: 'heartbeat timeout' }),
       ],
-      budgetAborted: false,
+      aborted: false,
     });
     expect(result).toBe('fail');
   });
@@ -82,7 +88,7 @@ describe('classifyCastOutcome', () => {
   it('empty clones array → NEUTRAL', () => {
     const result = classifyCastOutcome({
       clones: [],
-      budgetAborted: false,
+      aborted: false,
     });
     expect(result).toBe('neutral');
   });
@@ -90,7 +96,7 @@ describe('classifyCastOutcome', () => {
   it('death_reason is undefined → treat as normal completion', () => {
     const result = classifyCastOutcome({
       clones: [makeClone({})],
-      budgetAborted: false,
+      aborted: false,
     });
     expect(result).toBe('success');
   });
@@ -98,7 +104,7 @@ describe('classifyCastOutcome', () => {
   it('parent pid dead → FAIL', () => {
     const result = classifyCastOutcome({
       clones: [makeClone({ death_reason: 'parent pid disappeared' })],
-      budgetAborted: false,
+      aborted: false,
     });
     expect(result).toBe('fail');
   });

@@ -374,18 +374,12 @@ export const CastInputSchema = z.object({
   task: z.string().min(1),
   clones: positiveInt.optional(),
   maxParallelClones: positiveInt.optional(),
-  maxCastsPerHour: positiveInt.optional(),
-  maxTokensEstimate: positiveInt.optional(),
   allowedPaths: z.array(z.string().min(1)).optional(),
   forbiddenPaths: z.array(z.string().min(1)).optional(),
   maxFilesChanged: nonNegativeInt.optional(),
   dryRun: z.boolean().optional(),
 });
 export type CastInput = z.infer<typeof CastInputSchema>;
-
-export const CostInputSchema = z.object({
-  period: z.enum(['today', 'weekly']).optional(),
-});
 
 export const InspectInputSchema = z.object({
   cloneId: z.string().min(1),
@@ -416,10 +410,6 @@ export function buildCastArgv(input: CastInput): string[] {
   if (input.clones !== undefined) argv.push('--clones', String(input.clones));
   if (input.maxParallelClones !== undefined)
     argv.push('--max-parallel-clones', String(input.maxParallelClones));
-  if (input.maxCastsPerHour !== undefined)
-    argv.push('--max-casts-per-hour', String(input.maxCastsPerHour));
-  if (input.maxTokensEstimate !== undefined)
-    argv.push('--max-tokens-estimate', String(input.maxTokensEstimate));
   if (input.maxFilesChanged !== undefined)
     argv.push('--max-files-changed', String(input.maxFilesChanged));
   if (input.allowedPaths !== undefined && input.allowedPaths.length > 0)
@@ -445,8 +435,6 @@ const castSchema: JsonSchema = {
     task: { type: 'string', description: 'Task description handed to every clone.' },
     clones: { type: 'integer', minimum: 1, description: 'Number of clones (mode-specific bounds apply; default 2).' },
     maxParallelClones: { type: 'integer', minimum: 1, description: 'Parallelism cap (--max-parallel-clones).' },
-    maxCastsPerHour: { type: 'integer', minimum: 1, description: 'Rolling-hour cast-rate cap (--max-casts-per-hour).' },
-    maxTokensEstimate: { type: 'integer', minimum: 1, description: 'Per-cast usage ceiling, token-estimate proxy (--max-tokens-estimate).' },
     allowedPaths: { type: 'array', items: { type: 'string' }, description: 'Paths each clone may read/write (joined to CSV for --allowed-paths).' },
     forbiddenPaths: { type: 'array', items: { type: 'string' }, description: 'Paths each clone must not touch (joined to CSV for --forbidden-paths).' },
     maxFilesChanged: { type: 'integer', minimum: 0, description: 'Per-clone file-write cap; 0 = read-only (--max-files-changed).' },
@@ -455,14 +443,6 @@ const castSchema: JsonSchema = {
 };
 
 const emptyObjectSchema: JsonSchema = { type: 'object', additionalProperties: false, properties: {} };
-
-const costSchema: JsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    period: { type: 'string', enum: ['today', 'weekly'], description: 'Cost window (default today).' },
-  },
-};
 
 const inspectSchema: JsonSchema = {
   type: 'object',
@@ -563,22 +543,6 @@ export function createUserTools(deps: CreateUserToolsDeps): UserToolEntry[] {
     },
   };
 
-  const cost: UserToolEntry = {
-    name: 'manta.cost',
-    description:
-      'Usage/activity snapshot. Runs `manta cost [period]` and `manta charges`, returning both as raw text ' +
-      '(neither has a --json mode). Usage-aware, NOT dollars (the budget repivot is done). Read-only. ' +
-      'Native alternative to /manta:cost + /manta:charges.',
-    inputSchema: costSchema,
-    handle: async (args) => {
-      const input = parse(CostInputSchema, args, 'manta.cost');
-      const costArgv = input.period !== undefined ? ['cost', input.period] : ['cost'];
-      const costResult = await runCliCapture(resolveBin(), costArgv, runOpts());
-      const chargesResult = await runCliCapture(resolveBin(), ['charges'], runOpts());
-      return { cost: costResult, charges: chargesResult };
-    },
-  };
-
   const inspect: UserToolEntry = {
     name: 'manta.inspect',
     description:
@@ -640,14 +604,13 @@ export function createUserTools(deps: CreateUserToolsDeps): UserToolEntry[] {
     },
   };
 
-  return [cast, status, cost, inspect, abort, kill];
+  return [cast, status, inspect, abort, kill];
 }
 
 /** The registered names of the user/orchestrator tools — for the dispatcher's caller-field map. */
 export const USER_TOOL_NAMES = [
   'manta.cast',
   'manta.status',
-  'manta.cost',
   'manta.inspect',
   'manta.abort',
   'manta.kill',

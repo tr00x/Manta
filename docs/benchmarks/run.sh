@@ -80,8 +80,7 @@ arm_manta() {  # $1 task  $2 mode  $3 prompt  $4 check
       --clones 2 \
       --task "$prompt" \
       --allowed-paths "." \
-      --max-files-changed "$maxfiles" \
-      --max-tokens-estimate 600000 ) >/dev/null 2>&1
+      --max-files-changed "$maxfiles" ) >/dev/null 2>&1
   # NOTE: for forking-realities/bug-hunt you then promote/merge a branch before
   # the check — wire that here for your repo. The skeleton checks the worktree
   # as-is so the harness runs end-to-end; adapt to your merge step.
@@ -89,8 +88,9 @@ arm_manta() {  # $1 task  $2 mode  $3 prompt  $4 check
   WALL="$(python3 -c "print(($t1-$t0)/1000)")"
   if run_check "$check"; then PASSED=1; else PASSED=0; fi
   DIFF="$(diff_lines)"
-  USAGE="$(cd "$REPO_ROOT" && manta cost 2>/dev/null | grep -oiE 'Token estimate.*' | head -1)"
-  [[ -z "$USAGE" ]] && USAGE="see-manta-cost"
+  # Claude Code is subscription-based — there is no per-cast usage meter to read.
+  # Track usage out-of-band (your subscription's rate-limit dashboard) if needed.
+  USAGE="n/a (subscription)"
 }
 
 # STUB: driving the Agent tool programmatically is environment-specific.

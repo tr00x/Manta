@@ -2,8 +2,6 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { execa } from 'execa';
 
-import { busPaths, ChargeStore, systemClock, type ChargeState } from '@manta/bus';
-
 import type { CommandResult } from './status.js';
 import {
   MANTA_BUS_CANDIDATE_NAMES,
@@ -49,11 +47,6 @@ export interface DoctorProbes {
   busRunner: ClaudeMcpRunner;
   /** Resolves true if `cwd` is inside a git repo. */
   isGitRepo: (cwd: string) => Promise<boolean>;
-  /**
-   * Reads the charge ledger for `cwd`, or null if it can't be read (e.g. cwd is
-   * not a git repo, or no cast has ever run so no ledger exists yet).
-   */
-  readCharges: (cwd: string) => Promise<ChargeState | null>;
   /** The installed manta version. */
   mantaVersion: () => string;
 }
@@ -99,16 +92,6 @@ async function defaultIsGitRepo(cwd: string): Promise<boolean> {
   }
 }
 
-async function defaultReadCharges(cwd: string): Promise<ChargeState | null> {
-  if (!(await defaultIsGitRepo(cwd))) return null;
-  try {
-    const store = new ChargeStore(busPaths(path.resolve(cwd)), systemClock);
-    return await store.read();
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Probe whether the manta-bus MCP server is registered under ANY of the
  * candidate names (bare `manta-bus` or the plugin-namespaced
@@ -142,37 +125,6 @@ async function probeBus(
   };
 }
 
-function chargesLine(state: ChargeState | null): DoctorCheck {
-  if (state === null) {
-    return {
-      label: 'Charges / cooldown',
-      ok: false,
-      detail: 'no ledger (not a git repo, or no cast has run yet)',
-    };
-  }
-  const now = Date.now();
-  if (state.cooldown_until != null && now < state.cooldown_until) {
-    const mins = Math.ceil((state.cooldown_until - now) / 60_000);
-    return {
-      label: 'Charges / cooldown',
-      ok: false,
-      detail: `COOLDOWN ${state.current_charges}/${state.charges_max} — clears in ~${mins} min (\`manta refresh\` to clear)`,
-    };
-  }
-  if (state.current_charges < 0) {
-    return {
-      label: 'Charges / cooldown',
-      ok: false,
-      detail: `OVERDRAFT ${state.current_charges}/${state.charges_max} — only cost-1 modes available`,
-    };
-  }
-  return {
-    label: 'Charges / cooldown',
-    ok: true,
-    detail: `${state.current_charges}/${state.charges_max} charges, nominal`,
-  };
-}
-
 /**
  * Run the full health check and return formatted output. Always exits 0.
  */
@@ -185,7 +137,6 @@ export async function runDoctorCommand(opts: DoctorCommandOptions = {}): Promise
     claudeOnPath: o.claudeOnPath ?? defaultClaudeOnPath,
     busRunner: o.busRunner ?? defaultBusRunner,
     isGitRepo: o.isGitRepo ?? defaultIsGitRepo,
-    readCharges: o.readCharges ?? defaultReadCharges,
     mantaVersion: o.mantaVersion ?? getMantaCliVersion,
   };
 
@@ -225,10 +176,7 @@ export async function runDoctorCommand(opts: DoctorCommandOptions = {}): Promise
     detail: gitOk ? cwd : `${cwd} — run \`git init\` (Manta anchors state at the repo root)`,
   });
 
-  // 5. charges / cooldown
-  checks.push(chargesLine(await probes.readCharges(cwd)));
-
-  // 6. manta version (informational — always a ✓)
+  // 5. manta version (informational — always a ✓)
   checks.push({ label: 'manta version', ok: true, detail: probes.mantaVersion() });
 
   const passed = checks.filter((c) => c.ok).length;

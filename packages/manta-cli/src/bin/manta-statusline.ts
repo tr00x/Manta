@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // manta-statusline.ts — Tier 0 observability: a conditional Claude Code
-// statusLine that shows live Manta clone state, cast spend, and elapsed time —
-// but ONLY while a cast is running. When no clone is live it prints an EMPTY
-// string and Claude Code hides the row entirely (zero chrome when idle).
+// statusLine that shows live Manta clone state and elapsed time — but ONLY
+// while a cast is running. When no clone is live it prints an EMPTY string and
+// Claude Code hides the row entirely (zero chrome when idle).
 //
 // Hard constraints (G-ux-observability.md script spec):
 //   - FAST: pure synchronous file reads, no child process, no MCP, no network.
@@ -15,9 +15,9 @@
 //     node_modules to fall back on for an always-on hot path, and zero deps is
 //     the cheapest way to stay fast.
 //
-// Spend is read from `.manta/state/daily-spend.json` (the cast-estimate ledger),
-// NOT from Claude Code's own `cost` field — Manta tracks cast spend, which is a
-// different number from the host session's token cost.
+// There is NO usage/spend segment: Claude Code is a subscription, not pay-per-
+// token, so a token meter is meaningless. The line shows what is actually
+// actionable — which clones are live and how long they have been running.
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -32,13 +32,6 @@ export interface StatuslineClone {
 /** Pure inputs to the formatter — everything I/O-derived is resolved upstream. */
 export interface StatuslineInput {
   readonly clones: readonly StatuslineClone[];
-  /**
-   * Today's estimated token usage (subscription usage proxy, NOT dollars), or
-   * null if the ledger is missing/stale. Budget repivot 2026-05-31.
-   */
-  readonly tokensEstimated: number | null;
-  /** Daily token-estimate cap, or null if no budget config is readable. */
-  readonly tokenCap: number | null;
   /** Wall-clock now, in ms — injected so the formatter stays pure/testable. */
   readonly nowMs: number;
 }
@@ -55,7 +48,7 @@ const SEP = ' · '; // " · "
  * that empty string is the signal Claude Code uses to hide the row. Pure: no
  * I/O, no clock access (now is injected). Never throws.
  *
- * Example: `⧉ A▶WORKING B▶WINDING_DOWN · 1.2M/5M · 4m` (token usage, not dollars)
+ * Example: `⧉ A▶WORKING B▶WINDING_DOWN · 4m`
  */
 export function formatStatusline(input: StatuslineInput): string {
   const live = input.clones.filter((c) => isLive(c.state));
@@ -68,17 +61,7 @@ export function formatStatusline(input: StatuslineInput): string {
   // Segment 1: per-clone `<id>▶<STATE>`, in registry order.
   segments.push(live.map((c) => `${c.clone_id}${STATE_ARROW}${c.state}`).join(' '));
 
-  // Segment 2: token usage `<used>[/<cap>]` — only when a usage figure exists.
-  // Token estimates are a subscription-usage proxy (budget repivot), NOT dollars.
-  if (input.tokensEstimated != null && Number.isFinite(input.tokensEstimated)) {
-    let usage = formatTokens(input.tokensEstimated);
-    if (input.tokenCap != null && Number.isFinite(input.tokenCap)) {
-      usage += `/${formatTokens(input.tokenCap)}`;
-    }
-    segments.push(usage);
-  }
-
-  // Segment 3: elapsed time since the oldest live clone registered.
+  // Segment 2: elapsed time since the oldest live clone registered.
   const oldest = oldestRegisteredAt(live);
   if (oldest != null) {
     const elapsedMs = Math.max(0, input.nowMs - oldest);
@@ -103,22 +86,6 @@ function oldestRegisteredAt(clones: readonly StatuslineClone[]): number | null {
     }
   }
   return min;
-}
-
-/**
- * Compact token count: `1.5M` / `5M` (≥1e6, one decimal unless whole),
- * `250k` (≥1e3, rounded), else the bare rounded integer. No `$` — token
- * estimates are a subscription-usage proxy, never dollars (budget repivot).
- */
-function formatTokens(tokens: number): string {
-  if (tokens >= 1_000_000) {
-    const m = tokens / 1_000_000;
-    return `${Number.isInteger(m) ? m : m.toFixed(1)}M`;
-  }
-  if (tokens >= 1_000) {
-    return `${Math.round(tokens / 1_000)}k`;
-  }
-  return String(Math.round(tokens));
 }
 
 /** Compact elapsed: `<60s`→`Ns`, `<60m`→`Nm`, else `HhMm`. */
@@ -156,11 +123,6 @@ export function resolveRepoRoot(startDir: string): string | null {
   }
 }
 
-/** Local calendar date (YYYY-MM-DD) — matches DailySpendLedger's day boundary. */
-function localDate(nowMs: number): string {
-  return new Date(nowMs).toLocaleDateString('en-CA');
-}
-
 function readJson(file: string): unknown {
   const raw = fs.readFileSync(file, 'utf8');
   return JSON.parse(raw) as unknown;
@@ -194,50 +156,6 @@ export function readClones(repoRoot: string): StatuslineClone[] {
   }
 }
 
-/**
- * Read today's estimated token usage from daily-spend.json. Returns null on
- * failure, and 0 when the ledger is from a previous day (a stale ledger means
- * no usage today — same day-boundary semantics as DailySpendLedger.read).
- * The unit is a token estimate (subscription usage proxy), NOT dollars.
- */
-export function readTokensEstimated(repoRoot: string, nowMs: number): number | null {
-  try {
-    const data = readJson(path.join(repoRoot, '.manta', 'state', 'daily-spend.json')) as {
-      date?: unknown;
-      tokens_estimated?: unknown;
-    };
-    if (typeof data.date === 'string' && data.date !== localDate(nowMs)) {
-      return 0;
-    }
-    return typeof data.tokens_estimated === 'number' && Number.isFinite(data.tokens_estimated) ? data.tokens_estimated : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Read the daily token-estimate cap. Tries `.manta/state/budget.json` first (the
- * path the design spec names), then falls back to the CLI's real budget config at
- * `.manta/config/budget.json`. Returns null when neither yields a `daily_token_cap`.
- */
-export function readTokenCap(repoRoot: string): number | null {
-  const candidates = [
-    path.join(repoRoot, '.manta', 'state', 'budget.json'),
-    path.join(repoRoot, '.manta', 'config', 'budget.json'),
-  ];
-  for (const file of candidates) {
-    try {
-      const data = readJson(file) as { daily_token_cap?: unknown };
-      if (typeof data.daily_token_cap === 'number' && Number.isFinite(data.daily_token_cap)) {
-        return data.daily_token_cap;
-      }
-    } catch {
-      // Try the next candidate; missing/malformed files are expected.
-    }
-  }
-  return null;
-}
-
 /** End-to-end: resolve root, read state, format. Returns '' on any failure. */
 export function computeStatusline(startDir: string, nowMs: number): string {
   try {
@@ -247,8 +165,6 @@ export function computeStatusline(startDir: string, nowMs: number): string {
     }
     return formatStatusline({
       clones: readClones(repoRoot),
-      tokensEstimated: readTokensEstimated(repoRoot, nowMs),
-      tokenCap: readTokenCap(repoRoot),
       nowMs,
     });
   } catch {

@@ -61,8 +61,6 @@ describe('cast command (recon-swarm)', () => {
       reporter: createReporter({ sink }),
       tickBudgetMs: 15_000,
       castId: 'cast-test-1',
-      internalTokenEstimatePerClone: 5,
-      internalTokenEstimatePerCast: 15,
       verifyMcp: false,
     });
     expect(result.exitCode).toBe(0);
@@ -119,8 +117,6 @@ describe('cast command (recon-swarm)', () => {
         reporter: createReporter({ sink: new MemorySink() }),
         tickBudgetMs: 5_000,
         castId: 'cast-x',
-        internalTokenEstimatePerClone: 5,
-        internalTokenEstimatePerCast: 15,
         verifyMcp: false,
       }),
     ).rejects.toMatchObject({ name: 'CliError', kind: 'invalid_input' });
@@ -137,8 +133,6 @@ describe('cast command (recon-swarm)', () => {
       reporter: createReporter({ sink: new MemorySink() }),
       tickBudgetMs: 5_000,
       castId: 'cast-x',
-      internalTokenEstimatePerClone: 5,
-      internalTokenEstimatePerCast: 15,
       verifyMcp: false,
     };
     await expect(runCastCommand(rt, { ...base, cloneCount: 0 })).rejects.toMatchObject({
@@ -149,39 +143,13 @@ describe('cast command (recon-swarm)', () => {
     });
   });
 
-  it('rejects when cloneCount × internalTokenEstimatePerClone exceeds internalTokenEstimatePerCast (cumulative cost gate)', async () => {
+  // Budget repivot → strip (2026-06-01): Claude Code is subscription-based, so
+  // the ONLY cast constraint is PARALLELISM (--max-parallel-clones). Charges,
+  // cooldown, cast-rate, and per-cast token ceilings were removed. The cap must
+  // reject before any clone spawns.
+  it('rejects cloneCount > --max-parallel-clones before any clone spawns', async () => {
     fx = await makeRepoFixture();
     const rt = await createRuntime({ repoRoot: fx.root });
-    // 5 clones × 5 per-clone estimate = 25 > 15 per-cast cap → reject before spawn.
-    await expect(
-      runCastCommand(rt, {
-        mode: 'recon-swarm',
-        task: 't',
-        cloneCount: 5,
-        cycleIntervalMs: 50,
-        runner: runFakeCloneScript({ scriptPath: fixturePath }),
-        reporter: createReporter({ sink: new MemorySink() }),
-        tickBudgetMs: 5_000,
-        castId: 'cast-x',
-        internalTokenEstimatePerClone: 5,
-        internalTokenEstimatePerCast: 15,
-        verifyMcp: false,
-      }),
-    ).rejects.toMatchObject({
-      kind: 'invalid_input',
-      message: expect.stringContaining('cumulative per-clone usage estimate') as unknown as string,
-    });
-  });
-
-  // Budget repivot (2026-05-31): the user-facing usage gates are PARALLELISM
-  // (--max-parallel-clones) and cast RATE (--max-casts-per-hour), not a dollar
-  // budget. Both must reject BEFORE any state-committing call (charge debit /
-  // daily-spend record), so a rejected cast leaks no usage. NaN-reject for these
-  // flags is covered at the parser boundary (option-parsers.test.ts).
-  it('rejects cloneCount > --max-parallel-clones before any state-committing call', async () => {
-    fx = await makeRepoFixture();
-    const rt = await createRuntime({ repoRoot: fx.root });
-    const chargesBefore = await rt.ctx.charges.read();
     // recon-swarm allows up to 5 clones, so cloneCount 3 clears the mode range
     // check and is rejected purely by the parallelism cap of 2.
     await expect(
@@ -194,8 +162,6 @@ describe('cast command (recon-swarm)', () => {
         reporter: createReporter({ sink: new MemorySink() }),
         tickBudgetMs: 5_000,
         castId: 'cast-parallel-cap',
-        internalTokenEstimatePerClone: 100_000,
-        internalTokenEstimatePerCast: 1_500_000,
         maxParallelClones: 2,
         verifyMcp: false,
       }),
@@ -203,67 +169,6 @@ describe('cast command (recon-swarm)', () => {
       kind: 'invalid_input',
       message: expect.stringContaining('parallelism cap exceeded') as unknown as string,
     });
-    // The gate fired before the pre-spawn charge debit — charges are untouched.
-    const chargesAfter = await rt.ctx.charges.read();
-    expect(chargesAfter.current_charges).toBe(chargesBefore.current_charges);
-  });
-
-  it('rejects when the trailing-hour cast count is at --max-casts-per-hour', async () => {
-    fx = await makeRepoFixture();
-    const rt = await createRuntime({ repoRoot: fx.root });
-    // Seed one cast_start in the charge log (real-time ts); a cap of 1 means the
-    // next cast is already at the hourly rate limit and must be refused.
-    await rt.ctx.charges.deductForCast('cast-seed', 'recon-swarm');
-    await expect(
-      runCastCommand(rt, {
-        mode: 'recon-swarm',
-        task: 't',
-        cloneCount: 1,
-        cycleIntervalMs: 50,
-        runner: runFakeCloneScript({ scriptPath: fixturePath }),
-        reporter: createReporter({ sink: new MemorySink() }),
-        tickBudgetMs: 5_000,
-        castId: 'cast-rate-cap',
-        internalTokenEstimatePerClone: 100_000,
-        internalTokenEstimatePerCast: 1_500_000,
-        maxCastsPerHour: 1,
-        verifyMcp: false,
-      }),
-    ).rejects.toMatchObject({
-      kind: 'budget_gate_failed',
-      message: expect.stringContaining('cast-rate cap reached') as unknown as string,
-    });
-  });
-
-  it('rejects when the per-cast estimate exceeds --max-tokens-estimate (repivot audit #2)', async () => {
-    fx = await makeRepoFixture();
-    const rt = await createRuntime({ repoRoot: fx.root });
-    const chargesBefore = await rt.ctx.charges.read();
-    // 2 clones × 100k = 200k estimated; --max-tokens-estimate=150k is a true
-    // PER-CAST ceiling (not the daily-cap projection it used to be wired to),
-    // so the cast is refused at the input gate before any state commit.
-    await expect(
-      runCastCommand(rt, {
-        mode: 'recon-swarm',
-        task: 't',
-        cloneCount: 2,
-        cycleIntervalMs: 50,
-        runner: runFakeCloneScript({ scriptPath: fixturePath }),
-        reporter: createReporter({ sink: new MemorySink() }),
-        tickBudgetMs: 5_000,
-        castId: 'cast-percast-ceiling',
-        internalTokenEstimatePerClone: 100_000,
-        internalTokenEstimatePerCast: 1_500_000,
-        maxTokensEstimate: 150_000,
-        verifyMcp: false,
-      }),
-    ).rejects.toMatchObject({
-      kind: 'invalid_input',
-      message: expect.stringContaining('--max-tokens-estimate=150000') as unknown as string,
-    });
-    // The ceiling fires before the pre-spawn charge debit — charges untouched.
-    const chargesAfter = await rt.ctx.charges.read();
-    expect(chargesAfter.current_charges).toBe(chargesBefore.current_charges);
   });
 
   // I-IMP-1 regression: when a mid-cast spawn step throws (clone N-of-M fails
@@ -300,8 +205,6 @@ describe('cast command (recon-swarm)', () => {
         reporter: createReporter({ sink: new MemorySink() }),
         tickBudgetMs: 5_000,
         castId: 'cast-imp1',
-        internalTokenEstimatePerClone: 5,
-        internalTokenEstimatePerCast: 15,
         verifyMcp: false,
       }),
     ).rejects.toMatchObject({ name: 'CliError', kind: 'cast_failed' });
@@ -355,8 +258,6 @@ describe('cast command (recon-swarm)', () => {
       reporter: createReporter({ sink }),
       tickBudgetMs: 200,
       castId: 'cast-imp3',
-      internalTokenEstimatePerClone: 5,
-      internalTokenEstimatePerCast: 15,
       verifyMcp: false,
     });
     const elapsed = Date.now() - start;
@@ -414,8 +315,6 @@ describe('cast command (recon-swarm)', () => {
       reporter: createReporter({ sink }),
       tickBudgetMs: 60_000,  // 60s — far longer than the DEAD-terminate path
       castId: 'cast-bug40',
-      internalTokenEstimatePerClone: 5,
-      internalTokenEstimatePerCast: 15,
       verifyMcp: false,
     });
     const elapsed = Date.now() - start;
@@ -453,8 +352,6 @@ describe('cast command (recon-swarm)', () => {
       reporter: createReporter({ sink: new MemorySink() }),
       tickBudgetMs: 15_000,
       castId: 'cast-c',
-      internalTokenEstimatePerClone: 5,
-      internalTokenEstimatePerCast: 15,
       verifyMcp: false,
     });
     const stored = await rt.ctx.contracts.read('A');
@@ -487,8 +384,6 @@ describe('cast command (recon-swarm)', () => {
       reporter: createReporter({ sink: new MemorySink() }),
       tickBudgetMs: 15_000,
       castId: 'cast-scope',
-      internalTokenEstimatePerClone: 5,
-      internalTokenEstimatePerCast: 15,
       scope: {
         allowedPaths: ['.', 'docs/research/'],
         forbiddenPaths: ['.manta/state', 'secrets/', 'src/'],
@@ -518,8 +413,6 @@ describe('cast command (recon-swarm)', () => {
       reporter: createReporter({ sink: new MemorySink() }),
       tickBudgetMs: 15_000,
       castId: 'cast-neg',
-      internalTokenEstimatePerClone: 5,
-      internalTokenEstimatePerCast: 15,
       verifyMcp: false,
     };
     await expect(
@@ -561,8 +454,6 @@ describe('cast command (forking-realities allowlist + per-clone overlay)', () =>
       cycleIntervalMs: 50,
       tickBudgetMs: 5_000,
       castId: 'cast-test-fr-1',
-      internalTokenEstimatePerClone: 1,
-      internalTokenEstimatePerCast: 5,
       runner: runFakeCloneScript({ scriptPath: fixturePath }),
       reporter: noopReporter,
       verifyMcp: false,
@@ -596,11 +487,9 @@ describe('cast command (forking-realities allowlist + per-clone overlay)', () =>
       cycleIntervalMs: 50,
       tickBudgetMs: 5_000,
       castId: 'cast-test-overlay-1',
-      internalTokenEstimatePerClone: 1,
-      internalTokenEstimatePerCast: 5,
       cloneAssignments: {
         A: { task: 'rewrite the SQL', approach_hint: 'use an index' },
-        B: { task: 'rewrite the SQL', approach_hint: 'denormalize the table', token_estimate: 2 },
+        B: { task: 'rewrite the SQL', approach_hint: 'denormalize the table' },
       },
       runner: recordingRunner,
       reporter: noopReporter,
@@ -611,35 +500,6 @@ describe('cast command (forking-realities allowlist + per-clone overlay)', () =>
     expect(a.taskContract.task).toBe('rewrite the SQL');
     expect(a.taskContract.approachHint).toBe('use an index');
     expect(b.taskContract.approachHint).toBe('denormalize the table');
-    expect(b.budget.tokensEstimatedTotal).toBe(2); // per-clone override
-  });
-
-  it('cumulative budget gate sums per-clone budgets, not N×cap', async () => {
-    fx = await makeRepoFixture();
-    const rt = await createRuntime({ repoRoot: fx.root });
-    // Two clones at 4 each = 8 total estimate; per-cast cap = 7 → must reject.
-    await expect(
-      runCastCommand(rt, {
-        mode: 'forking-realities',
-        task: 'x',
-        cloneCount: 2,
-        cycleIntervalMs: 50,
-        tickBudgetMs: 5_000,
-        castId: 'cast-test-asym-1',
-        internalTokenEstimatePerClone: 1, // cast-level default
-        internalTokenEstimatePerCast: 7,
-        cloneAssignments: {
-          A: { task: 'a', token_estimate: 4 },
-          B: { task: 'b', token_estimate: 4 },
-        },
-        runner: runFakeCloneScript({ scriptPath: fixturePath }),
-        reporter: noopReporter,
-        verifyMcp: false,
-      }),
-    ).rejects.toMatchObject({
-      kind: 'invalid_input',
-      message: expect.stringMatching(/cumulative per-clone usage estimate.*8.*exceeds.*7/) as unknown as string,
-    });
   });
 
   it('falls back to cast-level defaults when an assignment is missing for a clone', async () => {
@@ -668,8 +528,6 @@ describe('cast command (forking-realities allowlist + per-clone overlay)', () =>
       cycleIntervalMs: 50,
       tickBudgetMs: 5_000,
       castId: 'cast-test-fallback-1',
-      internalTokenEstimatePerClone: 1,
-      internalTokenEstimatePerCast: 5,
       cloneAssignments: {
         A: { task: 'A-only override' }, // B and C have no entry → inherit
       },
@@ -700,8 +558,6 @@ describe('cast command (forking-realities allowlist + per-clone overlay)', () =>
         cycleIntervalMs: 50,
         tickBudgetMs: 5_000,
         castId: 'cast-test-typo-1',
-        internalTokenEstimatePerClone: 1,
-        internalTokenEstimatePerCast: 5,
         cloneAssignments: {
           A: { task: 'a' },
           Z: { task: 'typo — Z is not in roster' },
@@ -747,8 +603,6 @@ describe('cast command (forking-realities allowlist + per-clone overlay)', () =>
         cycleIntervalMs: 50,
         tickBudgetMs: 5_000,
         castId: 'cast-cli-yaml-1',
-        internalTokenEstimatePerClone: 1,
-        internalTokenEstimatePerCast: 5,
         cloneAssignments,
         runner: recordingRunner,
         reporter: noopReporter,
@@ -808,8 +662,6 @@ describe('cast command — bug-hunt mode', () => {
       cycleIntervalMs: 50,
       tickBudgetMs: 15_000,
       castId: 'cast-bh-valid-1',
-      internalTokenEstimatePerClone: 5,
-      internalTokenEstimatePerCast: 15,
       runner: runFakeCloneScript({ scriptPath: fixturePath }),
       reporter: createReporter({ sink: new MemorySink() }),
       verifyMcp: false,
@@ -828,8 +680,6 @@ describe('cast command — bug-hunt mode', () => {
         cycleIntervalMs: 50,
         tickBudgetMs: 5_000,
         castId: 'cast-bh-reject-3',
-        internalTokenEstimatePerClone: 5,
-        internalTokenEstimatePerCast: 15,
         runner: runFakeCloneScript({ scriptPath: fixturePath }),
         reporter: createReporter({ sink: new MemorySink() }),
         verifyMcp: false,
@@ -854,8 +704,6 @@ describe('cast command — bug-hunt mode', () => {
       cycleIntervalMs: 50,
       tickBudgetMs: 15_000,
       castId: 'cast-bh-policy-1',
-      internalTokenEstimatePerClone: 5,
-      internalTokenEstimatePerCast: 15,
       runner: runFakeCloneScript({ scriptPath: fixturePath }),
       reporter: createReporter({ sink: new MemorySink() }),
       verifyMcp: false,
@@ -886,8 +734,6 @@ describe('cast command — bug-hunt mode', () => {
       cycleIntervalMs: 50,
       tickBudgetMs: 15_000,
       castId: 'cast-bh-nomerge-1',
-      internalTokenEstimatePerClone: 5,
-      internalTokenEstimatePerCast: 15,
       runner: runFakeCloneScript({ scriptPath: fixturePath }),
       reporter: createReporter({ sink }),
       verifyMcp: false,
@@ -915,8 +761,6 @@ describe('cast command — bug-hunt mode', () => {
       cycleIntervalMs: 50,
       tickBudgetMs: 15_000,
       castId: 'cast-bh-report-1',
-      internalTokenEstimatePerClone: 5,
-      internalTokenEstimatePerCast: 15,
       runner: runFakeCloneScript({ scriptPath: fixturePath }),
       reporter: createReporter({ sink }),
       verifyMcp: false,
@@ -952,8 +796,6 @@ describe('cast command — refactor-wave mode', () => {
       cycleIntervalMs: 50,
       tickBudgetMs: 15_000,
       castId: 'cast-rw-valid-1',
-      internalTokenEstimatePerClone: 5,
-      internalTokenEstimatePerCast: 15,
       cloneAssignments: {
         A: {
           task: 'migrate packages/auth',
@@ -982,8 +824,6 @@ describe('cast command — refactor-wave mode', () => {
         cycleIntervalMs: 50,
         tickBudgetMs: 5_000,
         castId: 'cast-rw-no-tasks',
-        internalTokenEstimatePerClone: 5,
-        internalTokenEstimatePerCast: 15,
         runner: runFakeCloneScript({ scriptPath: fixturePath }),
         reporter: createReporter({ sink: new MemorySink() }),
         verifyMcp: false,
@@ -1042,8 +882,6 @@ describe('cast command — refactor-wave mode', () => {
       cycleIntervalMs: 50,
       tickBudgetMs: 15_000,
       castId: 'cast-rw-policy-1',
-      internalTokenEstimatePerClone: 5,
-      internalTokenEstimatePerCast: 15,
       cloneAssignments: {
         A: {
           task: 'migrate packages/auth',
@@ -1084,8 +922,6 @@ describe('cast command — refactor-wave mode', () => {
       cycleIntervalMs: 50,
       tickBudgetMs: 15_000,
       castId: 'cast-rw-merge-1',
-      internalTokenEstimatePerClone: 5,
-      internalTokenEstimatePerCast: 15,
       cloneAssignments: {
         A: {
           task: 'migrate packages/auth',
@@ -1133,8 +969,6 @@ describe('cast command — Wave 2 daemon modes', () => {
       cycleIntervalMs: 50,
       tickBudgetMs: 15_000,
       castId: 'cast-pp-valid-1',
-      internalTokenEstimatePerClone: 5,
-      internalTokenEstimatePerCast: 15,
       runner: runFakeCloneScript({ scriptPath: fixturePath }),
       reporter: createReporter({ sink: new MemorySink() }),
       verifyMcp: false,
@@ -1159,8 +993,6 @@ describe('cast command — Wave 2 daemon modes', () => {
       cycleIntervalMs: 50,
       tickBudgetMs: 15_000,
       castId: 'cast-ts-valid-1',
-      internalTokenEstimatePerClone: 5,
-      internalTokenEstimatePerCast: 15,
       runner: runFakeCloneScript({ scriptPath: fixturePath }),
       reporter: createReporter({ sink: new MemorySink() }),
       verifyMcp: false,
@@ -1185,8 +1017,6 @@ describe('cast command — Wave 2 daemon modes', () => {
       cycleIntervalMs: 50,
       tickBudgetMs: 15_000,
       castId: 'cast-dc-valid-1',
-      internalTokenEstimatePerClone: 5,
-      internalTokenEstimatePerCast: 15,
       runner: runFakeCloneScript({ scriptPath: fixturePath }),
       reporter: createReporter({ sink: new MemorySink() }),
       verifyMcp: false,
@@ -1205,8 +1035,6 @@ describe('cast command — Wave 2 daemon modes', () => {
         cycleIntervalMs: 50,
         tickBudgetMs: 5_000,
         castId: 'cast-pp-reject-3',
-        internalTokenEstimatePerClone: 5,
-        internalTokenEstimatePerCast: 15,
         runner: runFakeCloneScript({ scriptPath: fixturePath }),
         reporter: createReporter({ sink: new MemorySink() }),
         verifyMcp: false,
@@ -1225,8 +1053,6 @@ describe('cast command — Wave 2 daemon modes', () => {
         cycleIntervalMs: 50,
         tickBudgetMs: 5_000,
         castId: 'cast-ts-reject-4',
-        internalTokenEstimatePerClone: 5,
-        internalTokenEstimatePerCast: 20,
         runner: runFakeCloneScript({ scriptPath: fixturePath }),
         reporter: createReporter({ sink: new MemorySink() }),
         verifyMcp: false,
@@ -1251,8 +1077,6 @@ describe('cast command — Wave 2 daemon modes', () => {
       cycleIntervalMs: 50,
       tickBudgetMs: 15_000,
       castId: 'cast-pp-policy-1',
-      internalTokenEstimatePerClone: 5,
-      internalTokenEstimatePerCast: 15,
       runner: runFakeCloneScript({ scriptPath: fixturePath }),
       reporter: createReporter({ sink: new MemorySink() }),
       verifyMcp: false,
@@ -1292,8 +1116,6 @@ describe('cast command — Wave 2 daemon modes', () => {
       cycleIntervalMs: 50,
       tickBudgetMs: 15_000,
       castId: 'cast-pp-sid-1',
-      internalTokenEstimatePerClone: 5,
-      internalTokenEstimatePerCast: 15,
       runner: recordingRunner,
       reporter: createReporter({ sink: new MemorySink() }),
       verifyMcp: false,
@@ -1331,8 +1153,6 @@ describe('cast command — Wave 2 daemon modes', () => {
       cycleIntervalMs: 50,
       tickBudgetMs: 15_000,
       castId: 'cast-batch-sid-1',
-      internalTokenEstimatePerClone: 5,
-      internalTokenEstimatePerCast: 15,
       runner: recordingRunner,
       reporter: createReporter({ sink: new MemorySink() }),
       verifyMcp: false,
@@ -1357,12 +1177,9 @@ describe('cast command — refactor-wave operator-typo guards run before state c
     fx = undefined;
   });
 
-  it('overlapping partitions throw without debiting charges or daily spend', async () => {
+  it('overlapping partitions throw before any clone spawns', async () => {
     fx = await makeRepoFixture();
     const rt = await createRuntime({ repoRoot: fx.root });
-
-    const chargesBefore = await rt.ctx.charges.read();
-    const spendBefore = await rt.ctx.dailySpend.read();
 
     await expect(
       runCastCommand(rt, {
@@ -1372,8 +1189,6 @@ describe('cast command — refactor-wave operator-typo guards run before state c
         cycleIntervalMs: 50,
         tickBudgetMs: 5_000,
         castId: 'cast-rw-bug31',
-        internalTokenEstimatePerClone: 5,
-        internalTokenEstimatePerCast: 15,
         cloneAssignments: {
           A: {
             task: 'migrate src/auth',
@@ -1394,20 +1209,11 @@ describe('cast command — refactor-wave operator-typo guards run before state c
       kind: 'invalid_input',
       message: expect.stringContaining('Overlapping partition') as unknown as string,
     });
-
-    const chargesAfter = await rt.ctx.charges.read();
-    const spendAfter = await rt.ctx.dailySpend.read();
-
-    expect(chargesAfter.current_charges).toBe(chargesBefore.current_charges);
-    expect(spendAfter.tokens_estimated).toBe(spendBefore.tokens_estimated);
   });
 
-  it('nested partitions throw without debiting charges or daily spend', async () => {
+  it('nested partitions throw before any clone spawns', async () => {
     fx = await makeRepoFixture();
     const rt = await createRuntime({ repoRoot: fx.root });
-
-    const chargesBefore = await rt.ctx.charges.read();
-    const spendBefore = await rt.ctx.dailySpend.read();
 
     await expect(
       runCastCommand(rt, {
@@ -1417,8 +1223,6 @@ describe('cast command — refactor-wave operator-typo guards run before state c
         cycleIntervalMs: 50,
         tickBudgetMs: 5_000,
         castId: 'cast-rw-bug31-nested',
-        internalTokenEstimatePerClone: 5,
-        internalTokenEstimatePerCast: 15,
         cloneAssignments: {
           A: {
             task: 'migrate src/auth',
@@ -1438,36 +1242,22 @@ describe('cast command — refactor-wave operator-typo guards run before state c
       kind: 'invalid_input',
       message: expect.stringContaining('Nested partition overlap') as unknown as string,
     });
-
-    const chargesAfter = await rt.ctx.charges.read();
-    const spendAfter = await rt.ctx.dailySpend.read();
-
-    expect(chargesAfter.current_charges).toBe(chargesBefore.current_charges);
-    expect(spendAfter.tokens_estimated).toBe(spendBefore.tokens_estimated);
   });
 });
 
-// B8 regression — the MCP pre-flight (verifyMantaBusRegistered) ran AFTER
-// runPreSpawnGate, which had already debited the charge and recorded the daily
-// spend (`gate.committed`). A user whose bus is not registered (e.g. a plugin
-// user hit by B1) therefore drained charges to zero just retrying a cast that
-// could never spawn — the preflight threw, but the charge was already gone with
-// no refund. Fix: run the preflight BEFORE the charge-committing gate (same
-// "guards before state commit" philosophy as bug #31), so a preflight abort
-// debits nothing.
-describe('cast command — preflight failure does not burn charges (B8)', () => {
+// B8 regression — the MCP pre-flight (verifyMantaBusRegistered) must run BEFORE
+// any clone spawns, so a user whose bus is not registered (e.g. a plugin user
+// hit by B1) gets a clean abort with nothing spawned, not a half-started cast.
+describe('cast command — preflight failure aborts before spawning (B8)', () => {
   let fx: RepoFixture | undefined;
   afterEach(async () => {
     await fx?.cleanup();
     fx = undefined;
   });
 
-  it('a cast whose MCP preflight throws does NOT decrement charges or record spend', async () => {
+  it('a cast whose MCP preflight throws aborts without spawning a clone', async () => {
     fx = await makeRepoFixture();
     const rt = await createRuntime({ repoRoot: fx.root });
-
-    const chargesBefore = await rt.ctx.charges.read();
-    const spendBefore = await rt.ctx.dailySpend.read();
 
     const sink = new MemorySink();
     // verifyMcp defaults to ON; inject a throwing preflight to drive the
@@ -1483,23 +1273,14 @@ describe('cast command — preflight failure does not burn charges (B8)', () => 
         reporter: createReporter({ sink }),
         tickBudgetMs: 5_000,
         castId: 'cast-b8',
-        internalTokenEstimatePerClone: 5,
-        internalTokenEstimatePerCast: 15,
         preflight: () =>
           Promise.reject(new CliError('manta-bus not registered', { kind: 'spawn_failed' })),
       }),
     ).rejects.toMatchObject({ name: 'CliError', kind: 'spawn_failed' });
 
-    const chargesAfter = await rt.ctx.charges.read();
-    const spendAfter = await rt.ctx.dailySpend.read();
-
-    // The charge was NOT debited and no daily spend was recorded: the preflight
-    // aborted before runPreSpawnGate's commit step ever ran.
-    expect(chargesAfter.current_charges).toBe(chargesBefore.current_charges);
-    expect(spendAfter.tokens_estimated).toBe(spendBefore.tokens_estimated);
-    // And `gate.committed` (the event emitted at the commit point) never fired.
+    // The preflight aborted before any clone was spawned: no spawn event fired.
     const events = sink.lines.map((l) => l.event);
-    expect(events).not.toContain('gate.committed');
+    expect(events).not.toContain('cast.spawn');
   });
 
   it('preflight runs before the gate: a dry-run still skips it (no bus needed for a cost preview)', async () => {
@@ -1516,8 +1297,6 @@ describe('cast command — preflight failure does not burn charges (B8)', () => 
       reporter: createReporter({ sink: new MemorySink() }),
       tickBudgetMs: 5_000,
       castId: 'cast-b8-dry',
-      internalTokenEstimatePerClone: 5,
-      internalTokenEstimatePerCast: 15,
       dryRun: true,
       preflight: () => {
         preflightCalls += 1;
@@ -1654,8 +1433,6 @@ describe('cast command — hash-pin verification (task 2.4)', () => {
         reporter: noopReporter,
         tickBudgetMs: 1_000,
         castId: 'cast-tampered',
-        internalTokenEstimatePerClone: 5,
-        internalTokenEstimatePerCast: 15,
         verifyMcp: false,
       });
     } catch (err) {
@@ -1712,8 +1489,6 @@ describe('cast command — hash-pin verification (task 2.4)', () => {
         reporter: noopReporter,
         tickBudgetMs: 1_000,
         castId: 'cast-ghost',
-        internalTokenEstimatePerClone: 5,
-        internalTokenEstimatePerCast: 15,
         verifyMcp: false,
       });
     } catch (err) {

@@ -111,7 +111,7 @@ describe('createBusServer', () => {
     await cleanup();
   });
 
-  it('lists every Manta Bus tool (31 total: 25 clone-coordination + 6 user)', async () => {
+  it('lists every Manta Bus tool (30 total: 25 clone-coordination + 5 user)', async () => {
     const result = await client.listTools();
     const names = result.tools.map((t) => t.name).sort();
     expect(names).toEqual(
@@ -142,9 +142,9 @@ describe('createBusServer', () => {
         'manta.unlock',
         'manta.zk_write',
         // User/orchestrator-facing tools (native alternative to /manta:*).
+        // manta.cost was removed with the budget/charges strip (subscription-based).
         'manta.abort',
         'manta.cast',
-        'manta.cost',
         'manta.inspect',
         'manta.kill',
         'manta.status',

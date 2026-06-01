@@ -11,8 +11,6 @@ import {
   ContractsStore,
   CastsStore,
   EventsLog,
-  ChargeStore,
-  DailySpendLedger,
   fsMemoryWriters,
   type BusContext,
 } from '@manta/bus';
@@ -69,8 +67,6 @@ describe('feedback command', () => {
       contracts: new ContractsStore(paths, clock),
       casts: new CastsStore(paths, clock),
       events: new EventsLog(paths, clock),
-      charges: new ChargeStore(paths, clock),
-      dailySpend: new DailySpendLedger(paths, clock),
       memoryWriters: fsMemoryWriters({ repoRoot: root, clock }),
     };
   });

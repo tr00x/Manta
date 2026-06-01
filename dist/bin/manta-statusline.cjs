@@ -36,8 +36,6 @@ __export(manta_statusline_exports, {
   formatStatusline: () => formatStatusline,
   isLive: () => isLive,
   readClones: () => readClones,
-  readTokenCap: () => readTokenCap,
-  readTokensEstimated: () => readTokensEstimated,
   resolveRepoRoot: () => resolveRepoRoot,
   runStatusline: () => runStatusline
 });
@@ -61,13 +59,6 @@ function formatStatusline(input) {
   }
   const segments = [];
   segments.push(live.map((c) => `${c.clone_id}${STATE_ARROW}${c.state}`).join(" "));
-  if (input.tokensEstimated != null && Number.isFinite(input.tokensEstimated)) {
-    let usage = formatTokens(input.tokensEstimated);
-    if (input.tokenCap != null && Number.isFinite(input.tokenCap)) {
-      usage += `/${formatTokens(input.tokenCap)}`;
-    }
-    segments.push(usage);
-  }
   const oldest = oldestRegisteredAt(live);
   if (oldest != null) {
     const elapsedMs = Math.max(0, input.nowMs - oldest);
@@ -88,16 +79,6 @@ function oldestRegisteredAt(clones) {
     }
   }
   return min;
-}
-function formatTokens(tokens) {
-  if (tokens >= 1e6) {
-    const m = tokens / 1e6;
-    return `${Number.isInteger(m) ? m : m.toFixed(1)}M`;
-  }
-  if (tokens >= 1e3) {
-    return `${Math.round(tokens / 1e3)}k`;
-  }
-  return String(Math.round(tokens));
 }
 function formatDuration(ms) {
   const totalSeconds = Math.floor(ms / 1e3);
@@ -124,9 +105,6 @@ function resolveRepoRoot(startDir) {
     }
     dir = parent;
   }
-}
-function localDate(nowMs) {
-  return new Date(nowMs).toLocaleDateString("en-CA");
 }
 function readJson(file) {
   const raw = fs.readFileSync(file, "utf8");
@@ -158,33 +136,6 @@ function readClones(repoRoot) {
     return [];
   }
 }
-function readTokensEstimated(repoRoot, nowMs) {
-  try {
-    const data = readJson(path.join(repoRoot, ".manta", "state", "daily-spend.json"));
-    if (typeof data.date === "string" && data.date !== localDate(nowMs)) {
-      return 0;
-    }
-    return typeof data.tokens_estimated === "number" && Number.isFinite(data.tokens_estimated) ? data.tokens_estimated : null;
-  } catch {
-    return null;
-  }
-}
-function readTokenCap(repoRoot) {
-  const candidates = [
-    path.join(repoRoot, ".manta", "state", "budget.json"),
-    path.join(repoRoot, ".manta", "config", "budget.json")
-  ];
-  for (const file of candidates) {
-    try {
-      const data = readJson(file);
-      if (typeof data.daily_token_cap === "number" && Number.isFinite(data.daily_token_cap)) {
-        return data.daily_token_cap;
-      }
-    } catch {
-    }
-  }
-  return null;
-}
 function computeStatusline(startDir, nowMs) {
   try {
     const repoRoot = resolveRepoRoot(startDir);
@@ -193,8 +144,6 @@ function computeStatusline(startDir, nowMs) {
     }
     return formatStatusline({
       clones: readClones(repoRoot),
-      tokensEstimated: readTokensEstimated(repoRoot, nowMs),
-      tokenCap: readTokenCap(repoRoot),
       nowMs
     });
   } catch {
@@ -227,8 +176,6 @@ if (invokedDirectly) {
   formatStatusline,
   isLive,
   readClones,
-  readTokenCap,
-  readTokensEstimated,
   resolveRepoRoot,
   runStatusline
 });

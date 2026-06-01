@@ -32,7 +32,7 @@ Per (task × method × repeat):
 | **wall-clock** | seconds from start to the method declaring done | speed |
 | **tests pass** | the task's objective success check (a test or grep) returns 0 | did it actually work — the only metric that gates the rest |
 | **diff size** | `git diff --shortstat` lines changed | smaller correct diff = better |
-| **usage** | token-estimate consumed (`manta cost` for the manta arm; your own accounting for the others) | subscription cost, not dollars |
+| **usage** | your own out-of-band accounting (Claude Code is subscription-based — there's no per-cast meter) | subscription usage, not dollars |
 
 Only runs where **tests pass** count toward speed/diff/usage comparisons — a fast
 wrong answer is not a win.

@@ -163,7 +163,7 @@ From inside Claude Code:
 
 The marketplace is `manta-dev`, the plugin inside it is `manta` → the install spec is `manta@manta-dev`. Then run `/manta:help` for a tour, or `manta doctor` in a terminal to health-check your setup. You get:
 
-- **`/manta:*` slash commands** (cast, status, cost, charges, inspect, tail, kill, promote, recover, replay, abort, doctor, help).
+- **`/manta:*` slash commands** (cast, status, inspect, tail, kill, promote, recover, replay, abort, doctor, help).
 - **Manta's skills** in your skill list, resolvable by spawned clones.
 - **The `manta-bus` MCP server**, registered automatically — including native tool calls (`manta_cast`, `manta_status`, …) so your agent can drive Manta without shelling out.
 
@@ -274,19 +274,17 @@ manta tail <cloneId>             Stream a clone's events live
 manta promote <castId/cloneId>   Merge the winning branch of a forking cast
 manta abort                      Stop all clones now   ·   manta kill <id>  one clone
 manta recover                    Clean up stale state after a crash
-manta cost / charges / limit     Usage summary · charge state · budget config
+manta limit                      Read/write the parallelism cap (max_parallel_clones)
 manta doctor                     Health-check your environment
 ```
 
 <details>
 <summary>Usage caps & advanced flags</summary>
 
-Claude Code is a **subscription**, not pay-per-token — so the guardrails are usage / rate / parallelism, never dollars:
+Claude Code is a **subscription**, not pay-per-token — so the only guardrail is parallelism, never dollars (no charges, no cooldown):
 
 ```text
---max-parallel-clones <n>   cap clones running at once (default 5)
---max-casts-per-hour <n>    rolling-hour cast-rate cap (default 6)
---max-tokens-estimate <n>   per-cast usage ceiling
+--max-parallel-clones <n>   cap clones running at once (default 5) — the one usage limit
 --allowed-paths / --forbidden-paths   scope fence (CSV)
 --max-files-changed <n>     per-clone write cap (0 = read-only)
 --dry-run                   preview without spawning
@@ -306,9 +304,9 @@ Honest status — `0.1.0`, **early but real**. Everything below is verified by t
 | **Transcript inheritance**   | ✓ clones provably boot with your context (a test reproduces a parent-only token; a control inherits nothing) |
 | **Isolation & coordination** | ✓ worktrees, the bus (locks/claims/broadcasts/heartbeats), contracts, graceful death                         |
 | **All 9 modes**              | ✓ 7 core + 2 opt-in (`council`, `decoy`)                                                                     |
-| **Native MCP control**       | ✓ 31 bus tools, incl. 6 for driving Manta from your orchestrator                                             |
+| **Native MCP control**       | ✓ 30 bus tools, incl. 5 for driving Manta from your orchestrator                                             |
 | **Merge-review gate**        | ✓ runs the real quality gate before scoring competing branches                                               |
-| **Usage guardrails**         | ✓ subscription-aware rate / parallelism / cooldown caps                                                      |
+| **Usage guardrail**          | ✓ subscription-aware parallelism cap (`--max-parallel-clones`) — no dollars, charges, or cooldown           |
 | **Distribution**             | ✓ self-contained npm artifact + a validated Claude Code plugin                                               |
 | **Concurrent casts**         | ✓ safe — disjoint clone slots + a data-loss guard (verified 4 in parallel)                                   |
 | **Clone safety**             | ✓ an always-on guard enforces each clone's path scope + blocks dangerous ops in the harness                  |

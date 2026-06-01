@@ -9,10 +9,10 @@ output. There is zero logic duplication, and `@manta/bus` never imports
 `@manta/cli` (that would be a circular dependency — the binary is the seam).
 
 These sit alongside the 25 clone-coordination tools (`manta_register`,
-`manta_heartbeat`, …) that clones use to talk to the bus. The user tools are
-registered as `manta.cast`, `manta.status`, … and surface to the orchestrator as
-`manta_cast`, `manta_status`, … (the MCP tool-call surface namespaces dots to
-underscores).
+`manta_heartbeat`, …) that clones use to talk to the bus — 30 tools in total. The
+user tools are registered as `manta.cast`, `manta.status`, … and surface to the
+orchestrator as `manta_cast`, `manta_status`, … (the MCP tool-call surface
+namespaces dots to underscores).
 
 ## The tools
 
@@ -20,7 +20,6 @@ underscores).
 | --- | --- | --- | --- |
 | `manta_cast` | `manta cast <mode> --task … [flags]` | yes (spawns clones) | cast id + output, **non-blocking** |
 | `manta_status` | `manta status` | no | raw text (no `--json` mode) |
-| `manta_cost` | `manta cost [period]` + `manta charges` | no | both as raw text |
 | `manta_inspect` | `manta inspect <id> --json` | no | parsed JSON + raw + exit code |
 | `manta_abort` | `manta abort [--reason …]` | yes | raw text |
 | `manta_kill` | `manta kill <id> [--reason …]` | yes | raw text |
@@ -35,8 +34,8 @@ Spawns a cast — the core verb. Inputs:
   is not castable.
 - `task` (required) — the task description handed to every clone.
 - `clones` — number of clones (mode-specific bounds apply; default 2).
-- `maxParallelClones`, `maxCastsPerHour`, `maxTokensEstimate` — usage caps
-  (token-estimate proxy, **not** dollars — Claude Code is subscription-based).
+- `maxParallelClones` — the parallelism cap, the only usage limit (Claude Code is
+  subscription-based; there are no charges, cooldown, or token/dollar budgets).
 - `allowedPaths`, `forbiddenPaths` — string arrays (joined to CSV for the CLI).
 - `maxFilesChanged` — per-clone file-write cap (0 = read-only).
 - `dryRun` — preview usage without spawning.
@@ -49,11 +48,11 @@ running in the background. Watch it with `manta_status` and stop it with
 `manta_abort`. A `dryRun` or a validation error returns its full output and exit
 code instead (`exited: true`).
 
-### `manta_status`, `manta_cost`, `manta_inspect`
+### `manta_status`, `manta_inspect`
 
-Read-only snapshots. `manta_status` and `manta_cost` return raw text (those CLI
-commands have no `--json` mode). `manta_inspect` runs `inspect <id> --json` and
-returns the parsed JSON alongside the raw text and exit code.
+Read-only snapshots. `manta_status` returns raw text (that CLI command has no
+`--json` mode). `manta_inspect` runs `inspect <id> --json` and returns the parsed
+JSON alongside the raw text and exit code.
 
 ### `manta_abort`, `manta_kill`
 
