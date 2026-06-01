@@ -421,6 +421,26 @@ export async function runCastCommand(
       { kind: 'invalid_input' },
     );
   }
+  // bug #M10: bug-hunt is investigation-only by design — its protocol drives
+  // ack → investigate → broadcast findings → write a markdown report; it has NO
+  // step that mutates source and commits. A contract that asks bug-hunt to
+  // "convert/refactor/implement … and commit" stalls silently in the gap between
+  // an investigation protocol and a mutation task (the clone investigates, emits
+  // one finding, then has nothing left to do — yet looks healthy because the
+  // booting-ticker keeps its heartbeat fresh). Warn at cast time so the
+  // mode-mismatch is visible instead of a silent no-deliverable stall; the
+  // modes that reliably mutate+commit are refactor-wave and pair-programming.
+  // This is a non-blocking heads-up — bug-hunt MAY legitimately end "I found the
+  // cause, here's the proposed patch" — so we warn, never reject.
+  if (opts.mode === 'bug-hunt' && /\b(commit|convert|refactor|migrat|implement|rewrite|replace)\w*/i.test(opts.task)) {
+    opts.reporter.warn('cast.mode_mismatch_warning', {
+      mode: 'bug-hunt',
+      hint:
+        'bug-hunt produces an investigation report, not commits — its protocol never mutates+commits source. ' +
+        'If you want clones to change code and commit, use refactor-wave (codemod across modules) or ' +
+        'pair-programming (writer mutates+commits, reviewer gates). Casting bug-hunt anyway.',
+    });
+  }
   if (opts.mode === 'refactor-wave' && !opts.cloneAssignments) {
     throw new CliError(
       'refactor-wave requires --tasks with per-clone module assignments',

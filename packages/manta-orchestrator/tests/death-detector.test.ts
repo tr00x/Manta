@@ -185,6 +185,58 @@ describe('death-detector', () => {
     expect(result[0]!.reason).toMatch(/maxIdleTimeMs/);
   });
 
+  // Bug #M11: a pair-programming reviewer goes IDLE waiting for the writer's
+  // first commit_ready. The writer's first batch is inherently > maxIdleTimeMs,
+  // so the reviewer was guaranteed to be reaped first and the pair silently
+  // degraded to a lone writer. A reviewer must NOT be reaped on maxIdleTimeMs
+  // while its paired writer is still alive.
+  it('M11: reviewer NOT reaped on maxIdleTimeMs while its writer is alive', async () => {
+    await ctx.registry.register({ clone_id: 'A', mode: 'pair-programming', parent_pid: 1, worktree: '/wa', metadata: { role: 'writer' } });
+    await ctx.registry.register({ clone_id: 'B', mode: 'pair-programming', parent_pid: 1, worktree: '/wb', metadata: { role: 'reviewer' } });
+    await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    await ctx.registry.heartbeat({ clone_id: 'B', state: 'WORKING' });
+    ctx.clock.advance(1_000);
+    await ctx.registry.heartbeat({ clone_id: 'B', state: 'IDLE' }); // reviewer waits for writer
+    ctx.clock.advance(defaultThresholds.maxIdleTimeMs + 60_000); // well past 5 min
+    await ctx.registry.touch('B'); // booting-ticker keeps heartbeat fresh
+    const result = await findDeadClones(ctx, {
+      thresholds: defaultThresholds,
+      probe: makeProbe({ alive: () => true }),
+    });
+    expect(result.find((r) => r.clone_id === 'B')).toBeUndefined();
+  });
+
+  it('M11: reviewer IS reaped on maxIdleTimeMs once its writer is DEAD', async () => {
+    await ctx.registry.register({ clone_id: 'A', mode: 'pair-programming', parent_pid: 1, worktree: '/wa', metadata: { role: 'writer' } });
+    await ctx.registry.register({ clone_id: 'B', mode: 'pair-programming', parent_pid: 1, worktree: '/wb', metadata: { role: 'reviewer' } });
+    await ctx.registry.heartbeat({ clone_id: 'B', state: 'WORKING' });
+    ctx.clock.advance(1_000);
+    await ctx.registry.heartbeat({ clone_id: 'B', state: 'IDLE' });
+    await ctx.registry.markDead('A', 'writer done'); // writer gone — reviewer no longer protected
+    ctx.clock.advance(defaultThresholds.maxIdleTimeMs + 1_000);
+    await ctx.registry.touch('B');
+    const result = await findDeadClones(ctx, {
+      thresholds: defaultThresholds,
+      probe: makeProbe({ alive: () => true }),
+    });
+    expect(result.find((r) => r.clone_id === 'B')?.reason).toMatch(/maxIdleTimeMs/);
+  });
+
+  it('M11: a waiting reviewer is still reaped if its process hangs (idle-heartbeat timeout)', async () => {
+    await ctx.registry.register({ clone_id: 'A', mode: 'pair-programming', parent_pid: 1, worktree: '/wa', metadata: { role: 'writer' } });
+    await ctx.registry.register({ clone_id: 'B', mode: 'pair-programming', parent_pid: 1, worktree: '/wb', metadata: { role: 'reviewer' } });
+    await ctx.registry.heartbeat({ clone_id: 'B', state: 'WORKING' });
+    ctx.clock.advance(1_000);
+    await ctx.registry.heartbeat({ clone_id: 'B', state: 'IDLE' });
+    // No touch — the reviewer process is genuinely hung; heartbeat goes stale.
+    ctx.clock.advance(defaultThresholds.idleHeartbeatTimeoutMs + 1_000);
+    const result = await findDeadClones(ctx, {
+      thresholds: defaultThresholds,
+      probe: makeProbe({ alive: () => true }),
+    });
+    expect(result.find((r) => r.clone_id === 'B')?.reason).toMatch(/idle heartbeat/);
+  });
+
   it('WAITING_FOR_TASK clone uses extended timeout', async () => {
     await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
     await ctx.registry.heartbeat({ clone_id: 'A', state: 'WAITING_FOR_TASK' });

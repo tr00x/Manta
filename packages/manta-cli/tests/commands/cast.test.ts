@@ -171,6 +171,48 @@ describe('cast command (recon-swarm)', () => {
     });
   });
 
+  // Bug #M10: bug-hunt is investigation-only — a contract asking it to mutate
+  // source and commit stalls silently. Warn (don't reject) at cast time so the
+  // mode-mismatch is visible.
+  it('M10: bug-hunt with a mutation+commit task emits a mode-mismatch warning', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({ repoRoot: fx.root });
+    const sink = new MemorySink();
+    const result = await runCastCommand(rt, {
+      mode: 'bug-hunt',
+      task: 'Convert the fake test files to real ones and commit each batch',
+      cloneCount: 1,
+      cycleIntervalMs: 50,
+      runner: runFakeCloneScript({ scriptPath: fixturePath }),
+      reporter: createReporter({ sink }),
+      tickBudgetMs: 5_000,
+      castId: 'cast-m10-warn',
+      dryRun: true, // warning fires before the dry-run short-circuit; no spawn
+      verifyMcp: false,
+    });
+    expect(result.exitCode).toBe(0); // warning, not a rejection
+    expect(sink.lines.map((l) => l.event)).toContain('cast.mode_mismatch_warning');
+  });
+
+  it('M10: bug-hunt with a pure investigation task does NOT warn', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({ repoRoot: fx.root });
+    const sink = new MemorySink();
+    await runCastCommand(rt, {
+      mode: 'bug-hunt',
+      task: 'Find the root cause of the duplicate-event bug in the bus layer',
+      cloneCount: 1,
+      cycleIntervalMs: 50,
+      runner: runFakeCloneScript({ scriptPath: fixturePath }),
+      reporter: createReporter({ sink }),
+      tickBudgetMs: 5_000,
+      castId: 'cast-m10-clean',
+      dryRun: true,
+      verifyMcp: false,
+    });
+    expect(sink.lines.map((l) => l.event)).not.toContain('cast.mode_mismatch_warning');
+  });
+
   // I-IMP-1 regression: when a mid-cast spawn step throws (clone N-of-M fails
   // to start), the catch block must terminate already-running children AND
   // peel back the worktrees they created. Otherwise a re-cast collides on

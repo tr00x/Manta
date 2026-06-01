@@ -135,7 +135,15 @@ export async function spawnClone(opts: SpawnCloneOptions): Promise<CloneHandle> 
       worktree: opts.worktree,
       // metadata.cast_mode is the join key the Phase 2b sibling-messaging
       // filter uses without round-tripping the cast manifest for every check.
-      metadata: { cast_id: castId, cast_mode: opts.castMode },
+      // metadata.role (bug #M11) records the pair/test-storm slot (writer /
+      // reviewer / coder / …) carried on the contract's approachHint, so the
+      // death-detector can tell a reviewer that's legitimately blocked waiting
+      // on its writer from one that's genuinely stuck. Empty string when no role.
+      metadata: {
+        cast_id: castId,
+        cast_mode: opts.castMode,
+        role: opts.snapshot.taskContract.approachHint ?? '',
+      },
     });
   } catch (cause) {
     throw new CliError(`failed to pre-register clone ${cloneId}`, {

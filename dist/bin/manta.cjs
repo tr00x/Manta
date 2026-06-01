@@ -24346,7 +24346,10 @@ async function findDeadClones(ctx, options2) {
       }
       if (r.idle_since != null) {
         const idleDuration = now - r.idle_since;
-        if (idleDuration > options2.thresholds.maxIdleTimeMs) {
+        const waitingOnLiveWriter = r.metadata?.role === "reviewer" && all.some(
+          (s3) => s3.clone_id !== r.clone_id && s3.metadata?.role === "writer" && s3.state !== "DEAD"
+        );
+        if (idleDuration > options2.thresholds.maxIdleTimeMs && !waitingOnLiveWriter) {
           reasons.push(
             `idle for ${idleDuration}ms > maxIdleTimeMs ${options2.thresholds.maxIdleTimeMs}ms`
           );
@@ -42192,7 +42195,15 @@ async function spawnClone(opts) {
       worktree: opts.worktree,
       // metadata.cast_mode is the join key the Phase 2b sibling-messaging
       // filter uses without round-tripping the cast manifest for every check.
-      metadata: { cast_id: castId, cast_mode: opts.castMode }
+      // metadata.role (bug #M11) records the pair/test-storm slot (writer /
+      // reviewer / coder / …) carried on the contract's approachHint, so the
+      // death-detector can tell a reviewer that's legitimately blocked waiting
+      // on its writer from one that's genuinely stuck. Empty string when no role.
+      metadata: {
+        cast_id: castId,
+        cast_mode: opts.castMode,
+        role: opts.snapshot.taskContract.approachHint ?? ""
+      }
     });
   } catch (cause) {
     throw new CliError(`failed to pre-register clone ${cloneId}`, {
@@ -43842,6 +43853,12 @@ async function runCastCommand(rt2, opts) {
       "bug-hunt mode supports at most 2 clones (spec Sec 2)",
       { kind: "invalid_input" }
     );
+  }
+  if (opts.mode === "bug-hunt" && /\b(commit|convert|refactor|migrat|implement|rewrite|replace)\w*/i.test(opts.task)) {
+    opts.reporter.warn("cast.mode_mismatch_warning", {
+      mode: "bug-hunt",
+      hint: "bug-hunt produces an investigation report, not commits \u2014 its protocol never mutates+commits source. If you want clones to change code and commit, use refactor-wave (codemod across modules) or pair-programming (writer mutates+commits, reviewer gates). Casting bug-hunt anyway."
+    });
   }
   if (opts.mode === "refactor-wave" && !opts.cloneAssignments) {
     throw new CliError(

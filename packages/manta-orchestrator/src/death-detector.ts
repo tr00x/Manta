@@ -57,9 +57,24 @@ export async function findDeadClones(
           `idle heartbeat ${sinceHeartbeat}ms ago > ${options.thresholds.idleHeartbeatTimeoutMs}ms`,
         );
       }
+      // bug #M11: a pair-programming reviewer goes IDLE the moment it boots and
+      // legitimately BLOCKS waiting for the writer's first `commit_ready`. The
+      // writer's first batch (read ledger + convert + green-on-real + commit) is
+      // inherently > maxIdleTimeMs (5 min), so the reviewer was GUARANTEED to be
+      // reaped before it could review a single diff — the pair silently degraded
+      // to a lone writer. Exempt a reviewer from the maxIdleTimeMs reap WHILE its
+      // paired writer is still alive: that idle is "correctly waiting on the
+      // writer", not "stuck". The idle-heartbeat timeout above still applies (a
+      // genuinely-hung reviewer process stops heart-beating and is reaped), and
+      // once the writer is DEAD the reviewer is reaped normally on the next cycle.
       if (r.idle_since != null) {
         const idleDuration = now - r.idle_since;
-        if (idleDuration > options.thresholds.maxIdleTimeMs) {
+        const waitingOnLiveWriter =
+          r.metadata?.role === 'reviewer' &&
+          all.some(
+            (s) => s.clone_id !== r.clone_id && s.metadata?.role === 'writer' && s.state !== 'DEAD',
+          );
+        if (idleDuration > options.thresholds.maxIdleTimeMs && !waitingOnLiveWriter) {
           reasons.push(
             `idle for ${idleDuration}ms > maxIdleTimeMs ${options.thresholds.maxIdleTimeMs}ms`,
           );

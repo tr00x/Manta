@@ -357,7 +357,34 @@ describe('clone-spawner', () => {
     expect(captured[0]!.metadata).toEqual({
       cast_id: 'cast-spawn-3',
       cast_mode: 'forking-realities',
+      // bug #M11: role is recorded so the death-detector can spare a reviewer
+      // that's legitimately waiting on its writer. Empty when no role assigned.
+      role: '',
     });
+  });
+
+  it('passes metadata.role from the contract approachHint (bug #M11)', async () => {
+    fx = await makeRepoFixture();
+    const captured: { clone_id: string; metadata?: Record<string, string> }[] = [];
+    const reg = makeRegistryFake({
+      onRegister(input) {
+        captured.push({ clone_id: input.clone_id, metadata: input.metadata });
+      },
+    });
+    const casts = makeFakeCasts();
+    const snap = makeSnapshotFor({ cloneId: 'B', castId: 'cast-pair-1', approachHint: 'reviewer' });
+    await spawnClone({
+      repoRoot: fx.root,
+      snapshot: snap,
+      worktree: fx.root,
+      runner: runFakeCloneScript({ scriptPath: fixturePath }),
+      registry: reg,
+      casts: casts.creator,
+      castMode: 'pair-programming',
+      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' },
+      castRoster: [{ clone_id: 'B', assignment: null }],
+    });
+    expect(captured[0]!.metadata?.role).toBe('reviewer');
   });
 
   it('runClaudeCli passes --session-id when provided in input', async () => {
