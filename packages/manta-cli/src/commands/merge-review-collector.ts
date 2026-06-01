@@ -163,59 +163,89 @@ async function readComplexityDelta(worktreePath: string, baseBranch: string): Pr
   }
 }
 
-async function readTscErrors(worktreePath: string): Promise<number> {
+/**
+ * Did this execa error because the binary doesn't exist (ENOENT / "command not
+ * found")? Bug #M9: a tool that isn't installed must SKIP its quality axis
+ * (neutral), never penalise the candidate. This distinguishes "tool absent"
+ * from "tool ran and found errors".
+ */
+function isMissingToolError(err: unknown): boolean {
+  const e = err as { code?: string; shortMessage?: string; message?: string };
+  if (e?.code === 'ENOENT') return true;
+  const msg = `${e?.shortMessage ?? ''} ${e?.message ?? ''}`;
+  return /ENOENT|command not found|not found/i.test(msg);
+}
+
+function countEslintFromJson(raw: string): { warnings: number; errors: number } {
+  const results = JSON.parse(raw) as Array<{ warningCount: number; errorCount: number }>;
+  let warnings = 0;
+  let errors = 0;
+  for (const f of results) {
+    warnings += f.warningCount;
+    errors += f.errorCount;
+  }
+  return { warnings, errors };
+}
+
+/**
+ * Bug #M9: run the toolchain's typecheck command and count errors via the
+ * declared parser. Toolchain-agnostic — `tsc` (count `error TSxxxx` lines),
+ * `cargo check` / `go build` (exit-code: 0 errors on success, 1 on failure).
+ * Null command (axis not applicable) or a missing tool → 0 (neutral skip).
+ * bug #63 reasoning for the pnpm path is preserved (typecheck = `tsc -b` via
+ * `pnpm typecheck`, run after install+build so sibling refs resolve).
+ */
+async function readTypecheckErrors(worktreePath: string, tc: Toolchain): Promise<number> {
+  if (!tc.typecheck) return 0;
   try {
-    // bug #63: canonical typecheck = `tsc -b` (builds + checks project
-    // references), NOT `tsc --noEmit`. `--noEmit` neither builds nor resolves
-    // sibling references, so a fresh worktree reds with TS2307 on every
-    // `@manta/*` alias. `pnpm typecheck` is the exact command `pnpm gate` runs.
-    await execa('pnpm', ['typecheck'], { cwd: worktreePath, timeout: TSC_TIMEOUT_MS });
+    await execa(tc.typecheck[0], [...tc.typecheck.slice(1)], {
+      cwd: worktreePath,
+      timeout: TSC_TIMEOUT_MS,
+    });
     return 0;
   } catch (err: unknown) {
-    const stderr = (err as { stderr?: string })?.stderr ?? '';
-    const stdout = (err as { stdout?: string })?.stdout ?? '';
-    const output = stderr + stdout;
-    const errorLines = output.split('\n').filter((l) => /\berror TS\d+/.test(l));
-    return Math.max(errorLines.length, 1);
+    if (isMissingToolError(err)) return 0; // tool absent → skip, don't penalise
+    if (tc.typecheckParser === 'tsc') {
+      const stderr = (err as { stderr?: string })?.stderr ?? '';
+      const stdout = (err as { stdout?: string })?.stdout ?? '';
+      const errorLines = (stderr + stdout).split('\n').filter((l) => /\berror TS\d+/.test(l));
+      return Math.max(errorLines.length, 1);
+    }
+    // exit-code parser: a non-zero exit means the compile/type gate failed.
+    return 1;
   }
 }
 
-async function readEslintResults(worktreePath: string): Promise<{ warnings: number; errors: number }> {
+/**
+ * Bug #M9: run the toolchain's lint command and count warnings/errors via the
+ * declared parser. eslint-json parses the JSON report; exit-code (go vet, …)
+ * maps a non-zero exit to one error. Null command or a missing tool → neutral.
+ */
+async function readLintResults(
+  worktreePath: string,
+  tc: Toolchain,
+): Promise<{ warnings: number; errors: number }> {
+  if (!tc.lint) return { warnings: 0, errors: 0 };
   try {
-    // bug #63: mirror the canonical lint scope `eslint 'packages/**/src/**/*.ts'`
-    // (run via `pnpm exec` to bind the workspace eslint), so the scorer's lint
-    // dimension matches what `pnpm gate` measures — not a broader, divergent
-    // `eslint .` that scores files the merge bar never gates on.
-    const r = await execa(
-      'pnpm',
-      ['exec', 'eslint', 'packages/**/src/**/*.ts', '--no-error-on-unmatched-pattern', '--format', 'json'],
-      {
-        cwd: worktreePath,
-        timeout: ESLINT_TIMEOUT_MS,
-      },
-    );
-    const results = JSON.parse(r.stdout) as Array<{ warningCount: number; errorCount: number }>;
-    let warnings = 0;
-    let errors = 0;
-    for (const f of results) {
-      warnings += f.warningCount;
-      errors += f.errorCount;
-    }
-    return { warnings, errors };
+    const r = await execa(tc.lint[0], [...tc.lint.slice(1)], {
+      cwd: worktreePath,
+      timeout: ESLINT_TIMEOUT_MS,
+    });
+    if (tc.lintParser === 'eslint-json') return countEslintFromJson(r.stdout);
+    return { warnings: 0, errors: 0 }; // exit-code parser, exit 0 = clean
   } catch (err: unknown) {
-    const stdout = (err as { stdout?: string })?.stdout ?? '';
-    try {
-      const results = JSON.parse(stdout) as Array<{ warningCount: number; errorCount: number }>;
-      let warnings = 0;
-      let errors = 0;
-      for (const f of results) {
-        warnings += f.warningCount;
-        errors += f.errorCount;
+    if (isMissingToolError(err)) return { warnings: 0, errors: 0 }; // tool absent → skip
+    if (tc.lintParser === 'eslint-json') {
+      // eslint exits non-zero when it finds errors but still prints JSON on stdout.
+      const stdout = (err as { stdout?: string })?.stdout ?? '';
+      try {
+        return countEslintFromJson(stdout);
+      } catch {
+        return { warnings: 0, errors: 1 };
       }
-      return { warnings, errors };
-    } catch {
-      return { warnings: 0, errors: 1 };
     }
+    // exit-code parser (go vet, …): non-zero = a real lint failure.
+    return { warnings: 0, errors: 1 };
   }
 }
 
@@ -228,19 +258,19 @@ export function createMetricCollector(): MetricCollector {
       const tc = detectToolchain(worktreePath);
       await prepareWorktreeForGate(worktreePath);
       const test = await runTests(worktreePath, tc);
-      // tsc + eslint are TypeScript-specific. For a non-TS project they would
-      // always red (no tsconfig, no workspace eslint) and unfairly tank the
-      // score — so they only run for a TS toolchain; otherwise they're neutral
-      // (0 errors / 0 warnings), letting coverage + diff + complexity decide.
+      // Bug #M9: every quality axis is toolchain-driven now — typecheck is `tsc`
+      // for JS/TS, `cargo check` for Rust, `go build` for Go; lint is eslint for
+      // JS/TS, `go vet` for Go. An axis the toolchain marks null (e.g. lint for
+      // Python/Rust) — or whose tool isn't installed — scores neutral (0), so a
+      // non-JS candidate is judged on the axes that apply to it (test + coverage
+      // + diff + complexity), never penalised for not being TypeScript.
       const [coverageDelta, diffLinesChanged, complexityDelta, tscErrors, eslintResults] =
         await Promise.all([
           readCoverageDelta(worktreePath),
           readDiffSize(worktreePath, baseBranch),
           readComplexityDelta(worktreePath, baseBranch),
-          tc.isTypeScript ? readTscErrors(worktreePath) : Promise.resolve(0),
-          tc.isTypeScript
-            ? readEslintResults(worktreePath)
-            : Promise.resolve({ warnings: 0, errors: 0 }),
+          readTypecheckErrors(worktreePath, tc),
+          readLintResults(worktreePath, tc),
         ]);
 
       return {

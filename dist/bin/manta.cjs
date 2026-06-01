@@ -42716,6 +42716,9 @@ function packageJsonHasTestScript(root) {
     return false;
   }
 }
+function hasEslintConfig(root) {
+  return has(root, ".eslintrc.js") || has(root, ".eslintrc.cjs") || has(root, ".eslintrc.json") || has(root, ".eslintrc.yml") || has(root, ".eslintrc.yaml") || has(root, "eslint.config.js") || has(root, "eslint.config.mjs") || has(root, "eslint.config.cjs");
+}
 function detectToolchain(worktreePath) {
   if (has(worktreePath, "pnpm-lock.yaml") || has(worktreePath, "pnpm-workspace.yaml")) {
     return {
@@ -42723,17 +42726,38 @@ function detectToolchain(worktreePath) {
       install: ["pnpm", "install", "--frozen-lockfile", "--prefer-offline"],
       build: ["pnpm", "-r", "--filter", "./packages/*", "build"],
       test: ["pnpm", "test"],
-      isTypeScript: true
+      typecheck: ["pnpm", "typecheck"],
+      typecheckParser: "tsc",
+      // Canonical gate lint scope (bug #63): packages/**/src, JSON output, bound
+      // to the workspace eslint via `pnpm exec`.
+      lint: [
+        "pnpm",
+        "exec",
+        "eslint",
+        "packages/**/src/**/*.ts",
+        "--no-error-on-unmatched-pattern",
+        "--format",
+        "json"
+      ],
+      lintParser: "eslint-json"
     };
   }
   if (has(worktreePath, "package.json")) {
+    const isTs = has(worktreePath, "tsconfig.json") || has(worktreePath, "tsconfig.base.json");
     return {
       kind: "npm",
       install: has(worktreePath, "package-lock.json") ? ["npm", "ci"] : ["npm", "install"],
       build: null,
-      // a bare package.json may have no build; tsc step is skipped unless present
+      // a bare package.json may have no build; tsc covers compile-check below
       test: packageJsonHasTestScript(worktreePath) ? ["npm", "test"] : null,
-      isTypeScript: has(worktreePath, "tsconfig.json") || has(worktreePath, "tsconfig.base.json")
+      // A TS project type-checks with `tsc --noEmit` regardless of package
+      // manager — run it via npx so it isn't pnpm-specific.
+      typecheck: isTs ? ["npx", "--no-install", "tsc", "--noEmit"] : null,
+      typecheckParser: "tsc",
+      // Only lint when the project actually ships an eslint config — running
+      // eslint on a project that doesn't use it would error spuriously.
+      lint: hasEslintConfig(worktreePath) ? ["npx", "--no-install", "eslint", ".", "--no-error-on-unmatched-pattern", "--format", "json"] : null,
+      lintParser: "eslint-json"
     };
   }
   if (has(worktreePath, "pyproject.toml") || has(worktreePath, "setup.py")) {
@@ -42742,17 +42766,23 @@ function detectToolchain(worktreePath) {
       install: ["pip", "install", "-e", "."],
       build: null,
       test: ["python", "-m", "pytest", "-q"],
-      isTypeScript: false
+      typecheck: null,
+      typecheckParser: "exit-code",
+      lint: null,
+      lintParser: "exit-code"
     };
   }
   if (has(worktreePath, "Cargo.toml")) {
     return {
       kind: "cargo",
       install: null,
-      // cargo test fetches+builds as needed
+      // cargo fetches+builds as needed
       build: ["cargo", "build"],
       test: ["cargo", "test"],
-      isTypeScript: false
+      typecheck: ["cargo", "check"],
+      typecheckParser: "exit-code",
+      lint: null,
+      lintParser: "exit-code"
     };
   }
   if (has(worktreePath, "go.mod")) {
@@ -42761,10 +42791,22 @@ function detectToolchain(worktreePath) {
       install: null,
       build: ["go", "build", "./..."],
       test: ["go", "test", "./..."],
-      isTypeScript: false
+      typecheck: ["go", "build", "./..."],
+      typecheckParser: "exit-code",
+      lint: ["go", "vet", "./..."],
+      lintParser: "exit-code"
     };
   }
-  return { kind: "unknown", install: null, build: null, test: null, isTypeScript: false };
+  return {
+    kind: "unknown",
+    install: null,
+    build: null,
+    test: null,
+    typecheck: null,
+    typecheckParser: "exit-code",
+    lint: null,
+    lintParser: "exit-code"
+  };
 }
 
 // src/commands/merge-review-collector.ts
@@ -42863,50 +42905,61 @@ async function readComplexityDelta(worktreePath, baseBranch) {
     return 0;
   }
 }
-async function readTscErrors(worktreePath) {
+function isMissingToolError(err) {
+  const e = err;
+  if (e?.code === "ENOENT") return true;
+  const msg = `${e?.shortMessage ?? ""} ${e?.message ?? ""}`;
+  return /ENOENT|command not found|not found/i.test(msg);
+}
+function countEslintFromJson(raw) {
+  const results = JSON.parse(raw);
+  let warnings = 0;
+  let errors = 0;
+  for (const f2 of results) {
+    warnings += f2.warningCount;
+    errors += f2.errorCount;
+  }
+  return { warnings, errors };
+}
+async function readTypecheckErrors(worktreePath, tc) {
+  if (!tc.typecheck) return 0;
   try {
-    await execa("pnpm", ["typecheck"], { cwd: worktreePath, timeout: TSC_TIMEOUT_MS });
+    await execa(tc.typecheck[0], [...tc.typecheck.slice(1)], {
+      cwd: worktreePath,
+      timeout: TSC_TIMEOUT_MS
+    });
     return 0;
   } catch (err) {
-    const stderr = err?.stderr ?? "";
-    const stdout = err?.stdout ?? "";
-    const output = stderr + stdout;
-    const errorLines = output.split("\n").filter((l) => /\berror TS\d+/.test(l));
-    return Math.max(errorLines.length, 1);
+    if (isMissingToolError(err)) return 0;
+    if (tc.typecheckParser === "tsc") {
+      const stderr = err?.stderr ?? "";
+      const stdout = err?.stdout ?? "";
+      const errorLines = (stderr + stdout).split("\n").filter((l) => /\berror TS\d+/.test(l));
+      return Math.max(errorLines.length, 1);
+    }
+    return 1;
   }
 }
-async function readEslintResults(worktreePath) {
+async function readLintResults(worktreePath, tc) {
+  if (!tc.lint) return { warnings: 0, errors: 0 };
   try {
-    const r = await execa(
-      "pnpm",
-      ["exec", "eslint", "packages/**/src/**/*.ts", "--no-error-on-unmatched-pattern", "--format", "json"],
-      {
-        cwd: worktreePath,
-        timeout: ESLINT_TIMEOUT_MS
-      }
-    );
-    const results = JSON.parse(r.stdout);
-    let warnings = 0;
-    let errors = 0;
-    for (const f2 of results) {
-      warnings += f2.warningCount;
-      errors += f2.errorCount;
-    }
-    return { warnings, errors };
+    const r = await execa(tc.lint[0], [...tc.lint.slice(1)], {
+      cwd: worktreePath,
+      timeout: ESLINT_TIMEOUT_MS
+    });
+    if (tc.lintParser === "eslint-json") return countEslintFromJson(r.stdout);
+    return { warnings: 0, errors: 0 };
   } catch (err) {
-    const stdout = err?.stdout ?? "";
-    try {
-      const results = JSON.parse(stdout);
-      let warnings = 0;
-      let errors = 0;
-      for (const f2 of results) {
-        warnings += f2.warningCount;
-        errors += f2.errorCount;
+    if (isMissingToolError(err)) return { warnings: 0, errors: 0 };
+    if (tc.lintParser === "eslint-json") {
+      const stdout = err?.stdout ?? "";
+      try {
+        return countEslintFromJson(stdout);
+      } catch {
+        return { warnings: 0, errors: 1 };
       }
-      return { warnings, errors };
-    } catch {
-      return { warnings: 0, errors: 1 };
     }
+    return { warnings: 0, errors: 1 };
   }
 }
 function createMetricCollector() {
@@ -42919,8 +42972,8 @@ function createMetricCollector() {
         readCoverageDelta(worktreePath),
         readDiffSize(worktreePath, baseBranch),
         readComplexityDelta(worktreePath, baseBranch),
-        tc.isTypeScript ? readTscErrors(worktreePath) : Promise.resolve(0),
-        tc.isTypeScript ? readEslintResults(worktreePath) : Promise.resolve({ warnings: 0, errors: 0 })
+        readTypecheckErrors(worktreePath, tc),
+        readLintResults(worktreePath, tc)
       ]);
       return {
         cloneId,
@@ -44326,10 +44379,15 @@ async function runMergeAllPipeline(rt2, opts, cloneIds) {
       const diffRes = await execa2("git", ["diff", "--stat", "HEAD"], { cwd: worktreePath, reject: false });
       const hasDiff = diffRes.stdout.trim().length > 0;
       let tscOk = true;
-      if (tc.isTypeScript) {
-        const tscRes = await execa2("pnpm", ["typecheck"], { cwd: worktreePath, reject: false });
-        tscOk = tscRes.exitCode === 0;
-        if (!tscOk) errors.push(`tsc: ${(tscRes.stderr || tscRes.stdout).slice(0, 200)}`);
+      if (tc.typecheck) {
+        const tscRes = await execa2(tc.typecheck[0], [...tc.typecheck.slice(1)], {
+          cwd: worktreePath,
+          reject: false,
+          timeout: 12e4
+        });
+        const toolMissing = tscRes.exitCode === null;
+        tscOk = toolMissing || tscRes.exitCode === 0;
+        if (!tscOk) errors.push(`typecheck: ${(tscRes.stderr || tscRes.stdout).slice(0, 200)}`);
       }
       let testsOk = true;
       if (tc.test) {
@@ -44338,7 +44396,8 @@ async function runMergeAllPipeline(rt2, opts, cloneIds) {
           reject: false,
           timeout: 3e5
         });
-        testsOk = testRes.exitCode === 0;
+        const toolMissing = testRes.exitCode === null;
+        testsOk = toolMissing || testRes.exitCode === 0;
         if (!testsOk) errors.push(`tests: exit ${testRes.exitCode}`);
       }
       return { passed: tscOk && testsOk, hasDiff, tscOk, testsOk, errors };

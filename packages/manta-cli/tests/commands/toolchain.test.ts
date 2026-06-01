@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os';
 import { detectToolchain } from '../../src/commands/toolchain.js';
 
 // Bug #M9: the merge-review gate must detect the worktree's project type and
-// pick the right test command, instead of hardcoding pnpm (which DQ'd every
-// non-JS candidate). Each case writes the marker file(s) into a temp dir and
-// asserts the detected toolchain.
+// pick the right command for EVERY quality axis (test, typecheck, lint) — not
+// just the test step, and not just for TypeScript. Each case writes the marker
+// file(s) into a temp dir and asserts the detected per-axis commands.
 describe('detectToolchain (bug #M9)', () => {
   const dirs: string[] = [];
   function tmp(files: Record<string, string>): string {
@@ -20,37 +20,63 @@ describe('detectToolchain (bug #M9)', () => {
     while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true });
   });
 
-  it('detects a pnpm workspace (Manta\'s own shape) and keeps the canonical gate', () => {
+  it('pnpm workspace (Manta\'s own shape) keeps the canonical gate on every axis', () => {
     const tc = detectToolchain(tmp({ 'pnpm-lock.yaml': '', 'package.json': '{}' }));
     expect(tc.kind).toBe('pnpm');
     expect(tc.test).toEqual(['pnpm', 'test']);
-    expect(tc.isTypeScript).toBe(true);
+    expect(tc.typecheck).toEqual(['pnpm', 'typecheck']);
+    expect(tc.typecheckParser).toBe('tsc');
+    expect(tc.lint?.slice(0, 3)).toEqual(['pnpm', 'exec', 'eslint']);
+    expect(tc.lintParser).toBe('eslint-json');
   });
 
-  it('detects a Python project → pytest, not TypeScript', () => {
+  it('Python → pytest, NO tsc/eslint (those axes are null, not failures)', () => {
     const tc = detectToolchain(tmp({ 'pyproject.toml': '[project]\nname="x"\n' }));
     expect(tc.kind).toBe('python');
     expect(tc.test).toEqual(['python', '-m', 'pytest', '-q']);
-    expect(tc.isTypeScript).toBe(false);
+    expect(tc.typecheck).toBeNull();
+    expect(tc.lint).toBeNull();
   });
 
-  it('detects a Rust project → cargo test', () => {
+  it('Rust → cargo test + cargo check as the type gate', () => {
     const tc = detectToolchain(tmp({ 'Cargo.toml': '[package]\nname="x"\n' }));
     expect(tc.kind).toBe('cargo');
     expect(tc.test).toEqual(['cargo', 'test']);
-    expect(tc.isTypeScript).toBe(false);
+    expect(tc.typecheck).toEqual(['cargo', 'check']);
+    expect(tc.typecheckParser).toBe('exit-code');
+    expect(tc.lint).toBeNull(); // clippy is optional — not assumed present
   });
 
-  it('detects a Go project → go test', () => {
+  it('Go → go test + go build (type) + go vet (lint)', () => {
     const tc = detectToolchain(tmp({ 'go.mod': 'module x\n' }));
     expect(tc.kind).toBe('go');
     expect(tc.test).toEqual(['go', 'test', './...']);
+    expect(tc.typecheck).toEqual(['go', 'build', './...']);
+    expect(tc.lint).toEqual(['go', 'vet', './...']);
+    expect(tc.lintParser).toBe('exit-code');
   });
 
-  it('npm project with a test script → npm test', () => {
-    const tc = detectToolchain(tmp({ 'package.json': JSON.stringify({ scripts: { test: 'jest' } }) }));
+  it('npm + tsconfig → npm test + npx tsc --noEmit (not pnpm-specific)', () => {
+    const tc = detectToolchain(
+      tmp({ 'package.json': JSON.stringify({ scripts: { test: 'jest' } }), 'tsconfig.json': '{}' }),
+    );
     expect(tc.kind).toBe('npm');
     expect(tc.test).toEqual(['npm', 'test']);
+    expect(tc.typecheck).toEqual(['npx', '--no-install', 'tsc', '--noEmit']);
+  });
+
+  it('npm + tsconfig + eslint config → lint via npx eslint', () => {
+    const tc = detectToolchain(
+      tmp({ 'package.json': '{}', 'tsconfig.json': '{}', '.eslintrc.json': '{}' }),
+    );
+    expect(tc.lint?.slice(0, 3)).toEqual(['npx', '--no-install', 'eslint']);
+  });
+
+  it('npm WITHOUT tsconfig → typecheck null (not every JS project is TS)', () => {
+    const tc = detectToolchain(tmp({ 'package.json': JSON.stringify({ scripts: { test: 'node t.js' } }) }));
+    expect(tc.kind).toBe('npm');
+    expect(tc.typecheck).toBeNull();
+    expect(tc.lint).toBeNull(); // no eslint config
   });
 
   it('npm project with NO test script → test gate skipped (null), not failed', () => {
@@ -59,11 +85,12 @@ describe('detectToolchain (bug #M9)', () => {
     expect(tc.test).toBeNull();
   });
 
-  it('unrecognised project → no gate (test null), so the candidate is not DQ\'d', () => {
+  it('unrecognised project → every axis null, candidate not DQ\'d', () => {
     const tc = detectToolchain(tmp({ 'README.md': '# hi' }));
     expect(tc.kind).toBe('unknown');
     expect(tc.test).toBeNull();
     expect(tc.install).toBeNull();
-    expect(tc.isTypeScript).toBe(false);
+    expect(tc.typecheck).toBeNull();
+    expect(tc.lint).toBeNull();
   });
 });

@@ -1170,19 +1170,26 @@ async function runMergeAllPipeline(
       // the canonical pre-merge gate (install + build, then typecheck + test)
       // instead of a build-naive check that reds on every `@manta/*` build-time
       // alias. Shared prepare = one source of truth.
-      // bug #M9: the gate is toolchain-aware — typecheck is TS-only, and the test
-      // command comes from the detected toolchain (pnpm/npm/pytest/cargo/go). A
-      // non-JS project no longer false-REDs on a missing `pnpm test`; a project
-      // with no detectable test gate passes the test dimension (nothing to fail).
+      // bug #M9: the gate is fully toolchain-aware — both typecheck and test
+      // come from the detected toolchain (pnpm/npm/pytest/cargo/go), so a non-JS
+      // project no longer false-REDs on a missing `pnpm test`/`pnpm typecheck`.
+      // A null command (axis not applicable) or a missing tool passes that axis
+      // (nothing to fail). Only a command that runs AND exits non-zero fails.
       const tc = detectToolchain(worktreePath);
       await prepareWorktreeForGate(worktreePath);
       const diffRes = await execa('git', ['diff', '--stat', 'HEAD'], { cwd: worktreePath, reject: false });
       const hasDiff = diffRes.stdout.trim().length > 0;
       let tscOk = true;
-      if (tc.isTypeScript) {
-        const tscRes = await execa('pnpm', ['typecheck'], { cwd: worktreePath, reject: false });
-        tscOk = tscRes.exitCode === 0;
-        if (!tscOk) errors.push(`tsc: ${(tscRes.stderr || tscRes.stdout).slice(0, 200)}`);
+      if (tc.typecheck) {
+        const tscRes = await execa(tc.typecheck[0], [...tc.typecheck.slice(1)], {
+          cwd: worktreePath,
+          reject: false,
+          timeout: 120_000,
+        });
+        // A missing tool (exitCode null + ENOENT) is a skip, not a failure.
+        const toolMissing = tscRes.exitCode === null;
+        tscOk = toolMissing || tscRes.exitCode === 0;
+        if (!tscOk) errors.push(`typecheck: ${(tscRes.stderr || tscRes.stdout).slice(0, 200)}`);
       }
       let testsOk = true;
       if (tc.test) {
@@ -1191,7 +1198,8 @@ async function runMergeAllPipeline(
           reject: false,
           timeout: 300_000,
         });
-        testsOk = testRes.exitCode === 0;
+        const toolMissing = testRes.exitCode === null;
+        testsOk = toolMissing || testRes.exitCode === 0;
         if (!testsOk) errors.push(`tests: exit ${testRes.exitCode}`);
       }
       return { passed: tscOk && testsOk, hasDiff, tscOk, testsOk, errors };

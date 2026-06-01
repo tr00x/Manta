@@ -33,7 +33,10 @@ vi.mock('../../src/commands/toolchain.js', () => ({
     install: ['pnpm', 'install', '--frozen-lockfile', '--prefer-offline'],
     build: ['pnpm', '-r', '--filter', './packages/*', 'build'],
     test: ['pnpm', 'test'],
-    isTypeScript: true,
+    typecheck: ['pnpm', 'typecheck'],
+    typecheckParser: 'tsc',
+    lint: ['pnpm', 'exec', 'eslint', 'packages/**/src/**/*.ts', '--no-error-on-unmatched-pattern', '--format', 'json'],
+    lintParser: 'eslint-json',
   }),
 }));
 
