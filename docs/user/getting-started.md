@@ -128,6 +128,8 @@ If `manta status` shows clones spawned but never moving past `STARTING`:
 3. Inspect `.manta/state/registry.json`; if a clone record is missing entirely, the spawner failed to pre-register (file an issue with the cast-id from `.manta/casts/`).
 4. If you re-run a cast after a previous failure, run `manta recover` first to clean orphaned registry records — `Registry.register` throws on duplicate `clone_id`.
 
+**Heavy MCP servers and clone boot.** A clone is a real `claude` process, so a slow MCP handshake delays its first heartbeat. To keep boot fast, Manta spawns each clone with `--strict-mcp-config` and a generated config (`.manta/clone-mcp.json` in the worktree) containing **`manta-bus` plus your light MCP servers only** — it filters out heavy boot-wedgers (language-server / LSP servers like serena, computer-use, desktop control). This matters most for a language-server MCP configured with a per-directory project root (e.g. serena's `--project-from-cwd`): without the filter it would cold-index the whole repo inside *every* clone's worktree and the clone would hang in `STARTING` until reaped. If you *want* a clone to keep a server Manta filters, that's a deliberate non-default — open an issue with your use case. Long fix casts (`refactor-wave`, `bug-hunt`, `pair-programming`, `test-storm`) also get a roomier default heartbeat/grace automatically, so a long coding+test stretch isn't mistaken for a hang.
+
 ## 8. Known limitations (v1)
 
 What ships now: all 9 cast modes, the `/manta:*` slash commands, a single

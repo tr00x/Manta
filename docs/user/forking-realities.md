@@ -32,9 +32,19 @@ collects metrics from each clone's worktree and generates a scored
 merge-review at `docs/merge-reviews/<castId>.md`.
 
 The scoring engine evaluates candidates on 6 axes: test coverage delta,
-diff size, cyclomatic complexity delta, TypeScript errors, ESLint
-warnings/errors, and performance (when benchmarks exist). Candidates whose
-test suite fails are disqualified entirely.
+diff size, cyclomatic complexity delta, type-check errors, lint
+warnings/errors, and performance (when benchmarks exist). A candidate is
+disqualified **only when its test gate actually ran and failed** — a project
+with no detectable test command (or an axis that doesn't apply) is skipped,
+not disqualified.
+
+**The gate is language-aware** — it detects the project type at the worktree
+root and runs the right commands, so forking-realities works beyond
+TypeScript: pnpm/npm (`tsc` + eslint + the package's test script), Python
+(`pytest`), Rust (`cargo test` + `cargo check`), Go (`go test` + `go vet`). A
+tool that isn't installed is skipped (neutral), never a phantom failure. The
+type-check and lint axes are only scored for languages that have them, so a
+non-TypeScript candidate isn't penalised for lacking `tsc`/eslint.
 
 An agentic rubric pre-pass adjusts weights based on the project's
 configuration (e.g., strict tsconfig bumps the typeCheck weight). Weights

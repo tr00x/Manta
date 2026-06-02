@@ -30,8 +30,8 @@ those manually or in a single `recon-swarm`).
 5. Each clone applies the migration pattern to its module, runs tests,
    and commits.
 6. After all clones finish, Manta runs `merge-all`: merges each clone's
-   branch sequentially into main with a per-clone quality gate (type
-   check + tests).
+   branch sequentially into main with a per-clone quality gate (language-aware
+   type-check + tests — pnpm/npm, pytest, cargo, or go).
 7. A merge-all report is written to `docs/merge-all-reports/`.
 
 **Charge cost:** 2 charges per cast.
@@ -128,9 +128,12 @@ manta cast refactor-wave --clones 2 --task "..." --tasks plan.yaml --dry-run
   cast — each clone should apply the same mechanical change.
 - **Use `max_files_changed`** as a safety net. If a clone touches more
   files than expected, the scope validator flags it.
-- **Quality gates catch regressions.** Each clone's branch must pass
-  `tsc --noEmit` and `vitest run` before merge. Failures skip that
-  clone's merge but don't block others.
+- **Quality gates catch regressions.** Each clone's branch must pass the
+  project's type-check and test gate before merge — **language-aware**:
+  `tsc` + the test script for pnpm/npm, `pytest` for Python, `cargo
+  check`/`cargo test` for Rust, `go vet`/`go test` for Go. A tool that
+  isn't installed (or an axis that doesn't apply) is skipped, not a
+  failure. Real failures skip that clone's merge but don't block others.
 - **Check the merge-all report.** After the cast, read
   `docs/merge-all-reports/cast-<id>.md` for per-clone results and any
   conflict escalations.
