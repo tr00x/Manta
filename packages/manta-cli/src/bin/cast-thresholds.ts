@@ -31,3 +31,58 @@ export function fixModeThresholdDefaults(mode: string): FixModeDefaults | null {
     tickBudgetMs: 3_600_000, // 60 min — must exceed the heartbeat window
   };
 }
+
+export interface ThresholdUndercutWarning {
+  flag: string;
+  given: number;
+  fixModeDefault: number;
+  mode: string;
+  hint: string;
+}
+
+export interface ExplicitTimingFlags {
+  heartbeatTimeoutMs?: number | undefined;
+  startupGraceMs?: number | undefined;
+  forceFullTranscript?: boolean | undefined;
+}
+
+/**
+ * #M13: an explicit `--startup-grace-ms` / `--heartbeat-timeout-ms` BELOW the
+ * FIX-mode safe default silently defeats the protection built for exactly the
+ * long-warm-boot case — a `--startup-grace-ms 600000` on a long
+ * `--force-full-transcript` FIX cast lowered the grace under the 900s default
+ * and a 602s warm-boot replay got reaped "no first heartbeat". The override
+ * still wins (the operator may know better), but it must not be silent. Returns
+ * a warning per undercut flag; empty for non-FIX modes or values at/above the
+ * default. Pure (no I/O) so it's unit-testable; the caller emits each warning.
+ */
+export function thresholdUndercutWarnings(
+  mode: string,
+  flags: ExplicitTimingFlags,
+): ThresholdUndercutWarning[] {
+  const fix = fixModeThresholdDefaults(mode);
+  if (!fix) return [];
+  const out: ThresholdUndercutWarning[] = [];
+  if (flags.heartbeatTimeoutMs !== undefined && flags.heartbeatTimeoutMs < fix.heartbeatTimeoutMs) {
+    out.push({
+      flag: '--heartbeat-timeout-ms',
+      given: flags.heartbeatTimeoutMs,
+      fixModeDefault: fix.heartbeatTimeoutMs,
+      mode,
+      hint: `${mode} is a FIX mode whose default heartbeat timeout is ${fix.heartbeatTimeoutMs}ms; your explicit ${flags.heartbeatTimeoutMs}ms is LOWER and may reap a clone mid-work. Raise it (or omit the flag) unless you mean to tighten it.`,
+    });
+  }
+  if (flags.startupGraceMs !== undefined && flags.startupGraceMs < fix.startupGraceMs) {
+    const warmNote = flags.forceFullTranscript
+      ? ' On a long --force-full-transcript session the warm-boot replay can exceed it and the clone is reaped "no first heartbeat" (#M13).'
+      : '';
+    out.push({
+      flag: '--startup-grace-ms',
+      given: flags.startupGraceMs,
+      fixModeDefault: fix.startupGraceMs,
+      mode,
+      hint: `${mode} is a FIX mode whose default startup grace is ${fix.startupGraceMs}ms; your explicit ${flags.startupGraceMs}ms is LOWER.${warmNote} Raise it (1200000+) or omit the flag.`,
+    });
+  }
+  return out;
+}

@@ -51212,6 +51212,31 @@ function fixModeThresholdDefaults(mode) {
     // 60 min — must exceed the heartbeat window
   };
 }
+function thresholdUndercutWarnings(mode, flags) {
+  const fix = fixModeThresholdDefaults(mode);
+  if (!fix) return [];
+  const out = [];
+  if (flags.heartbeatTimeoutMs !== void 0 && flags.heartbeatTimeoutMs < fix.heartbeatTimeoutMs) {
+    out.push({
+      flag: "--heartbeat-timeout-ms",
+      given: flags.heartbeatTimeoutMs,
+      fixModeDefault: fix.heartbeatTimeoutMs,
+      mode,
+      hint: `${mode} is a FIX mode whose default heartbeat timeout is ${fix.heartbeatTimeoutMs}ms; your explicit ${flags.heartbeatTimeoutMs}ms is LOWER and may reap a clone mid-work. Raise it (or omit the flag) unless you mean to tighten it.`
+    });
+  }
+  if (flags.startupGraceMs !== void 0 && flags.startupGraceMs < fix.startupGraceMs) {
+    const warmNote = flags.forceFullTranscript ? ' On a long --force-full-transcript session the warm-boot replay can exceed it and the clone is reaped "no first heartbeat" (#M13).' : "";
+    out.push({
+      flag: "--startup-grace-ms",
+      given: flags.startupGraceMs,
+      fixModeDefault: fix.startupGraceMs,
+      mode,
+      hint: `${mode} is a FIX mode whose default startup grace is ${fix.startupGraceMs}ms; your explicit ${flags.startupGraceMs}ms is LOWER.${warmNote} Raise it (1200000+) or omit the flag.`
+    });
+  }
+  return out;
+}
 
 // src/output/reporter.ts
 init_cjs_shims();
@@ -51430,6 +51455,13 @@ async function main() {
         if (options2.tickBudgetMs === 15e5) {
           options2.tickBudgetMs = fixDefaults.tickBudgetMs;
         }
+      }
+      for (const w2 of thresholdUndercutWarnings(mode, {
+        heartbeatTimeoutMs: options2.heartbeatTimeoutMs,
+        startupGraceMs: options2.startupGraceMs,
+        forceFullTranscript: options2.forceFullTranscript
+      })) {
+        reporter.warn("cast.threshold_undercut_warning", { ...w2 });
       }
       if (options2.heartbeatTimeoutMs !== void 0) thresholdOverrides.heartbeatTimeoutMs = options2.heartbeatTimeoutMs;
       if (options2.startupGraceMs !== void 0) thresholdOverrides.startupGraceMs = options2.startupGraceMs;

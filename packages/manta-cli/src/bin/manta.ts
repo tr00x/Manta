@@ -42,7 +42,7 @@ import {
   parsePositiveIntOption,
   parseNonNegativeIntOption,
 } from './option-parsers.js';
-import { fixModeThresholdDefaults } from './cast-thresholds.js';
+import { fixModeThresholdDefaults, thresholdUndercutWarnings } from './cast-thresholds.js';
 import { createReporter, StderrSink } from '../output/reporter.js';
 import { CliError, isCliError } from '../errors.js';
 import { renderTopLevelError } from './error-render.js';
@@ -316,6 +316,18 @@ async function main(): Promise<void> {
           }
         }
         // Explicit flags override the mode-aware default.
+        // #M13: but warn LOUDLY when an explicit value UNDERCUTS a FIX-mode safe
+        // default — a `--startup-grace-ms 600000` on a long `--force-full-transcript`
+        // FIX cast silently lowered the grace below the 900s built for exactly
+        // that case, and a 602s warm-boot got reaped. The override still wins (the
+        // operator may know better), but it must not be silent.
+        for (const w of thresholdUndercutWarnings(mode, {
+          heartbeatTimeoutMs: options.heartbeatTimeoutMs,
+          startupGraceMs: options.startupGraceMs,
+          forceFullTranscript: options.forceFullTranscript,
+        })) {
+          reporter.warn('cast.threshold_undercut_warning', { ...w });
+        }
         if (options.heartbeatTimeoutMs !== undefined) thresholdOverrides.heartbeatTimeoutMs = options.heartbeatTimeoutMs;
         if (options.startupGraceMs !== undefined) thresholdOverrides.startupGraceMs = options.startupGraceMs;
         const hasOverrides = Object.keys(thresholdOverrides).length > 0;
