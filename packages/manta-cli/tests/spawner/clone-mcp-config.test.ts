@@ -15,6 +15,18 @@ describe('buildCloneMcpConfig (bug #M14)', () => {
     expect(m['manta-bus']).toEqual({ command: 'node', args: ['/abs/server.cjs'] });
   });
 
+  it('#M15: pins MANTA_REPO_ROOT in the manta-bus env when repoRoot is given', () => {
+    const m = parse(buildCloneMcpConfig('/abs/server.cjs', {}, '/main/repo'));
+    expect((m['manta-bus'] as { env?: Record<string, string> }).env).toEqual({
+      MANTA_REPO_ROOT: '/main/repo',
+    });
+  });
+
+  it('#M15: no env block when repoRoot is omitted (back-compat)', () => {
+    const m = parse(buildCloneMcpConfig('/abs/server.cjs', {}));
+    expect((m['manta-bus'] as { env?: unknown }).env).toBeUndefined();
+  });
+
   it('FILTERS serena (the per-worktree cold-indexer that wedges boot)', () => {
     const m = parse(
       buildCloneMcpConfig('/b/server.cjs', {

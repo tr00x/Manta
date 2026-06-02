@@ -59,13 +59,37 @@ describe('resolveRepoRoot', () => {
     expect(resolved).toBe(repoRoot);
   });
 
-  it('a .git FILE (worktree gitfile) also anchors the root', async () => {
+  // Bug #M15: a clone's cwd is a git WORKTREE whose `.git` is a gitfile
+  // (`gitdir: <main>/.git/worktrees/<name>`). The bus must resolve to the MAIN
+  // repo root (where the spawner wrote `.manta/state`), NOT the worktree — else
+  // the clone's bus reads an empty worktree registry and `not_found`s every
+  // heartbeat. This is the #M15 surgical-fix #2 (defense-in-depth beside the
+  // pinned MANTA_REPO_ROOT env block).
+  it('#M15: a worktree gitfile resolves to the MAIN repo root, not the worktree', async () => {
+    // repoRoot (from beforeEach) is the main repo with a real `.git` DIR.
+    // Create a real worktree gitfile pointing into it.
     const wtRoot = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'manta-wt-')));
     try {
-      await fs.writeFile(path.join(wtRoot, '.git'), 'gitdir: /somewhere/.git/worktrees/x\n');
+      const worktreeGitDir = path.join(repoRoot, '.git', 'worktrees', 'clone-A');
+      await fs.mkdir(worktreeGitDir, { recursive: true });
+      await fs.writeFile(path.join(wtRoot, '.git'), `gitdir: ${worktreeGitDir}\n`);
+      // From inside the worktree (and a subdir), the bus must land on repoRoot.
+      expect(resolveRepoRoot({ env: {}, cwd: wtRoot })).toBe(repoRoot);
       const sub = path.join(wtRoot, 'a', 'b');
       await fs.mkdir(sub, { recursive: true });
-      expect(resolveRepoRoot({ env: {}, cwd: sub })).toBe(wtRoot);
+      expect(resolveRepoRoot({ env: {}, cwd: sub })).toBe(repoRoot);
+    } finally {
+      await fs.rm(wtRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('#M15: a malformed/foreign worktree gitfile falls back to the dir holding .git', async () => {
+    // gitdir points somewhere that isn't a `.git/worktrees/<name>` layout, or the
+    // main root has no `.git` — we must NOT crash; fall back to the worktree dir.
+    const wtRoot = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'manta-wt2-')));
+    try {
+      await fs.writeFile(path.join(wtRoot, '.git'), 'gitdir: /nonexistent/elsewhere\n');
+      expect(resolveRepoRoot({ env: {}, cwd: wtRoot })).toBe(wtRoot);
     } finally {
       await fs.rm(wtRoot, { recursive: true, force: true });
     }

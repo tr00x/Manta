@@ -23106,12 +23106,31 @@ function resolveRepoRoot(opts = {}) {
 function findGitRoot(startDir) {
   let dir = path7.resolve(startDir);
   for (; ; ) {
-    if (fs9.existsSync(path7.join(dir, ".git"))) {
-      return dir;
+    const gitPath = path7.join(dir, ".git");
+    if (fs9.existsSync(gitPath)) {
+      const mainRoot = mainWorktreeRoot(gitPath);
+      return mainRoot ?? dir;
     }
     const parent = path7.dirname(dir);
     if (parent === dir) return null;
     dir = parent;
+  }
+}
+function mainWorktreeRoot(gitPath) {
+  try {
+    if (!fs9.statSync(gitPath).isFile()) return null;
+    const content = fs9.readFileSync(gitPath, "utf8").trim();
+    const m = /^gitdir:\s*(.+)$/m.exec(content);
+    if (!m) return null;
+    const worktreeGitDir = path7.resolve(path7.dirname(gitPath), m[1].trim());
+    const marker = `${path7.sep}.git${path7.sep}worktrees${path7.sep}`;
+    const idx = worktreeGitDir.indexOf(marker);
+    if (idx === -1) return null;
+    const mainGitDir = worktreeGitDir.slice(0, idx + `${path7.sep}.git`.length);
+    const root = path7.dirname(mainGitDir);
+    return fs9.existsSync(path7.join(root, ".git")) ? root : null;
+  } catch {
+    return null;
   }
 }
 

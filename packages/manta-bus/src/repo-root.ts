@@ -43,15 +43,55 @@ export function resolveRepoRoot(opts: ResolveRepoRootOptions = {}): string {
  * Walk up from `startDir` to the first ancestor holding a `.git` entry.
  * Returns `null` at the filesystem root if none is found.
  * `path.dirname('/') === '/'` terminates the walk.
+ *
+ * Bug #M15: a Manta clone's cwd is a git WORKTREE
+ * (`.manta/worktrees/clone-<cast>-<id>`), whose `.git` is a FILE
+ * (`gitdir: /abs/main/.git/worktrees/<name>`), not a directory. Stopping at that
+ * `.git` file anchored `.manta/state` at the worktree — an EMPTY registry — while
+ * the spawner pre-registered the clone in the MAIN repo's registry, so every
+ * clone-side `manta.heartbeat` came back `not_found` and the clone hung in
+ * STARTING. When `.git` is a worktree gitfile, resolve to the MAIN working tree
+ * (the `.git/worktrees/<name>/..` → repo root) so the bus reads the same
+ * `.manta/state` the spawner wrote to. (A real `.git` directory = normal repo
+ * root, returned as-is.)
  */
 function findGitRoot(startDir: string): string | null {
   let dir = path.resolve(startDir);
   for (;;) {
-    if (fs.existsSync(path.join(dir, '.git'))) {
-      return dir;
+    const gitPath = path.join(dir, '.git');
+    if (fs.existsSync(gitPath)) {
+      const mainRoot = mainWorktreeRoot(gitPath);
+      return mainRoot ?? dir;
     }
     const parent = path.dirname(dir);
     if (parent === dir) return null;
     dir = parent;
+  }
+}
+
+/**
+ * If `gitPath` is a worktree gitfile (`gitdir: <abs>/.git/worktrees/<name>`),
+ * return the MAIN working tree root (the directory that contains the real
+ * `.git` directory the gitfile points into). Returns null for a normal `.git`
+ * directory or any shape we don't recognise (caller falls back to the dir
+ * holding `.git`, i.e. today's behaviour).
+ */
+function mainWorktreeRoot(gitPath: string): string | null {
+  try {
+    if (!fs.statSync(gitPath).isFile()) return null; // real .git dir → normal repo
+    const content = fs.readFileSync(gitPath, 'utf8').trim();
+    const m = /^gitdir:\s*(.+)$/m.exec(content);
+    if (!m) return null;
+    // gitdir points at <mainGitDir>/worktrees/<name>; the main repo root is the
+    // parent of <mainGitDir> (the dir containing the real `.git`).
+    const worktreeGitDir = path.resolve(path.dirname(gitPath), m[1]!.trim());
+    const marker = `${path.sep}.git${path.sep}worktrees${path.sep}`;
+    const idx = worktreeGitDir.indexOf(marker);
+    if (idx === -1) return null; // not a standard worktree layout
+    const mainGitDir = worktreeGitDir.slice(0, idx + `${path.sep}.git`.length); // <root>/.git
+    const root = path.dirname(mainGitDir);
+    return fs.existsSync(path.join(root, '.git')) ? root : null;
+  } catch {
+    return null;
   }
 }

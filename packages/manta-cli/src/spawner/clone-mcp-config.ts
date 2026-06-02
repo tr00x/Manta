@@ -86,9 +86,20 @@ function isCloneSafe(name: string, def: McpServerDef): boolean {
 export function buildCloneMcpConfig(
   busServerPath: string,
   inherited: Record<string, McpServerDef> = {},
+  repoRoot?: string,
 ): string {
+  // Bug #M15: the clone's manta-bus subprocess resolves its `.manta/state` repo
+  // root via MANTA_REPO_ROOT, else `findGitRoot(cwd)`. The clone's cwd is a git
+  // WORKTREE, whose `.git` gitfile would anchor the bus at an EMPTY worktree
+  // registry — while the spawner pre-registered the clone in the MAIN repo's
+  // registry. The bus would then `not_found` every heartbeat → clone stuck in
+  // STARTING forever. Pin MANTA_REPO_ROOT in the per-server `env` so the clone's
+  // bus reads the same registry the spawner wrote to, regardless of whether
+  // Claude Code forwards the parent env to stdio MCP children. (repo-root.ts
+  // also now walks a worktree gitfile up to the main root as defense-in-depth.)
+  const busEnv = repoRoot ? { env: { MANTA_REPO_ROOT: repoRoot } } : {};
   const servers: Record<string, McpServerDef> = {
-    'manta-bus': { command: 'node', args: [busServerPath] },
+    'manta-bus': { command: 'node', args: [busServerPath], ...busEnv },
   };
   for (const [name, def] of Object.entries(inherited)) {
     if (isCloneSafe(name, def)) servers[name] = def;
@@ -117,6 +128,12 @@ async function readUserMcpServers(): Promise<Record<string, McpServerDef>> {
 export async function writeCloneMcpConfig(args: {
   worktreePath: string;
   busServerPath?: string;
+  /**
+   * The MAIN repo root (where the spawner pre-registered the clone). Pinned into
+   * the manta-bus `env` so the clone's bus reads the same `.manta/state` instead
+   * of the empty worktree registry (#M15).
+   */
+  repoRoot?: string;
   /** Inject the inherited stack in tests; production reads ~/.claude.json. */
   inherited?: Record<string, McpServerDef>;
 }): Promise<string> {
@@ -125,6 +142,6 @@ export async function writeCloneMcpConfig(args: {
   const dir = path.join(args.worktreePath, '.manta');
   await fs.mkdir(dir, { recursive: true });
   const configPath = path.join(dir, 'clone-mcp.json');
-  await fs.writeFile(configPath, buildCloneMcpConfig(busPath, inherited), 'utf8');
+  await fs.writeFile(configPath, buildCloneMcpConfig(busPath, inherited, args.repoRoot), 'utf8');
   return configPath;
 }

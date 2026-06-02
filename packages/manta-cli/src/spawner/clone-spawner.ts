@@ -211,7 +211,10 @@ export async function spawnClone(opts: SpawnCloneOptions): Promise<CloneHandle> 
   // config (today's inherit-everything) — a slow clone beats a failed spawn.
   let mcpConfigPath: string | undefined;
   try {
-    mcpConfigPath = await writeCloneMcpConfig({ worktreePath: opts.worktree });
+    mcpConfigPath = await writeCloneMcpConfig({
+      worktreePath: opts.worktree,
+      repoRoot: opts.repoRoot, // #M15: pin the MAIN repo root in the bus env
+    });
   } catch {
     mcpConfigPath = undefined;
   }
