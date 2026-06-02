@@ -16,6 +16,7 @@ import { buildInitialPrompt, buildPrimingText } from './priming.js';
 import { installHeartbeatHook } from './heartbeat-hook.js';
 import { installGitLockHook } from './git-lock-hook-installer.js';
 import { installScopeGuardHook } from './scope-guard-hook-installer.js';
+import { writeCloneMcpConfig } from './clone-mcp-config.js';
 
 export interface CloneRunner {
   run(input: CloneRunnerInput): ExecaChildProcess;
@@ -30,6 +31,14 @@ export interface CloneRunnerInput {
   prompt: string;
   /** Session ID for daemon mode (enables --resume across invocations). */
   sessionId?: string;
+  /**
+   * bug #M14: path to the clone's minimal MCP config (just manta-bus). When set,
+   * the runner spawns `claude` with `--strict-mcp-config --mcp-config <path>` so
+   * the clone does NOT inherit the operator's heavy user-scope MCP stack (serena
+   * cold-indexing the worktree, etc.) that wedges clone boot. Undefined → today's
+   * inherit-everything behaviour (fallback when the config couldn't be written).
+   */
+  mcpConfigPath?: string;
 }
 
 /**
@@ -194,6 +203,19 @@ export async function spawnClone(opts: SpawnCloneOptions): Promise<CloneHandle> 
     await installGitLockHook(opts.worktree, locksPath, cloneId);
   }
 
+  // bug #M14: write a minimal MCP config (just manta-bus) into the worktree and
+  // spawn the clone with `--strict-mcp-config` so it does NOT inherit the
+  // operator's heavy user-scope stack (serena's per-worktree full-repo cold
+  // index in particular wedges clone boot → reaped "no first heartbeat"). A
+  // clone only needs the bus. Best-effort: if the write fails, fall back to NO
+  // config (today's inherit-everything) — a slow clone beats a failed spawn.
+  let mcpConfigPath: string | undefined;
+  try {
+    mcpConfigPath = await writeCloneMcpConfig({ worktreePath: opts.worktree });
+  } catch {
+    mcpConfigPath = undefined;
+  }
+
   const proc = opts.runner.run({
     cwd: opts.worktree,
     env: {
@@ -207,6 +229,7 @@ export async function spawnClone(opts: SpawnCloneOptions): Promise<CloneHandle> 
     },
     appendSystemPrompt: buildPrimingText(opts.snapshot),
     prompt: buildInitialPrompt(opts.snapshot),
+    ...(mcpConfigPath !== undefined ? { mcpConfigPath } : {}),
   });
 
   // bug #66: the clone is pre-registered STARTING (with registered_at = now)
@@ -380,11 +403,17 @@ export function runClaudeCli(opts: RunClaudeCliOptions = {}): CloneRunner {
       const sessionArgs: string[] = input.sessionId
         ? ['--session-id', input.sessionId]
         : [];
+      // bug #M14: spawn with ONLY the clone's minimal MCP config (manta-bus),
+      // ignoring the operator's heavy user-scope stack that wedges clone boot.
+      const mcpArgs: string[] = input.mcpConfigPath
+        ? ['--strict-mcp-config', '--mcp-config', input.mcpConfigPath]
+        : [];
       return execa(
         bin,
         [
           '--print',
           ...sessionArgs,
+          ...mcpArgs,
           ...(opts.extraArgs ?? []),
           '--append-system-prompt',
           input.appendSystemPrompt,
@@ -444,11 +473,16 @@ export function runClaudeResume(opts: ResumeOptions): CloneRunner {
   const bin = opts.claudeBin ?? 'claude';
   return {
     run(input) {
+      // bug #M14: same minimal-MCP isolation on the resume path.
+      const mcpArgs: string[] = input.mcpConfigPath
+        ? ['--strict-mcp-config', '--mcp-config', input.mcpConfigPath]
+        : [];
       return execa(
         bin,
         [
           '--print',
           '--resume', opts.sessionId,
+          ...mcpArgs,
           ...(opts.extraArgs ?? []),
           '--append-system-prompt',
           input.appendSystemPrompt,
