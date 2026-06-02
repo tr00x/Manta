@@ -1,8 +1,8 @@
 ---
 name: manta-orchestrate
-description: End-to-end playbook for the main agent driving Manta — launch, observe, review, merge, recover. Load BEFORE any manta cast / /manta:* / manta_* tool, then follow its Documentation-map to the per-mode guide in docs/user/. Manta is fully documented — read the guide, don't guess.
+description: The main agent's operating console for Manta — task-shape→mode router + copy-paste command recipes per mode, then observe/harvest/recover. Load BEFORE any manta cast / /manta:* / manta_* tool. Be proactive — when a task fits a cast shape, offer it.
 audience: main
-version: 0.1.0
+version: 0.2.0
 related:
   - manta-cast-decide
   - manta-merge-review
@@ -13,107 +13,164 @@ related:
 
 ## Purpose
 
-You are the **main agent** in a Claude Code session, working on the user's project. Manta lets you clone yourself to work in parallel. `manta-cast-decide` told you _whether_ to cast and which mode. This skill is the **operating playbook for everything after that decision**: launching the cast, watching it without wasting tokens, reviewing what clones produced, merging the good work, and recovering from the failure modes that actually happen on large projects.
+You are the **main agent**. Manta clones _you_ to work in parallel. Your job once
+clones run is **curator** — scope, observe, review, merge. Never climb into a
+clone's worktree to co-code unless it's wedged.
 
-Your role once clones are running is **curator, not co-implementer**: you scope, observe, review, and merge. You do **not** climb into a clone's worktree and code alongside it unless it's wedged.
-
-**Be proactive.** Don't wait to be told "cast it." When a task in the conversation matches a cast shape, _offer_ it — name the mode, the rough clone count, and the win. Concrete triggers:
-
-- User describes a rename/migration touching many files → _"That's a refactor-wave across ~N places — want me to cast clones to do it in parallel?"_
-- "Map / understand / where does X live" across the codebase → _"I can cast a recon-swarm to map this without burning your context — 2–3 clones?"_
-- A bug with no obvious cause spanning layers → _"This looks like a bug-hunt — cast a clone to root-cause it?"_
-- Two plausible designs and you're unsure → _"There are two real approaches here — want a forking-realities cast to build both and score them?"_
-- Feature that needs tests too → _"test-storm could build it with a test wall — coder + tester + fuzzer?"_
-  Run `manta-cast-decide` first to confirm it's worth it; if it says solo, say so and do it solo.
+This is a console, not an essay: find the task shape, copy the command, follow the
+3-step loop. When unsure of a mode's contract, open its `docs/user/<mode>.md`
+(map at the bottom) — **don't guess flags.**
 
 ## Allowed
 
-**The end-to-end flow:**
+### STEP 0 — Route: task shape → mode
 
-1. **Decide** — run `manta-cast-decide` first. If it says "solo", do it solo. Don't cast to feel productive.
-2. **Scope a contract** — give the cast a precise `--task` (or a per-clone `--tasks` file), a scope fence (`--allowed-paths` / `--forbidden-paths`), the parallelism cap (`--max-parallel-clones` — Claude Code is a subscription, so parallelism is the only limit, not dollars/charges), and `--max-files-changed` (>0 if clones must write deliverables; 0 = read-only).
-3. **Launch** — `manta cast <mode> --task "…"`. ⚠️ The CLI **blocks**: `manta cast` runs the orchestrator tick-loop inline until the cast _completes_ (every clone DEAD or the ~25-min tick budget elapses), printing the cast id at the end. So run it in the **background** (`&` / a background task) if you want to observe while it runs — or use the non-blocking `manta_cast` MCP tool (see "Native MCP tools" below), which returns the cast id the moment clones spawn and leaves the orchestrator running in the background.
-4. **Observe** — `manta status` shows clone states (STARTING → WORKING → WINDING_DOWN → DEAD), heartbeats, locks, claims. Use `manta inspect <cloneId>` for one clone's contract/locks/events, `manta tail <cloneId>` to stream live, `manta replay <castId>` after the fact. Read broadcasts for cross-clone findings.
-5. **Wait for completion** — a cast is done when **every** clone is DEAD (or the orchestrator settles). Check `manta status` a few times, or wait on the orchestrator process — don't busy-poll.
-6. **Ceremony** —
-   - `recon-swarm` (read-only): harvest the clones' deliverables (audit docs); nothing merges.
-   - `forking-realities`: **read `docs/merge-reviews/<castId>.md` FIRST**, then follow `manta-merge-review`. Don't blind-merge both branches.
-   - implementation modes: review each branch's diff against the contract before merging.
-7. **Harvest & merge** — cherry-pick / merge the winning work. **Strip clone artifacts** that shouldn't land on your main branch (a clone's `last-gasp-report.md`, any accidentally-committed `node_modules`/build output). Re-run your project's gate (e.g. `pnpm gate` / `npm test`) **yourself** before claiming green — don't trust a clone's self-reported "tests pass".
-8. **Recover & clean** — `manta recover` reaps stale state after a crash. GC finished worktrees/branches once their work is harvested.
+Run `manta-cast-decide` first (cast vs solo + usage check). If it says solo, do
+it solo. Otherwise pick by shape:
 
-**Reliability gotchas (these bite on real, large projects):**
+| The task is…                                            | Mode                  | Clones | Merges?                              |
+| ------------------------------------------------------- | --------------------- | ------ | ------------------------------------ |
+| "map / understand / where does X live", read-only intel | `recon-swarm`         | 1–5    | no — you read audit docs             |
+| one bug, unknown cause, spans layers                    | `bug-hunt`            | 1–2    | no — produces a report (NOT commits) |
+| **the same change across N files/modules**              | `refactor-wave`       | 2–5    | yes — needs a `--tasks` file         |
+| **2+ real rival approaches**, want the best             | `forking-realities`   | 2+     | yes — scored, you promote one        |
+| one risky change you want reviewed as it's written      | `pair-programming`    | 2      | yes — writer + reviewer              |
+| build a feature **and** its tests                       | `test-storm`          | 2–3    | yes — coder + tester + fuzzer        |
+| make docs match the code                                | `documentation-chase` | 1+     | docs only                            |
+| N independent opinions on a hard call (advanced)        | `council`             | 3–5    | no — you decide                      |
+| a throwaway draft to react to (advanced)                | `decoy`               | 1–2    | no — you finish it                   |
 
-- **Run casts SERIALLY.** Two casts overlapping in time can collide on clone-letter/worktree allocation (a data-loss guard exists, but the structural fix is pending). Wait for one cast's clones to be DEAD before launching the next.
-- **Long session? Force full inheritance, don't fear it.** A clone boots **warm** by forking your current transcript — that's the whole point. There's a safe **default** auto-fork threshold (~2 MB, tunable via `--distill-threshold-bytes`) so a cast doesn't blindly copy a huge transcript across every clone; above it the clone boots cold **with a loud warning** (never silently). When the task depends on what was just discussed, pass **`--force-full-transcript`** to fork the whole thing regardless of size (proven on an 18 MB session: the clone recalled the conversation). The default startup grace is **300 s** (`--startup-grace-ms`); a very large forked transcript can slow the clone's cold-start, so if a clone is reaped before its first heartbeat, bump it (e.g. `--startup-grace-ms 600000`).
-- **Mind your usage (not money).** Claude Code is a subscription, so a cast costs **some of your subscription's usage/rate limit + some of your own context** — never dollars, and there are no charges or cooldowns. The one usage cap is `--max-parallel-clones` (how many clones run at once); spawn the fewest that actually parallelize. A forking cast where one clone does heavy work can starve a sibling on the shared tick-budget.
-- **Single-clone tasks: pass the task inline** (`--task "$(cat task.txt)"`) rather than a per-clone `--tasks` file — clone-letter keys in the file must match the allocated roster, which you don't control.
+**Mutate+commit code?** → `refactor-wave` or `pair-programming`. **`bug-hunt`
+investigates, it does not commit** — handing it "convert X and commit" stalls.
 
-**Native MCP tools (alternative to shelling out).** The Manta Bus MCP server exposes user/orchestrator tools so you can drive Manta with **native tool calls** instead of `Bash`-ing the `/manta:*` slash commands: `manta_cast`, `manta_status`, `manta_inspect`, `manta_abort`, `manta_kill`. They run the same `manta` CLI under the hood (the bus spawns the binary — no logic duplication), return structured data, and **complement** (do not replace) the slash commands. `manta_cast` is non-blocking — it returns the cast id once clones start spawning, so the launch tool call doesn't hang for the whole cast; then observe with `manta_status`. Full reference: `docs/user/mcp-tools.md`. Everything in this playbook (decide → scope → launch → observe → ceremony → recover) applies identically whether you launch via the slash command or the native tool.
+**Be proactive.** Spot a shape mid-conversation → offer it: _"that's a
+refactor-wave across ~12 files — cast it?"_ / _"two real approaches here — want a
+forking-realities to build both and score them?"_
 
-## Forbidden
+### STEP 1 — Launch (copy, adapt the `--task`)
 
-- **Launching parallel casts simultaneously.** Serial only — see the collision gotcha above.
-- **Busy-polling `manta status` in a tight loop.** Observe via background waits + a few state-transition checks. Heartbeat is implicit on every bus call; you don't need to watch it tick.
-- **Blind-merging every branch from a forking cast** "because both look useful". Follow the merge-review verdict; cherry-pick the loser's good bits deliberately.
-- **Pulling a clone's full context into your own transcript** "to help". That destroys the fresh-context advantage you cloned for. Read its deliverable + report, not its whole session.
-- **Claiming "done / green" on a clone's word.** Re-run the gate yourself.
-- **Casting trivial work** (< ~10 min solo). That's `manta-cast-decide`'s job to catch.
-- **Climbing into a clone's worktree to co-code** unless it's genuinely stuck. You're the curator.
+`manta cast` **blocks** until the cast finishes. Run it in the **background** (`&`)
+so you can observe — or use the non-blocking `manta_cast` MCP tool (returns the
+cast id the moment clones spawn).
+
+```bash
+# recon (read-only map; nothing merges)
+manta cast recon-swarm --clones 2 --task "Map auth + billing: entry points, data flow, where to add X" \
+  --max-files-changed 0 --allowed-paths docs/audits &
+
+# bug-hunt (root-cause a layered bug → report)
+manta cast bug-hunt --clones 1 --task "Find the root cause of the duplicate-charge bug across api→service→db" \
+  --max-files-changed 0 &
+
+# forking-realities (2 rival approaches, scored)
+manta cast forking-realities --clones 2 --task "Migrate the config loader to zod" &
+
+# pair-programming (writer + reviewer on one risky change)
+manta cast pair-programming --clones 2 --task "Rewrite the rate limiter to a token bucket; reviewer gates each batch" &
+
+# test-storm (feature + tests)
+manta cast test-storm --clones 3 --task "Implement retry-with-backoff in http/client and prove it with tests" &
+
+# refactor-wave (same change across modules) — REQUIRES a per-clone --tasks file:
+manta cast refactor-wave --clones 2 --tasks .manta/wave.yaml &
+```
+
+`--tasks` YAML for refactor-wave (one entry per clone letter, **disjoint** paths):
+
+```yaml
+A:
+  {
+    task: 'Migrate src/auth/* to the new error type',
+    scope: { allowed_paths: ['src/auth'], max_files_changed: 15 },
+  }
+B:
+  {
+    task: 'Migrate src/billing/* to the new error type',
+    scope: { allowed_paths: ['src/billing'], max_files_changed: 15 },
+  }
+```
+
+**Flags that matter** (full set: `docs/user/mcp-tools.md` + the mode guide):
+
+- `--allowed-paths` / `--forbidden-paths` — scope fence (CSV). `--max-files-changed 0` = read-only.
+- `--max-parallel-clones` — the ONLY usage limit (subscription: no dollars/charges/cooldown).
+- `--force-full-transcript` — fork your WHOLE transcript so clones boot warm with the conversation (default auto-forks up to ~2 MB, then boots cold with a loud warning). Use when the task depends on what was just discussed. On a long session pair it with `--startup-grace-ms 1200000` (don't pass a smaller grace — fix modes already default to a roomy one; undercutting it gets warned).
+
+### STEP 2 — Observe (don't busy-poll)
+
+```bash
+manta status              # live clones: state (STARTING→WORKING→WINDING_DOWN→DEAD), heartbeat, locks, claims
+manta inspect <cloneId>   # one clone: contract, locks, recent events
+manta tail <cloneId>      # stream a clone's events live
+```
+
+A cast is **done when every clone is DEAD**. Wait on the background job / check
+`manta status` a few times — do NOT loop on it tightly. Heartbeat ticks on every
+bus call; you don't watch it.
+
+### STEP 3 — Harvest (per mode) — then VERIFY YOURSELF
+
+- **recon-swarm / bug-hunt** → read the deliverables (audit/report docs the clones wrote). Nothing to merge.
+- **forking-realities** → `cat docs/merge-reviews/<castId>.md` **FIRST**, follow `manta-merge-review`, then `manta promote <castId>/<cloneId>` to merge the winner + graveyard losers. Don't blind-merge both.
+- **refactor-wave** → read `docs/merge-all-reports/<castId>.md`; each clone's branch was gated + merged sequentially.
+- **pair-programming / test-storm** → review the branch diff against the contract, then merge.
+
+**Always, before claiming green:** strip clone artifacts (`last-gasp-report.md`,
+stray `node_modules`/build output) and **re-run your project's gate yourself**
+(`pnpm gate` / `pytest` / `cargo test` / …). Never trust a clone's self-reported
+"tests pass". Then GC: `git worktree remove --force <wt>` + `git branch -D manta/cast-*`.
+
+If a crash left stale state: `manta recover` (reaps zombies, stale locks, missing post-mortems).
 
 ## Examples
 
-**Map an unfamiliar codebase before changing it.**
-`manta cast recon-swarm --clones 2 --task "Map auth + billing: entry points, data flow, where to add X" --max-files-changed 3 --allowed-paths docs/audits`. Watch `manta status` until both DEAD. Read the two audit docs. Nothing to merge — you just gained the map without spending your own context spelunking.
+### Map an unfamiliar codebase before changing it
 
-**Two genuine approaches to a migration.**
-`manta cast forking-realities --clones 2 --task "Migrate config loader to zod"`. Wait for both DEAD. `cat docs/merge-reviews/<id>.md`, follow `manta-merge-review`, code-review the winner's diff, merge, re-run your gate yourself, then GC the branches.
+```bash
+manta cast recon-swarm --clones 2 --task "Map auth + billing: entry points, data flow, where to add rate-limiting" \
+  --max-files-changed 0 --allowed-paths docs/audits &
+```
 
-**A second task while the first is still running.**
-Don't. `manta status` shows clones still WORKING → wait. Launching now risks a worktree collision. Queue it.
+Wait until both DEAD (`manta status`), read the two audit docs. Nothing merges —
+you gained the map without spending your own context spelunking.
 
-**A clone booted cold — it didn't seem to know the conversation.**
-Inheritance was skipped because the transcript was over the ~2 MB auto-fork threshold (you'd have seen a loud warning). Re-cast with `--force-full-transcript` to fork the full transcript so the clone boots warm. Verified on an 18 MB session.
+### Two real approaches to a migration, scored
 
-**Cast failed with `outcome=fail`, empty worktree.**
-Rare. If it says "startup grace exceeded", the clone missed its first heartbeat (often a large forked transcript) — bump `--startup-grace-ms` past the 300 s default (e.g. `600000`) and re-cast. Nothing was lost — the worktree is clean.
+```bash
+manta cast forking-realities --clones 2 --task "Migrate the config loader to zod" &
+```
 
-**A clone committed `node_modules` or a `last-gasp-report.md` to its branch.**
-Strip those before merging — they're clone artifacts, not deliverables. Merge only the real change.
+Both DEAD → `cat docs/merge-reviews/<id>.md`, follow `manta-merge-review`,
+`manta promote <id>/<winner>`, re-run your gate yourself, GC the branches.
 
-## Documentation map — READ the relevant guide before you cast
+### When a clone goes wrong (fast diagnosis)
 
-Manta is fully documented and the guides are kept current. This playbook is the
-overview; **before casting a mode you haven't used recently, open its guide** —
-each has the exact flags, the per-mode contract shape, the ceremony, and a
-worked example. Don't cast from memory and guess flags; the docs are right there
-in the installed plugin (`${CLAUDE_PLUGIN_ROOT}/docs/...`) and in the repo.
+- **Spawned but stuck in `STARTING`, never heartbeats** → the clone's MCP boot is slow. Manta already spawns clones with a curated MCP profile (bus + light servers; heavy LSP/indexers filtered), so this is rare; if it persists, a heavy MCP server in your `~/.claude.json` is the suspect.
+- **`outcome=fail`, empty worktree, "startup grace exceeded"** → big forked transcript cold-started too slowly. Re-cast with `--startup-grace-ms 1200000`. Nothing was lost.
+- **`no_candidates_passed_gate` on forking-realities** → the gate is language-aware (pnpm/npm/pytest/cargo/go); if it still fails, the candidates' tests genuinely failed — read the merge-review.
+- **Clone "booted cold", didn't know the conversation** → transcript exceeded the auto-fork threshold; re-cast with `--force-full-transcript`.
 
-**Per-mode guides** (`docs/user/<mode>.md`) — read the one matching your cast:
+## Forbidden
 
-- `recon-swarm.md` — read-only codebase mapping / intel gathering (nothing merges)
-- `bug-hunt.md` — multi-layer root-cause hunt, or a scoped implementation task
-- `refactor-wave.md` — same change across N places (needs a `--tasks` file with per-clone partitions)
-- `forking-realities.md` — 2+ rival approaches, scored, you promote the winner
-- `pair-programming.md` — writer + reviewer loop on one risky change
-- `test-storm.md` — feature **and** its tests (coder + tester + fuzzer)
-- `documentation-chase.md` — bring docs in line with the code
-- `council.md` / `decoy.md` — advanced (opt-in) modes; read before unlocking
+- **Parallel casts at once** — serial only (clone-letter/worktree collision). One cast's clones all DEAD before the next.
+- **Busy-polling `manta status`** in a tight loop.
+- **Blind-merging every branch** from a forking cast — follow the verdict.
+- **Pulling a clone's whole transcript into yours** "to help" — kills the fresh-context advantage. Read its deliverable + report.
+- **Claiming done/green on a clone's word** — re-run the gate yourself.
+- **Casting trivial work** (<~10 min solo) — that's `manta-cast-decide`'s job to catch.
+- **`bug-hunt` for a mutate+commit task** — use refactor-wave / pair-programming.
 
-**Cross-cutting references:**
+## Documentation map — open the guide before a mode you don't know cold
 
-- `docs/user/getting-started.md` — install, bus registration, first cast, known limits
-- `docs/user/mcp-tools.md` — the native `manta_*` tools (non-blocking cast, status, inspect, abort, kill)
-- `docs/user/cast-manifest.md` — what a cast writes to disk (registry, manifest, events)
-- `docs/user/manta-library.md` / `manta-share.md` — packaging & sharing casts
-- `examples/` — copy-pasteable end-to-end runs for recon-swarm, bug-hunt, refactor-wave, forking-realities
+Per-mode guides live at `docs/user/<mode>.md` (in the repo and the installed
+plugin under `${CLAUDE_PLUGIN_ROOT}/docs/`). Each has exact flags, the contract
+shape, the ceremony, and a worked example:
+`recon-swarm` · `bug-hunt` · `refactor-wave` · `forking-realities` ·
+`pair-programming` · `test-storm` · `documentation-chase` · `council` · `decoy`.
 
-**Sibling skills** (load them, don't reimplement their logic):
+Cross-cutting: `getting-started.md` (install, bus, first cast, limits) ·
+`mcp-tools.md` (native `manta_*` tools) · `cast-manifest.md` (what a cast writes) ·
+`examples/` (copy-paste end-to-end runs).
 
-- `manta-cast-decide` — the pre-cast gate: cast vs solo, which mode, usage check. **Run it before every cast.**
-- `manta-merge-review` — how to read a forking-realities verdict and promote a winner.
-
-**Rule of thumb:** if you're unsure of a mode's flags, contract fields, or
-ceremony, the answer is in `docs/user/` — read it, then cast. A 20-second doc
-read beats a mis-scoped cast that wastes a clone and your own context. The guides
-are updated continuously, so trust the doc over a half-remembered flag.
+Sibling skills (load, don't reimplement): **`manta-cast-decide`** (run before
+every cast) · **`manta-merge-review`** (read a forking verdict, promote a winner).
