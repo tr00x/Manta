@@ -42,6 +42,7 @@ import {
   parsePositiveIntOption,
   parseNonNegativeIntOption,
 } from './option-parsers.js';
+import { fixModeThresholdDefaults } from './cast-thresholds.js';
 import { createReporter, StderrSink } from '../output/reporter.js';
 import { CliError, isCliError } from '../errors.js';
 import { renderTopLevelError } from './error-render.js';
@@ -228,7 +229,7 @@ async function main(): Promise<void> {
     .option('--dry-run', 'Validate and report without spawning', false)
     .option(
       '--heartbeat-timeout-ms <ms>',
-      'Override default 300s heartbeat-stale threshold. Use for heavy-generation tasks (plan-drafting, complex synthesis) where >5min thinking gaps between tool calls are normal — the PostToolUse hook can\'t fire during generation. Bug #52.',
+      'Override the heartbeat-stale threshold. Default is 300s, but FIX modes (refactor-wave, bug-hunt, pair-programming, test-storm) auto-raise it to 1200s (#M12) since coding + a test run can gap >5min between tool calls and the PostToolUse hook can\'t fire during generation. Pass this to override the mode default either way. Bug #52 / #M12.',
       parsePositiveIntOption,
     )
     .option(
@@ -289,9 +290,32 @@ async function main(): Promise<void> {
         // branch.
         const cloneAssignments: Record<string, CloneAssignment> | undefined =
           options.tasks != null ? parseTasksFile(options.tasks) : undefined;
-        // Bug #52: collect threshold overrides; pass only if any are set
-        // (createRuntime accepts Partial<Thresholds> via thresholdOverrides).
+        // Bug #52 / #M12: collect threshold overrides.
+        //
+        // #M12 — a FIX cast (refactor-wave / bug-hunt / pair-programming /
+        // test-storm) does long coding stretches and runs a test suite; a single
+        // op can exceed the 300s default heartbeatTimeoutMs, so the reaper kills
+        // an actively-working clone and the work is lost SILENTLY (empty branch,
+        // no report). The flag to fix it existed (`--heartbeat-timeout-ms`) but
+        // the operator has to remember it on every fix cast. Instead, FIX modes
+        // get a roomier DEFAULT (20 min heartbeat, 15 min startup grace, 60 min
+        // tick budget). Read/quick modes (recon-swarm, documentation-chase,
+        // council, decoy) keep the tight default — they don't have long silent
+        // generation gaps. An EXPLICIT flag always wins over the mode default.
+        const fixDefaults = fixModeThresholdDefaults(mode);
         const thresholdOverrides: Partial<Thresholds> = {};
+        if (fixDefaults) {
+          thresholdOverrides.heartbeatTimeoutMs = fixDefaults.heartbeatTimeoutMs;
+          thresholdOverrides.startupGraceMs = fixDefaults.startupGraceMs;
+          // tick budget MUST exceed the heartbeat window, else the cast aborts
+          // before the window it's meant to allow. Lift it UNLESS the operator
+          // set --tick-budget-ms explicitly (commander's default 1_500_000 = 25
+          // min is the "not set" sentinel).
+          if (options.tickBudgetMs === 1_500_000) {
+            options.tickBudgetMs = fixDefaults.tickBudgetMs;
+          }
+        }
+        // Explicit flags override the mode-aware default.
         if (options.heartbeatTimeoutMs !== undefined) thresholdOverrides.heartbeatTimeoutMs = options.heartbeatTimeoutMs;
         if (options.startupGraceMs !== undefined) thresholdOverrides.startupGraceMs = options.startupGraceMs;
         const hasOverrides = Object.keys(thresholdOverrides).length > 0;

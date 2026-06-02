@@ -51193,6 +51193,26 @@ function parseNonNegativeIntOption(raw) {
   return Number.parseInt(trimmed, 10);
 }
 
+// src/bin/cast-thresholds.ts
+init_cjs_shims();
+var FIX_MODES = /* @__PURE__ */ new Set([
+  "refactor-wave",
+  "bug-hunt",
+  "pair-programming",
+  "test-storm"
+]);
+function fixModeThresholdDefaults(mode) {
+  if (!FIX_MODES.has(mode)) return null;
+  return {
+    heartbeatTimeoutMs: 12e5,
+    // 20 min between tool calls
+    startupGraceMs: 9e5,
+    // 15 min cold-boot grace
+    tickBudgetMs: 36e5
+    // 60 min — must exceed the heartbeat window
+  };
+}
+
 // src/output/reporter.ts
 init_cjs_shims();
 var StderrSink = class {
@@ -51378,7 +51398,7 @@ async function main() {
     "path to a YAML/JSON file with per-clone task overlays. Combines with --task: clones present in the file use the file's entry; clones absent fall back to --task. See docs/user/forking-realities.md for the schema."
   ).option("--dry-run", "Validate and report without spawning", false).option(
     "--heartbeat-timeout-ms <ms>",
-    "Override default 300s heartbeat-stale threshold. Use for heavy-generation tasks (plan-drafting, complex synthesis) where >5min thinking gaps between tool calls are normal \u2014 the PostToolUse hook can't fire during generation. Bug #52.",
+    "Override the heartbeat-stale threshold. Default is 300s, but FIX modes (refactor-wave, bug-hunt, pair-programming, test-storm) auto-raise it to 1200s (#M12) since coding + a test run can gap >5min between tool calls and the PostToolUse hook can't fire during generation. Pass this to override the mode default either way. Bug #52 / #M12.",
     parsePositiveIntOption
   ).option(
     "--startup-grace-ms <ms>",
@@ -51402,7 +51422,15 @@ async function main() {
     async (mode, options2) => {
       const splitCsv = (s3) => s3.split(",").map((p2) => p2.trim()).filter((p2) => p2.length > 0);
       const cloneAssignments = options2.tasks != null ? parseTasksFile(options2.tasks) : void 0;
+      const fixDefaults = fixModeThresholdDefaults(mode);
       const thresholdOverrides = {};
+      if (fixDefaults) {
+        thresholdOverrides.heartbeatTimeoutMs = fixDefaults.heartbeatTimeoutMs;
+        thresholdOverrides.startupGraceMs = fixDefaults.startupGraceMs;
+        if (options2.tickBudgetMs === 15e5) {
+          options2.tickBudgetMs = fixDefaults.tickBudgetMs;
+        }
+      }
       if (options2.heartbeatTimeoutMs !== void 0) thresholdOverrides.heartbeatTimeoutMs = options2.heartbeatTimeoutMs;
       if (options2.startupGraceMs !== void 0) thresholdOverrides.startupGraceMs = options2.startupGraceMs;
       const hasOverrides = Object.keys(thresholdOverrides).length > 0;
