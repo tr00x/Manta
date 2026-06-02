@@ -35,7 +35,7 @@ The shutdown checklist below is **ordered and required**. Skipping or reordering
 - **Silent exits.** Exiting before `report_death` leaves the orchestrator to deduce death from heartbeat staleness — the post-mortem will be thinner. Always announce.
 - **Skipping the final commit.** Untracked deliverables in a dead worktree force the main to play archaeologist. Step 1 above is non-negotiable.
 - **Skipping the ZK dump.** At least one `manta.zk_write` is non-negotiable.
-- **Massive ZK dumps.** 1–3 notes, atomic, each with one insight. Quality over quantity. (Spec Sec 5.5.)
+- **Massive ZK dumps.** 1–3 notes, atomic, each with one insight. Quality over quantity.
 - **Holding locks at exit.** They WILL be reaped, but you'll show up in `lock_reap` events and the main will know you didn't clean up.
 - **Pushing to remote.** The main pulls from your worktree branch; you do not push.
 - **Editing files outside your worktree on shutdown.** No "one last fix" — your scope ended when the task contract said it ended.

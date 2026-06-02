@@ -34,7 +34,7 @@ clone-C §6 "Contract refresh content").
 
 ## Forbidden
 
-- **Holding a lock without renewing.** Stale leases (15 s without `renew_lock`) are reaped by the orchestrator and emit `lock_reap` events visible in the post-mortem. (Phase 3 will translate these into fragility-strikes; in Phase 0 they're just a quality signal.)
+- **Holding a lock without renewing.** Stale leases (15 s without `renew_lock`) are reaped by the orchestrator and emit `lock_reap` events visible in the post-mortem — a quality signal against you. Renew on time or release.
 - **Broadcasting status pings** ("started reading routes/index.ts"). Local log only — bus traffic is for actionable events.
 - **Direct messages for opinions.** `manta.message` is for round-table escalation (sibling proposes vs sibling proposes). Disagreements → broadcast `blocker` so the main can decide.
 - **Bypassing the work-claim board.** Even if you "know" no sibling is doing something, claim it. Future-you (or a re-spawn) reads the claim log to reconstruct lineage.

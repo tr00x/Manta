@@ -43067,6 +43067,38 @@ function createMetricCollector() {
   };
 }
 
+// src/commands/cast-preflight.ts
+init_cjs_shims();
+function diagnoseCastPreconditions(records, pidAlive) {
+  const occupying = records.filter((r) => r.state !== "DEAD");
+  const orphaned = [];
+  const liveConcurrent = [];
+  for (const r of occupying) {
+    if (pidAlive(r.parent_pid)) liveConcurrent.push(r);
+    else orphaned.push(r);
+  }
+  if (occupying.length === 0) {
+    return { orphaned, liveConcurrent, message: null, recoverable: false };
+  }
+  const ids = (rs2) => rs2.map((r) => r.clone_id).join(", ");
+  if (liveConcurrent.length > 0) {
+    const parts = [`a cast is already running (live clones: ${ids(liveConcurrent)})`];
+    if (orphaned.length > 0) parts.push(`plus ${orphaned.length} orphaned (${ids(orphaned)})`);
+    return {
+      orphaned,
+      liveConcurrent,
+      recoverable: false,
+      message: `${parts.join("; ")}. Manta runs casts SERIALLY \u2014 wait for it to finish, or stop it with \`manta abort\`, before launching another.`
+    };
+  }
+  return {
+    orphaned,
+    liveConcurrent,
+    recoverable: true,
+    message: `${orphaned.length} orphaned clone(s) (${ids(orphaned)}) occupy slots but their parent process is gone \u2014 a previous cast was interrupted (Ctrl-C, a timed-out tool call, or a closed shell) before its clones settled. They are NOT running. Run \`manta recover\` to reap them, then re-cast.`
+  };
+}
+
 // src/commands/rubric-prepass.ts
 init_cjs_shims();
 var import_promises7 = require("fs/promises");
@@ -43954,6 +43986,19 @@ async function runCastCommand(rt2, opts) {
       "council mode requires 3-5 clones (spec Sec 2 #9 \u2014 5 independent proposers ideal, 3 minimum for a meaningful crowd)",
       { kind: "invalid_input" }
     );
+  }
+  if (!(opts.dryRun ?? false)) {
+    const records = await rt2.ctx.registry.list();
+    const probe = makeProbe();
+    const verdict = diagnoseCastPreconditions(records, (pid) => probe.alive(pid));
+    if (verdict.message) {
+      opts.reporter.warn("cast.preflight_diagnostic", {
+        message: verdict.message,
+        recoverable: verdict.recoverable,
+        orphaned: verdict.orphaned.map((r) => r.clone_id),
+        liveConcurrent: verdict.liveConcurrent.map((r) => r.clone_id)
+      });
+    }
   }
   const cloneIds = await allocateCloneIds(rt2.ctx.registry, opts.cloneCount);
   const assignments = opts.cloneAssignments ?? {};

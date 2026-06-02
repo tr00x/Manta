@@ -28,6 +28,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createMetricCollector, prepareWorktreeForGate } from './merge-review-collector.js';
 import { detectToolchain } from './toolchain.js';
+import { diagnoseCastPreconditions } from './cast-preflight.js';
 import { adjustWeightsFromProject } from './rubric-prepass.js';
 import { listWorktrees } from '../spawner/worktree.js';
 import { loadBudgetConfig } from '../config/budget-config.js';
@@ -477,6 +478,26 @@ export async function runCastCommand(
       'council mode requires 3-5 clones (spec Sec 2 #9 — 5 independent proposers ideal, 3 minimum for a meaningful crowd)',
       { kind: 'invalid_input' },
     );
+  }
+
+  // #M14 follow-up: before allocating clone-letter slots, diagnose WHY they
+  // might be occupied. allocateCloneIds would otherwise refuse with a bare
+  // "cannot allocate N slots" — which reads as a crash. Distinguish orphaned
+  // zombies (a prior cast's clones whose parent process is gone — reap with
+  // `manta recover`) from a genuinely-running concurrent cast (wait / abort).
+  // Emit the actionable line so the operator/agent sees the real cause.
+  if (!(opts.dryRun ?? false)) {
+    const records = await rt.ctx.registry.list();
+    const probe = makeProbe();
+    const verdict = diagnoseCastPreconditions(records, (pid) => probe.alive(pid));
+    if (verdict.message) {
+      opts.reporter.warn('cast.preflight_diagnostic', {
+        message: verdict.message,
+        recoverable: verdict.recoverable,
+        orphaned: verdict.orphaned.map((r) => r.clone_id),
+        liveConcurrent: verdict.liveConcurrent.map((r) => r.clone_id),
+      });
+    }
   }
 
   const cloneIds = await allocateCloneIds(rt.ctx.registry, opts.cloneCount);
