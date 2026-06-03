@@ -8,7 +8,7 @@ import type {
   TaskContract as BusTaskContract,
 } from '@manta/bus';
 import type { CloneRunner, CloneHandle } from '../spawner/clone-spawner.js';
-import { spawnClone, selectCloneRunner } from '../spawner/clone-spawner.js';
+import { spawnClone, selectCloneRunner, classifyFirstTurnFailure } from '../spawner/clone-spawner.js';
 import { runDaemonLoop } from '../daemon-loop.js';
 import { forkParentSession } from '../spawner/session-fork.js';
 import { propagateProjectInstructions } from '../spawner/project-instructions.js';
@@ -1090,12 +1090,52 @@ export async function runCastCommand(
     // Final reap regardless of how the loop exited. The exit promise might
     // throw spawn_failed (I-1 fix); swallow per-clone errors here so the
     // surviving siblings still get reaped.
+    //
+    // #M16: a clone that dies/hangs on its FIRST model turn (billing/auth/quota/
+    // missing model) used to be invisible — it just sat STARTING until the grace
+    // reaper killed it with "no first heartbeat", the real error (e.g. "Credit
+    // balance is too low" from an ANTHROPIC_API_KEY in the cast env) never
+    // surfaced. The spawner now keeps the clone's output tail; when a clone's
+    // process resolves while it never progressed past STARTING — or its output
+    // matches a known-fatal pattern — emit a distinct, loud `cast.clone_first_
+    // turn_failed` carrying the captured reason, so a multi-cast hunt becomes a
+    // one-line diagnosis. Best-effort and non-fatal.
+    const finalRecords = await rt.ctx.registry.list().catch(() => []);
+    const stateOf = (id: string): string | undefined =>
+      finalRecords.find((c) => c.clone_id === id)?.state;
+    const reasonOf = (id: string): string | undefined =>
+      finalRecords.find((c) => c.clone_id === id)?.death_reason;
     await Promise.all(
       handles.map(async (h) => {
+        let result: { code: number | null; signal: NodeJS.Signals | null; stderr?: string } | null = null;
         try {
-          await h.exit;
+          result = await h.exit;
         } catch {
-          /* already surfaced as cast_failed if it mattered */
+          /* spawn_failed — already surfaced as cast_failed if it mattered */
+          return;
+        }
+        try {
+          const fatal = classifyFirstTurnFailure(result?.stderr);
+          const st = stateOf(h.cloneId);
+          const dr = reasonOf(h.cloneId) ?? '';
+          // "Never progressed" = still STARTING, or grace-reaped before a first
+          // real heartbeat (the silent path #M16 is about).
+          const neverProgressed =
+            st === 'STARTING' || /no first heartbeat|startup grace|startup hard cap/i.test(dr);
+          const exitedBad = result != null && result.code !== 0;
+          if (fatal !== null || (neverProgressed && exitedBad)) {
+            opts.reporter.warn('cast.clone_first_turn_failed', {
+              cast: opts.castId,
+              cloneId: h.cloneId,
+              exitCode: result?.code ?? null,
+              reason:
+                fatal ??
+                'clone exited without acking its contract or doing a turn (unknown first-turn failure)',
+              stderrTail: (result?.stderr ?? '').slice(-800),
+            });
+          }
+        } catch {
+          /* best-effort surfacing — never break settlement */
         }
       }),
     );

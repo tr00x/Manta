@@ -42229,6 +42229,21 @@ async function writeCloneMcpConfig(args) {
 // src/spawner/clone-spawner.ts
 var SAFE_KEY = /^[A-Za-z0-9._-]+$/;
 var DEFAULT_GRACEFUL_MS = 5e3;
+function classifyFirstTurnFailure(captured) {
+  if (typeof captured !== "string" || captured.length === 0) return null;
+  const s3 = captured.toLowerCase();
+  if (/credit balance is too low|insufficient.*(credit|balance|funds)|billing/.test(s3))
+    return "credit/billing: the clone billed an API balance with no credit (likely ANTHROPIC_API_KEY in the cast env \u2014 relaunch with `env -u ANTHROPIC_API_KEY` to use the subscription)";
+  if (/invalid api key|authentication|unauthorized|401|forbidden|403/.test(s3))
+    return "auth: the clone could not authenticate (check the clone is on the same login/subscription as the parent)";
+  if (/rate limit|429|quota|usage limit|overloaded|529/.test(s3))
+    return "rate/quota: the clone hit a rate or usage limit on its first turn";
+  if (/model.*(not found|not available|does not exist)|unknown model|invalid model/.test(s3))
+    return "model: the clone requested a model that is unavailable on this account";
+  if (/enoent|command not found|no such file|spawn .* enoent/.test(s3))
+    return "spawn: the clone binary could not be launched (ENOENT / missing `claude`)";
+  return null;
+}
 async function spawnClone(opts) {
   const cloneId = opts.snapshot.taskContract.cloneId;
   const castId = opts.snapshot.castId;
@@ -42335,9 +42350,13 @@ async function spawnClone(opts) {
         cause: r
       });
     }
+    const tail = (s3) => typeof s3 === "string" && s3.length > 0 ? s3.slice(-2e3) : "";
+    const captured = `${tail(r.stdout)}
+${tail(r.stderr)}`.trim();
     return {
       code: r.exitCode ?? null,
-      signal: r.signal ?? null
+      signal: r.signal ?? null,
+      ...captured.length > 0 ? { stderr: captured.slice(-2e3) } : {}
     };
   })();
   const BOOT_TICK_MS = 3e4;
@@ -44479,10 +44498,32 @@ async function runCastCommand(rt2, opts) {
         );
       }
     }
+    const finalRecords = await rt2.ctx.registry.list().catch(() => []);
+    const stateOf = (id) => finalRecords.find((c) => c.clone_id === id)?.state;
+    const reasonOf = (id) => finalRecords.find((c) => c.clone_id === id)?.death_reason;
     await Promise.all(
       handles.map(async (h) => {
+        let result = null;
         try {
-          await h.exit;
+          result = await h.exit;
+        } catch {
+          return;
+        }
+        try {
+          const fatal = classifyFirstTurnFailure(result?.stderr);
+          const st2 = stateOf(h.cloneId);
+          const dr2 = reasonOf(h.cloneId) ?? "";
+          const neverProgressed = st2 === "STARTING" || /no first heartbeat|startup grace|startup hard cap/i.test(dr2);
+          const exitedBad = result != null && result.code !== 0;
+          if (fatal !== null || neverProgressed && exitedBad) {
+            opts.reporter.warn("cast.clone_first_turn_failed", {
+              cast: opts.castId,
+              cloneId: h.cloneId,
+              exitCode: result?.code ?? null,
+              reason: fatal ?? "clone exited without acking its contract or doing a turn (unknown first-turn failure)",
+              stderrTail: (result?.stderr ?? "").slice(-800)
+            });
+          }
         } catch {
         }
       })

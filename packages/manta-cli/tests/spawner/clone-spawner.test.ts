@@ -7,6 +7,7 @@ import {
   runFakeCloneScript,
   runClaudeCli,
   runClaudeResume,
+  classifyFirstTurnFailure,
   type CastsCreator,
 } from '../../src/spawner/clone-spawner.js';
 import type { CastManifest, CreateCastInput } from '@manta/bus';
@@ -45,6 +46,27 @@ const fixturePath = path.join(
   'fixtures',
   'fake-clone.mjs',
 );
+
+// #M16: surface a clone's first-turn failure (billing/auth/quota/model/spawn)
+// from its captured output instead of a silent STARTING→grace reap.
+describe('classifyFirstTurnFailure (bug #M16)', () => {
+  it('classifies the credit/billing case (the ANTHROPIC_API_KEY=$0 trap)', () => {
+    const r = classifyFirstTurnFailure('API error 400: {"message":"Credit balance is too low"}');
+    expect(r).toMatch(/credit\/billing/);
+    expect(r).toMatch(/ANTHROPIC_API_KEY/);
+  });
+  it('classifies auth, rate/quota, model, and spawn failures', () => {
+    expect(classifyFirstTurnFailure('401 Unauthorized: invalid api key')).toMatch(/auth/);
+    expect(classifyFirstTurnFailure('429 rate limit exceeded')).toMatch(/rate\/quota/);
+    expect(classifyFirstTurnFailure('model claude-x does not exist')).toMatch(/model/);
+    expect(classifyFirstTurnFailure('spawn claude ENOENT')).toMatch(/spawn/);
+  });
+  it('returns null for unknown / empty output (caller surfaces the raw tail)', () => {
+    expect(classifyFirstTurnFailure('some unrelated log line')).toBeNull();
+    expect(classifyFirstTurnFailure('')).toBeNull();
+    expect(classifyFirstTurnFailure(undefined)).toBeNull();
+  });
+});
 
 describe('clone-spawner', () => {
   let fx: RepoFixture | undefined;

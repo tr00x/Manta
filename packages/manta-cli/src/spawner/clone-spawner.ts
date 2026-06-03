@@ -122,7 +122,7 @@ export interface CloneHandle {
   cloneId: string;
   pid: number | undefined;
   snapshotPath: string;
-  exit: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
+  exit: Promise<{ code: number | null; signal: NodeJS.Signals | null; stderr?: string }>;
   kill: (signal: NodeJS.Signals) => void;
   /**
    * Graceful termination: SIGTERM, then SIGKILL after `gracefulMs` if the
@@ -143,6 +143,30 @@ export interface CloneHandle {
 
 const SAFE_KEY = /^[A-Za-z0-9._-]+$/;
 const DEFAULT_GRACEFUL_MS = 5_000;
+
+/**
+ * #M16: classify a clone's captured first-turn output into a crisp, known-fatal
+ * reason — so a clone that dies on its FIRST model turn (billing/auth/quota/
+ * missing model/missing binary) is reported with the real cause instead of a
+ * silent "stuck in STARTING → grace reap". Returns a short reason string when a
+ * known-fatal pattern is present, else null (unknown failure — caller still
+ * surfaces the raw tail). Pure + exported for tests.
+ */
+export function classifyFirstTurnFailure(captured: string | undefined): string | null {
+  if (typeof captured !== 'string' || captured.length === 0) return null;
+  const s = captured.toLowerCase();
+  if (/credit balance is too low|insufficient.*(credit|balance|funds)|billing/.test(s))
+    return 'credit/billing: the clone billed an API balance with no credit (likely ANTHROPIC_API_KEY in the cast env — relaunch with `env -u ANTHROPIC_API_KEY` to use the subscription)';
+  if (/invalid api key|authentication|unauthorized|401|forbidden|403/.test(s))
+    return 'auth: the clone could not authenticate (check the clone is on the same login/subscription as the parent)';
+  if (/rate limit|429|quota|usage limit|overloaded|529/.test(s))
+    return 'rate/quota: the clone hit a rate or usage limit on its first turn';
+  if (/model.*(not found|not available|does not exist)|unknown model|invalid model/.test(s))
+    return 'model: the clone requested a model that is unavailable on this account';
+  if (/enoent|command not found|no such file|spawn .* enoent/.test(s))
+    return 'spawn: the clone binary could not be launched (ENOENT / missing `claude`)';
+  return null;
+}
 
 export async function spawnClone(opts: SpawnCloneOptions): Promise<CloneHandle> {
   const cloneId = opts.snapshot.taskContract.cloneId;
@@ -300,29 +324,40 @@ export async function spawnClone(opts: SpawnCloneOptions): Promise<CloneHandle> 
   // which the cast loop then interprets as "process exited cleanly". We
   // surface it as a `spawn_failed` CliError instead, so the cast aborts at
   // the spawn step rather than waiting for a heartbeat that never lands.
-  const exit: Promise<{ code: number | null; signal: NodeJS.Signals | null }> = (async () => {
-    type ExitLike = {
-      exitCode?: number | null;
-      signal?: NodeJS.Signals | null;
-      failed?: boolean;
-    };
-    let r: ExitLike;
-    try {
-      r = (await proc) as ExecaReturnValue & ExitLike;
-    } catch (err) {
-      r = err as ExitLike;
-    }
-    if (r.failed && r.exitCode == null && r.signal == null) {
-      throw new CliError('clone runner failed to start', {
-        kind: 'spawn_failed',
-        cause: r,
-      });
-    }
-    return {
-      code: r.exitCode ?? null,
-      signal: r.signal ?? null,
-    };
-  })();
+  const exit: Promise<{ code: number | null; signal: NodeJS.Signals | null; stderr?: string }> =
+    (async () => {
+      type ExitLike = {
+        exitCode?: number | null;
+        signal?: NodeJS.Signals | null;
+        failed?: boolean;
+        stderr?: string;
+        stdout?: string;
+      };
+      let r: ExitLike;
+      try {
+        r = (await proc) as ExecaReturnValue & ExitLike;
+      } catch (err) {
+        r = err as ExitLike;
+      }
+      if (r.failed && r.exitCode == null && r.signal == null) {
+        throw new CliError('clone runner failed to start', {
+          kind: 'spawn_failed',
+          cause: r,
+        });
+      }
+      // #M16: keep a bounded tail of the clone's output so the cast can SURFACE a
+      // first-turn failure (credit/auth/quota/model-not-found) instead of a silent
+      // ~15-min STARTING→grace reap with the real error invisible. The spawner
+      // already has stdout/stderr (execa reject:false) — we just stopped dropping it.
+      const tail = (s: string | undefined): string =>
+        typeof s === 'string' && s.length > 0 ? s.slice(-2000) : '';
+      const captured = `${tail(r.stdout)}\n${tail(r.stderr)}`.trim();
+      return {
+        code: r.exitCode ?? null,
+        signal: r.signal ?? null,
+        ...(captured.length > 0 ? { stderr: captured.slice(-2000) } : {}),
+      };
+    })();
 
   // bug #70: the launch heartbeat above fires ONCE. After it, last_heartbeat_at
   // is only refreshed by the per-tool-call hook — but during cold boot the child
