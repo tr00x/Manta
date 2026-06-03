@@ -43,7 +43,10 @@ const RUNTIME_MODULES = ['proper-lockfile', 'graceful-fs', 'retry', 'signal-exit
 // settings.json → ${CLAUDE_PLUGIN_ROOT}/dist/bin/manta-statusline.cjs).
 // manta-session-priming.cjs is the SessionStart priming hook bin (root
 // hooks/hooks.json → ${CLAUDE_PLUGIN_ROOT}/dist/bin/manta-session-priming.cjs).
-const artifacts = ['manta.cjs', 'server.cjs', 'manta-statusline.cjs', 'manta-session-priming.cjs'];
+// manta-prompt-router.cjs is the UserPromptSubmit hook bin (root hooks/hooks.json
+// → ${CLAUDE_PLUGIN_ROOT}/dist/bin/manta-prompt-router.cjs); injects the
+// manta-orchestrate skill on a Manta-intent prompt.
+const artifacts = ['manta.cjs', 'server.cjs', 'manta-statusline.cjs', 'manta-session-priming.cjs', 'manta-prompt-router.cjs'];
 
 for (const f of artifacts) {
   if (!existsSync(join(srcBin, f))) {

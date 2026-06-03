@@ -33,6 +33,11 @@ export default defineConfig({
     // print of the orchestration contract; bundled here so the committed plugin
     // tree ships it just like the statusline.
     'bin/manta-session-priming': 'src/bin/manta-session-priming.ts',
+    // UserPromptSubmit routing hook — hooks/hooks.json points Claude Code at
+    // ${CLAUDE_PLUGIN_ROOT}/dist/bin/manta-prompt-router.cjs. On a Manta-intent
+    // prompt it injects the manta-orchestrate skill body so the console is in
+    // context the moment the user reaches for Manta. Bundled like the others.
+    'bin/manta-prompt-router': 'src/bin/manta-prompt-router.ts',
   },
   outDir: 'plugin-dist',
   // Inline EVERYTHING — the plugin runtime has no node_modules to fall back on.

@@ -1,5 +1,5 @@
 {
-  "description": "Manta SessionStart priming — injects the orchestration contract (cast-decide gate, orchestrate playbook, serial-awareness) into the main agent so it never casts naively. Convention-discovered at the plugin root; not referenced from plugin.json.",
+  "description": "Manta hooks (convention-discovered at the plugin root). SessionStart priming injects the orchestration contract once per session; UserPromptSubmit routing injects the manta-orchestrate skill on any Manta-intent prompt so the console is in context the moment the user reaches for Manta — not left to soft skill-listing chance.",
   "hooks": {
     "SessionStart": [
       {
@@ -8,6 +8,17 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/bin/manta-session-priming.cjs\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/bin/manta-prompt-router.cjs\"",
             "timeout": 5
           }
         ]
