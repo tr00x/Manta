@@ -138,6 +138,8 @@ describe('manta.broadcast cast_id stamp', () => {
       payload: { what: 'solution found' },
     });
     expect(r.event.payload).toEqual({
+      // #M11: clone_id is mirrored into the payload for the dispatch-side reader.
+      clone_id: 'A',
       event_type: 'breakthrough',
       body: { what: 'solution found' },
       cast_id: 'cast-fr-1',

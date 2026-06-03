@@ -44207,7 +44207,7 @@ async function runCastCommand(rt2, opts) {
         });
         worktrees.push(wt2);
       }
-      const sessionId = sessionMode === "daemon" ? `${opts.castId}-${cloneId}-${(0, import_node_crypto3.randomUUID)()}` : void 0;
+      const sessionId = sessionMode === "daemon" ? (0, import_node_crypto3.randomUUID)() : void 0;
       let cloneResumeEnabled = resumeEnabled;
       let forkedSessionId;
       if (resumeEnabled && parentSessionId !== null) {

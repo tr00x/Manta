@@ -691,9 +691,14 @@ export async function runCastCommand(
         worktrees.push(wt);
       }
 
-      const sessionId = sessionMode === 'daemon'
-        ? `${opts.castId}-${cloneId}-${randomUUID()}`
-        : undefined;
+      // #M11: MUST be a bare UUID — `claude --session-id` rejects anything else
+      // ("Invalid session ID. Must be a valid UUID."). The old
+      // `${castId}-${cloneId}-${uuid}` form was only ever stored in the snapshot
+      // and never passed to the runner, so its invalid shape was harmless; now
+      // that the daemon initial turn runs under `--session-id <this>` (so the
+      // resume-loop can `--resume` it), it must be a real UUID or the clone dies
+      // on boot before its first bus call. Live-caught during #M11 verification.
+      const sessionId = sessionMode === 'daemon' ? randomUUID() : undefined;
 
       // RB1/bug #56 (Chunk 2): fork the parent transcript into THIS clone's
       // worktree project dir so it can `--resume` it (Chunk 3) and boot as a

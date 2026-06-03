@@ -22201,6 +22201,14 @@ function createCommunicationHandlers(ctx) {
         type: "broadcast",
         clone_id: parsed.clone_id,
         payload: {
+          // #M11: mirror clone_id INTO the payload (not only the top-level event
+          // field). The dispatch-side BroadcastReader.readNew() projects each
+          // event from its payload alone (EventSource.readAll does not surface
+          // the top-level clone_id), so PairDispatcher/TestStorm matched
+          // `b.clone_id === writerCloneId` against an empty string and NEVER
+          // enqueued the next turn — pair/test-storm silently stalled after the
+          // first broadcast.
+          clone_id: parsed.clone_id,
           event_type: parsed.event_type,
           body: parsed.payload,
           cast_id: r.metadata.cast_id ?? null,

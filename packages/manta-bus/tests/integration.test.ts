@@ -109,6 +109,31 @@ describe('Manta Bus end-to-end (recon-swarm slice)', () => {
     expect(death.clone.state).toBe('DEAD');
   });
 
+  // #M11: the dispatch-side BroadcastReader projects each event from its
+  // payload ALONE, so the broadcast handler MUST mirror clone_id (and cast_id +
+  // event_type) INTO the payload — not only the top-level event field. Before
+  // the fix clone_id lived only top-level, BroadcastReader read '' for it, and
+  // PairDispatcher/TestStorm never matched the writer's broadcast → the next
+  // turn was never enqueued and pair/test-storm stalled after one turn.
+  it('broadcast mirrors clone_id + cast_id + event_type into the payload (bug #M11)', async () => {
+    await call(client, 'manta.register', {
+      clone_id: 'A',
+      mode: 'pair-programming',
+      parent_pid: 1,
+      worktree: '/w',
+      metadata: { cast_id: 'cast-x', cast_mode: 'pair-programming', role: 'writer' },
+    });
+    const res = (await call(client, 'manta.broadcast', {
+      clone_id: 'A',
+      event_type: 'commit_ready',
+      payload: { commit_ref: 'abc123' },
+    })) as { event: { clone_id: string; payload: Record<string, unknown> } };
+    expect(res.event.payload.clone_id).toBe('A');
+    expect(res.event.payload.cast_id).toBe('cast-x');
+    expect(res.event.payload.event_type).toBe('commit_ready');
+    expect((res.event.payload.body as Record<string, unknown>).commit_ref).toBe('abc123');
+  });
+
   it('rejects scope-conflicting work via BusLockedError surface', async () => {
     await call(client, 'manta.register', {
       clone_id: 'A',

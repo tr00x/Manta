@@ -1166,6 +1166,13 @@ describe('cast command — Wave 2 daemon modes', () => {
       expect(snap.sessionMode).toBe('daemon');
       expect(snap.sessionId).toBeDefined();
       expect(snap.sessionId!.length).toBeGreaterThan(0);
+      // #M11: the daemon session id is passed to `claude --session-id`, which
+      // REJECTS anything that isn't a bare UUID ("Invalid session ID"). A
+      // `${castId}-${cloneId}-${uuid}` form killed clones on boot in live
+      // verification. Guard the exact format the real binary requires.
+      expect(snap.sessionId!).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+      );
     }
   });
 
