@@ -89,6 +89,33 @@ export interface SpawnCloneOptions {
    * idempotent (same input).
    */
   castRoster: ReadonlyArray<{ clone_id: string; assignment: CloneAssignment | null }>;
+  /**
+   * #M11: the session id the clone's INITIAL turn must run under so a later
+   * `runDaemonLoop` can `--resume` it. For a daemon clone with transcript
+   * inheritance this is the forked session id (the runner already `--resume`s
+   * it); without inheritance it is the snapshot's generated daemon session id,
+   * which we pass as `--session-id` so the session exists under that id. Omit
+   * for batch clones — they never resume.
+   */
+  resumableSessionId?: string;
+}
+
+/**
+ * Everything `runDaemonLoop` needs to resume THIS clone's session for a second
+ * (and further) turn (#M11 true root cause: daemon modes never drove a clone
+ * past its first turn). Captured at spawn so the resume path uses byte-identical
+ * cwd / env / priming / MCP-isolation to the initial turn — the ONLY difference
+ * across turns is the dequeued work prompt and `--resume <sessionId>` vs the
+ * initial launch. Present only for daemon clones (`session_mode === 'daemon'`).
+ */
+export interface CloneResumeSpec {
+  /** The session id the INITIAL turn ran under, resumable via `--resume`. */
+  sessionId: string;
+  worktree: string;
+  env: Record<string, string>;
+  appendSystemPrompt: string;
+  /** #M14 minimal-MCP config to keep isolation on the resume path. */
+  mcpConfigPath?: string;
 }
 
 export interface CloneHandle {
@@ -107,6 +134,11 @@ export interface CloneHandle {
   sessionId?: string;
   /** Whether this handle is a daemon (supports resume). */
   isDaemon: boolean;
+  /**
+   * Resume parameters for `runDaemonLoop` (#M11). Present only for daemon
+   * clones; undefined for batch clones (which never resume).
+   */
+  resumeSpec?: CloneResumeSpec;
 }
 
 const SAFE_KEY = /^[A-Za-z0-9._-]+$/;
@@ -219,19 +251,30 @@ export async function spawnClone(opts: SpawnCloneOptions): Promise<CloneHandle> 
     mcpConfigPath = undefined;
   }
 
+  // Hoisted so the daemon resume path (runDaemonLoop) reuses byte-identical
+  // cwd/env/priming/MCP — the only per-turn difference is the work prompt and
+  // `--resume` vs initial launch (#M11).
+  const cloneEnv: Record<string, string> = {
+    MANTA_SNAPSHOT_PATH: snapshotPath,
+    MANTA_REPO_ROOT: opts.repoRoot,
+    MANTA_CLONE_ID: cloneId,
+    MANTA_BUS_PEER_SCOPE:
+      opts.snapshot.taskContract.mode === 'forking-realities'
+        ? 'parent-only'
+        : 'siblings-allowed',
+  };
+  const appendSystemPrompt = buildPrimingText(opts.snapshot);
+
   const proc = opts.runner.run({
     cwd: opts.worktree,
-    env: {
-      MANTA_SNAPSHOT_PATH: snapshotPath,
-      MANTA_REPO_ROOT: opts.repoRoot,
-      MANTA_CLONE_ID: cloneId,
-      MANTA_BUS_PEER_SCOPE:
-        opts.snapshot.taskContract.mode === 'forking-realities'
-          ? 'parent-only'
-          : 'siblings-allowed',
-    },
-    appendSystemPrompt: buildPrimingText(opts.snapshot),
+    env: cloneEnv,
+    appendSystemPrompt,
     prompt: buildInitialPrompt(opts.snapshot),
+    // #M11: pin the initial turn to the resumable session id (forked id, or the
+    // generated daemon id passed as --session-id) so runDaemonLoop can --resume
+    // it. The resume runner (runClaudeResume) ignores this and uses its own
+    // forked id; runClaudeCli honours it as --session-id. Undefined for batch.
+    ...(opts.resumableSessionId !== undefined ? { sessionId: opts.resumableSessionId } : {}),
     ...(mcpConfigPath !== undefined ? { mcpConfigPath } : {}),
   });
 
@@ -358,6 +401,21 @@ export async function spawnClone(opts: SpawnCloneOptions): Promise<CloneHandle> 
     return result;
   };
 
+  const isDaemon = (opts.snapshot as { sessionMode?: string }).sessionMode === 'daemon';
+  // #M11: hand cast.ts everything runDaemonLoop needs to resume this clone for a
+  // second turn. Only for daemon clones that actually have a resumable session
+  // id (the initial turn ran under it above).
+  const resumeSpec: CloneResumeSpec | undefined =
+    isDaemon && opts.resumableSessionId !== undefined
+      ? {
+          sessionId: opts.resumableSessionId,
+          worktree: opts.worktree,
+          env: cloneEnv,
+          appendSystemPrompt,
+          ...(mcpConfigPath !== undefined ? { mcpConfigPath } : {}),
+        }
+      : undefined;
+
   return {
     cloneId,
     pid: proc.pid,
@@ -370,7 +428,8 @@ export async function spawnClone(opts: SpawnCloneOptions): Promise<CloneHandle> 
     ...((opts.snapshot as { sessionId?: string }).sessionId != null
       ? { sessionId: (opts.snapshot as { sessionId?: string }).sessionId }
       : {}),
-    isDaemon: (opts.snapshot as { sessionMode?: string }).sessionMode === 'daemon',
+    isDaemon,
+    ...(resumeSpec !== undefined ? { resumeSpec } : {}),
   };
 }
 

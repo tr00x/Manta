@@ -307,6 +307,13 @@ async function main(): Promise<void> {
         if (fixDefaults) {
           thresholdOverrides.heartbeatTimeoutMs = fixDefaults.heartbeatTimeoutMs;
           thresholdOverrides.startupGraceMs = fixDefaults.startupGraceMs;
+          // #M11: daemon FIX modes (pair-programming, test-storm) park a clone in
+          // IDLE/WAITING_FOR_TASK between turns while its partner works; tolerate
+          // a full partner turn so the resume-loop can re-task it instead of the
+          // idle reapers killing a correctly-waiting daemon. Harmless for the
+          // batch FIX modes (refactor-wave/bug-hunt) — their clones don't idle-wait.
+          thresholdOverrides.idleHeartbeatTimeoutMs = fixDefaults.idleHeartbeatTimeoutMs;
+          thresholdOverrides.maxIdleTimeMs = fixDefaults.maxIdleTimeMs;
           // tick budget MUST exceed the heartbeat window, else the cast aborts
           // before the window it's meant to allow. Lift it UNLESS the operator
           // set --tick-budget-ms explicitly (commander's default 1_500_000 = 25

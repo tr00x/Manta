@@ -19,6 +19,11 @@ describe('fixModeThresholdDefaults (bug #M12)', () => {
       expect(d!.startupGraceMs).toBe(900_000);
       // tick budget must exceed the heartbeat window, else the cast aborts first.
       expect(d!.tickBudgetMs).toBeGreaterThan(d!.heartbeatTimeoutMs);
+      // #M11: daemon FIX modes park clones IDLE between turns; the idle reapers
+      // must tolerate at least a full partner turn (heartbeatTimeoutMs) so a
+      // correctly-waiting reviewer is not reaped while its writer works.
+      expect(d!.idleHeartbeatTimeoutMs).toBeGreaterThanOrEqual(d!.heartbeatTimeoutMs);
+      expect(d!.maxIdleTimeMs).toBeGreaterThanOrEqual(d!.heartbeatTimeoutMs);
     }
   });
 

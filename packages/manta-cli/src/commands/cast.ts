@@ -9,6 +9,7 @@ import type {
 } from '@manta/bus';
 import type { CloneRunner, CloneHandle } from '../spawner/clone-spawner.js';
 import { spawnClone, selectCloneRunner } from '../spawner/clone-spawner.js';
+import { runDaemonLoop } from '../daemon-loop.js';
 import { forkParentSession } from '../spawner/session-fork.js';
 import { propagateProjectInstructions } from '../spawner/project-instructions.js';
 import {
@@ -288,6 +289,13 @@ export interface RunCastOptions {
    */
   cloneAssignments?: Record<string, CloneAssignment>;
   runner: CloneRunner;
+  /**
+   * #M11 test seam: runner the daemon resume-loops use to drive a clone's
+   * SECOND+ turn. In production it is omitted and each loop builds its own
+   * `runClaudeResume(spec.sessionId)`; unit tests inject a fake so the loop
+   * never spawns real `claude`. Has no effect for non-daemon modes.
+   */
+  daemonResumeRunner?: CloneRunner;
   reporter: Reporter;
   /** Skip the `claude mcp list` pre-flight. Tests with fake runners pass false. */
   verifyMcp?: boolean;
@@ -785,6 +793,11 @@ export async function runCastCommand(
       const busContract = toBusContract(snap);
       await rt.ctx.contracts.write(busContract);
 
+      // #M11: session id the daemon resume-loop will `--resume` (forked
+      // transcript session, else the generated daemon id). Undefined for batch.
+      const resumableSessionId =
+        sessionMode === 'daemon' ? forkedSessionId ?? sessionId : undefined;
+
       const handle = await spawnClone({
         repoRoot: rt.repoRoot,
         snapshot: snap,
@@ -802,6 +815,11 @@ export async function runCastCommand(
         castMode: opts.mode,
         castPolicy,
         castRoster,
+        // #M11: for daemon clones, the id the initial turn runs under so
+        // runDaemonLoop can `--resume` it — the forked transcript session when
+        // inheritance succeeded, else the generated daemon session id (passed as
+        // `--session-id`). Undefined for batch clones (no resume).
+        ...(resumableSessionId !== undefined ? { resumableSessionId } : {}),
       });
       handles.push(handle);
       opts.reporter.info('cast.spawn', { cloneId, worktree: wt.path });
@@ -886,6 +904,53 @@ export async function runCastCommand(
 
     const ctrl = new AbortController();
     const budgetTimer = setTimeout(() => ctrl.abort(), opts.tickBudgetMs);
+
+    // #M11 — drive each daemon clone's SECOND+ turn. A daemon clone (pair
+    // reviewer/writer, test-storm roles, doc-chaser) runs ONE `--print` turn at
+    // spawn, then exits its process and waits IDLE for the orchestrator to push
+    // the next work item. The dispatcher (onCycleComplete below) ENQUEUES that
+    // work, but nothing ever DEQUEUED it and resumed the clone — `runDaemonLoop`
+    // existed and was unit-tested but had no production caller, so pair/test-
+    // storm/doc-chase silently degraded to a single turn (#M11 true root cause).
+    // Wire it now: after a daemon clone's initial turn exits, run a per-clone
+    // resume-loop that dequeues its enqueued prompts and `claude --resume`s the
+    // same session, byte-identical env/priming/MCP (resumeSpec). All loops share
+    // ctrl.signal; the tick-loop's termination (isDone / all-DEAD / budget) then
+    // aborts them. Gated on daemon mode + a workQueue so the batch path is
+    // unchanged. maxEmptyPolls is effectively unbounded — the loop ends on abort,
+    // not on a quiet gap, so a reviewer waiting out a long writer turn is not
+    // dropped (a runaway is still bounded by the budget timer that aborts ctrl).
+    const daemonDriveLoops: Array<Promise<unknown>> = [];
+    if (sessionMode === 'daemon' && rt.ctx.workQueue) {
+      const wq = rt.ctx.workQueue;
+      for (const h of handles) {
+        const spec = h.resumeSpec;
+        if (!spec) continue;
+        daemonDriveLoops.push(
+          h.exit.then(
+            () =>
+              runDaemonLoop({
+                sessionId: spec.sessionId,
+                cloneId: h.cloneId,
+                castId: opts.castId,
+                worktree: spec.worktree,
+                workQueue: wq,
+                appendSystemPrompt: spec.appendSystemPrompt,
+                env: spec.env,
+                pollIntervalMs: opts.cycleIntervalMs,
+                maxResumeFailures: 3,
+                maxEmptyPolls: Number.MAX_SAFE_INTEGER,
+                signal: ctrl.signal,
+                ...(spec.mcpConfigPath !== undefined ? { mcpConfigPath: spec.mcpConfigPath } : {}),
+                ...(opts.daemonResumeRunner !== undefined ? { runner: opts.daemonResumeRunner } : {}),
+              }).catch(() => undefined),
+            // Initial turn failed (spawn_failed) → nothing to resume.
+            () => undefined,
+          ),
+        );
+      }
+    }
+
     let loopResult;
     try {
       loopResult = await runTickLoop({
@@ -906,16 +971,35 @@ export async function runCastCommand(
             }
           : undefined,
         allDone: async () => {
-          if (pairDispatcher?.isDone) return true;
-          if (stormDispatcher?.isDone) return true;
+          // #M11: a dispatcher-driven mode (pair-programming, test-storm) owns
+          // its own termination — the pair iterates writer↔reviewer until the
+          // reviewer approves or the iteration budget is spent (isDone). We must
+          // NOT apply the idle-/queue-empty heuristic for these modes: with the
+          // daemon resume-loops now draining the queue, a dequeued item is
+          // CLAIMED (so `pending()` excludes it) while its clone is still booting
+          // its resumed turn (registry still shows IDLE for a beat) — the
+          // heuristic would race and end the cast mid-iteration, the exact silent
+          // degrade #M11 is. Terminate on isDone, OR the safety net that every
+          // clone is DEAD (both reaped/exited → the pair can't progress), OR the
+          // budget-abort backstop. (The all-DEAD net also keeps fake-runner unit
+          // tests fast — their clones are reaped to DEAD within the tight test
+          // thresholds rather than waiting out the budget.)
+          if (pairDispatcher || stormDispatcher) {
+            if (pairDispatcher?.isDone || stormDispatcher?.isDone) return true;
+            const all = await rt.ctx.registry.list();
+            const ours = all.filter((c) => cloneIds.includes(c.clone_id));
+            return ours.length === cloneIds.length && ours.every((c) => c.state === 'DEAD');
+          }
           const all = await rt.ctx.registry.list();
           const ours = all.filter((c) => cloneIds.includes(c.clone_id));
           if (ours.length < cloneIds.length) return false;
           if (sessionMode === 'batch') {
             return ours.every((c) => c.state === 'DEAD');
           }
-          // Daemon mode: done when all clones are DEAD, OR all clones
-          // are IDLE/DEAD with no pending work items in the queue.
+          // Daemon mode WITHOUT a dispatcher (documentation-chase): work is
+          // front-loaded into the queue at cast start and drained by the clone's
+          // resume-loop. Done when all clones are DEAD, OR all clones are
+          // IDLE/DEAD with no pending work left.
           const allDead = ours.every((c) => c.state === 'DEAD');
           if (allDead) return true;
           const allIdleOrDead = ours.every(
@@ -934,6 +1018,17 @@ export async function runCastCommand(
       });
     } finally {
       clearTimeout(budgetTimer);
+    }
+
+    // #M11: the tick-loop has ended (pair converged/escalated via isDone, all
+    // clones DEAD, or budget abort). Stop the daemon resume-loops and drain them
+    // BEFORE the reap below — aborting kills any in-flight resumed `claude
+    // --print` (daemon-loop's abort-kill) so no resumed turn is orphaned. On a
+    // clean (non-abort) exit ctrl was not yet aborted; abort it now. Idempotent
+    // when the budget timer already aborted it.
+    if (daemonDriveLoops.length > 0) {
+      ctrl.abort();
+      await Promise.allSettled(daemonDriveLoops);
     }
 
     // I-IMP-3 (Chunk-2 review): if the loop exited via budget-abort, surviving

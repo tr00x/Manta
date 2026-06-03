@@ -16,6 +16,12 @@ export interface DaemonLoopOptions {
   maxEmptyPolls: number;
   signal?: AbortSignal;
   claudeBin?: string;
+  /**
+   * #M14/#M11: the clone's minimal-MCP config, forwarded to the resume runner so
+   * a resumed daemon turn keeps `--strict-mcp-config` isolation instead of
+   * re-inheriting the operator's heavy user-scope stack (which wedges boot).
+   */
+  mcpConfigPath?: string;
   /** Override for testing — replaces the default runClaudeResume runner. */
   runner?: CloneRunner;
   onCycleComplete?: (item: WorkItem) => Promise<void>;
@@ -60,13 +66,32 @@ export async function runDaemonLoop(
       env: opts.env,
       appendSystemPrompt: opts.appendSystemPrompt,
       prompt: item.prompt,
+      // #M14/#M11: keep minimal-MCP isolation on every resumed turn.
+      ...(opts.mcpConfigPath !== undefined ? { mcpConfigPath: opts.mcpConfigPath } : {}),
     });
+
+    // #M11: a resumed turn is a child `claude --print` we own. If the cast
+    // aborts mid-turn (budget cap, operator abort), kill it now rather than
+    // leaving an orphan zombie holding the worktree (CLAUDE.md "catastrophic
+    // incident" class). `await proc` itself does not observe the signal, so we
+    // bridge the abort to a SIGTERM and detach the listener once the turn ends.
+    const killOnAbort = (): void => {
+      try {
+        proc.kill('SIGTERM');
+      } catch {
+        // already exited
+      }
+    };
+    opts.signal?.addEventListener('abort', killOnAbort, { once: true });
+    if (opts.signal?.aborted) killOnAbort();
 
     let exitResult: { exitCode?: number | null; failed?: boolean };
     try {
       exitResult = await proc;
     } catch (err) {
       exitResult = err as { exitCode?: number | null; failed?: boolean };
+    } finally {
+      opts.signal?.removeEventListener('abort', killOnAbort);
     }
 
     if (exitResult.failed && exitResult.exitCode == null) {

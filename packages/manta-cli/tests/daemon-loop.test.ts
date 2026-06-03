@@ -196,4 +196,55 @@ describe('runDaemonLoop', () => {
     expect(result.resumeCycles).toBe(1);
     expect(result.exitReason).toBe('no_work');
   });
+
+  // #M14/#M11: a resumed turn must keep the minimal-MCP isolation, else it
+  // re-inherits the operator's heavy user-scope stack and wedges on resume.
+  it('forwards mcpConfigPath to the resume runner', async () => {
+    const seen: Array<string | undefined> = [];
+    const capturingRunner: CloneRunner = {
+      run(input) {
+        seen.push(input.mcpConfigPath);
+        return execa(process.execPath, ['-e', 'process.exit(0)'], { reject: false });
+      },
+    };
+    const result = await runDaemonLoop(
+      makeOpts({
+        workQueue: makeFakeWorkQueue([makeWorkItem({ id: 'wq-mcp', prompt: 'p' })]),
+        runner: capturingRunner,
+        maxEmptyPolls: 1,
+        mcpConfigPath: '/wt/.manta/clone-mcp.json',
+      }),
+    );
+    expect(result.itemsCompleted).toContain('wq-mcp');
+    expect(seen).toContain('/wt/.manta/clone-mcp.json');
+  });
+
+  // #M11: on abort the loop must KILL the in-flight resumed turn, not hang
+  // awaiting it (orphan-zombie / "catastrophic" class). The fake turn would run
+  // 60s; if the abort-kill works the loop returns in ~100ms — so a 10s test
+  // timeout proves the kill fired (a hung await would blow the timeout).
+  it('kills the in-flight resumed turn on abort instead of hanging on it', async () => {
+    const ctrl = new AbortController();
+    const hangRunner: CloneRunner = {
+      run() {
+        return execa(
+          process.execPath,
+          ['-e', 'setTimeout(() => process.exit(0), 60000)'],
+          { reject: false },
+        );
+      },
+    };
+    const loop = runDaemonLoop(
+      makeOpts({
+        workQueue: makeFakeWorkQueue([makeWorkItem({ id: 'wq-hang' })]),
+        runner: hangRunner,
+        signal: ctrl.signal,
+        maxEmptyPolls: 1,
+        pollIntervalMs: 5,
+      }),
+    );
+    setTimeout(() => ctrl.abort(), 100);
+    const result = await loop;
+    expect(['aborted', 'no_work']).toContain(result.exitReason);
+  }, 10_000);
 });

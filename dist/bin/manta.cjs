@@ -42299,16 +42299,23 @@ async function spawnClone(opts) {
   } catch {
     mcpConfigPath = void 0;
   }
+  const cloneEnv = {
+    MANTA_SNAPSHOT_PATH: snapshotPath,
+    MANTA_REPO_ROOT: opts.repoRoot,
+    MANTA_CLONE_ID: cloneId,
+    MANTA_BUS_PEER_SCOPE: opts.snapshot.taskContract.mode === "forking-realities" ? "parent-only" : "siblings-allowed"
+  };
+  const appendSystemPrompt = buildPrimingText(opts.snapshot);
   const proc = opts.runner.run({
     cwd: opts.worktree,
-    env: {
-      MANTA_SNAPSHOT_PATH: snapshotPath,
-      MANTA_REPO_ROOT: opts.repoRoot,
-      MANTA_CLONE_ID: cloneId,
-      MANTA_BUS_PEER_SCOPE: opts.snapshot.taskContract.mode === "forking-realities" ? "parent-only" : "siblings-allowed"
-    },
-    appendSystemPrompt: buildPrimingText(opts.snapshot),
+    env: cloneEnv,
+    appendSystemPrompt,
     prompt: buildInitialPrompt(opts.snapshot),
+    // #M11: pin the initial turn to the resumable session id (forked id, or the
+    // generated daemon id passed as --session-id) so runDaemonLoop can --resume
+    // it. The resume runner (runClaudeResume) ignores this and uses its own
+    // forked id; runClaudeCli honours it as --session-id. Undefined for batch.
+    ...opts.resumableSessionId !== void 0 ? { sessionId: opts.resumableSessionId } : {},
     ...mcpConfigPath !== void 0 ? { mcpConfigPath } : {}
   });
   try {
@@ -42383,6 +42390,14 @@ async function spawnClone(opts) {
     if (killTimer) clearTimeout(killTimer);
     return result;
   };
+  const isDaemon = opts.snapshot.sessionMode === "daemon";
+  const resumeSpec = isDaemon && opts.resumableSessionId !== void 0 ? {
+    sessionId: opts.resumableSessionId,
+    worktree: opts.worktree,
+    env: cloneEnv,
+    appendSystemPrompt,
+    ...mcpConfigPath !== void 0 ? { mcpConfigPath } : {}
+  } : void 0;
   return {
     cloneId,
     pid: proc.pid,
@@ -42393,7 +42408,8 @@ async function spawnClone(opts) {
     },
     terminate,
     ...opts.snapshot.sessionId != null ? { sessionId: opts.snapshot.sessionId } : {},
-    isDaemon: opts.snapshot.sessionMode === "daemon"
+    isDaemon,
+    ...resumeSpec !== void 0 ? { resumeSpec } : {}
   };
 }
 function runClaudeCli(opts = {}) {
@@ -42452,6 +42468,95 @@ function runClaudeResume(opts) {
       );
     }
   };
+}
+
+// src/daemon-loop.ts
+init_cjs_shims();
+
+// src/util/sleep.ts
+init_cjs_shims();
+function sleep(ms2, signal) {
+  return new Promise((resolve14) => {
+    if (signal?.aborted) return resolve14();
+    const onAbort = () => {
+      clearTimeout(t);
+      resolve14();
+    };
+    const t = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve14();
+    }, ms2);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+// src/daemon-loop.ts
+async function runDaemonLoop(opts) {
+  let resumeCycles = 0;
+  let consecutiveFailures = 0;
+  let emptyPolls = 0;
+  const itemsCompleted = [];
+  for (; ; ) {
+    if (opts.signal?.aborted) {
+      return { resumeCycles, itemsCompleted, exitReason: "aborted" };
+    }
+    const item = await opts.workQueue.dequeue(opts.cloneId);
+    if (!item) {
+      emptyPolls++;
+      if (emptyPolls >= opts.maxEmptyPolls) {
+        return { resumeCycles, itemsCompleted, exitReason: "no_work" };
+      }
+      await sleep(opts.pollIntervalMs, opts.signal);
+      continue;
+    }
+    emptyPolls = 0;
+    const runner = opts.runner ?? runClaudeResume({
+      sessionId: opts.sessionId,
+      ...opts.claudeBin !== void 0 ? { claudeBin: opts.claudeBin } : {}
+    });
+    const proc = runner.run({
+      cwd: opts.worktree,
+      env: opts.env,
+      appendSystemPrompt: opts.appendSystemPrompt,
+      prompt: item.prompt,
+      // #M14/#M11: keep minimal-MCP isolation on every resumed turn.
+      ...opts.mcpConfigPath !== void 0 ? { mcpConfigPath: opts.mcpConfigPath } : {}
+    });
+    const killOnAbort = () => {
+      try {
+        proc.kill("SIGTERM");
+      } catch {
+      }
+    };
+    opts.signal?.addEventListener("abort", killOnAbort, { once: true });
+    if (opts.signal?.aborted) killOnAbort();
+    let exitResult;
+    try {
+      exitResult = await proc;
+    } catch (err) {
+      exitResult = err;
+    } finally {
+      opts.signal?.removeEventListener("abort", killOnAbort);
+    }
+    if (exitResult.failed && exitResult.exitCode == null) {
+      consecutiveFailures++;
+      try {
+        await opts.workQueue.release(item.id);
+      } catch {
+      }
+      if (consecutiveFailures >= opts.maxResumeFailures) {
+        return { resumeCycles, itemsCompleted, exitReason: "max_failures" };
+      }
+      continue;
+    }
+    await opts.workQueue.complete(item.id);
+    itemsCompleted.push(item.id);
+    resumeCycles++;
+    consecutiveFailures = 0;
+    if (opts.onCycleComplete) {
+      await opts.onCycleComplete(item);
+    }
+  }
 }
 
 // src/spawner/session-fork.ts
@@ -42658,25 +42763,6 @@ function buildCloneSnapshot(req) {
 
 // src/tick-loop.ts
 init_cjs_shims();
-
-// src/util/sleep.ts
-init_cjs_shims();
-function sleep(ms2, signal) {
-  return new Promise((resolve14) => {
-    if (signal?.aborted) return resolve14();
-    const onAbort = () => {
-      clearTimeout(t);
-      resolve14();
-    };
-    const t = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve14();
-    }, ms2);
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
-}
-
-// src/tick-loop.ts
 async function runTickLoop(opts) {
   let cycles = 0;
   let aborted2 = false;
@@ -44190,6 +44276,7 @@ async function runCastCommand(rt2, opts) {
       });
       const busContract = toBusContract(snap);
       await rt2.ctx.contracts.write(busContract);
+      const resumableSessionId = sessionMode === "daemon" ? forkedSessionId ?? sessionId : void 0;
       const handle = await spawnClone({
         repoRoot: rt2.repoRoot,
         snapshot: snap,
@@ -44206,7 +44293,12 @@ async function runCastCommand(rt2, opts) {
         casts: rt2.ctx.casts,
         castMode: opts.mode,
         castPolicy,
-        castRoster
+        castRoster,
+        // #M11: for daemon clones, the id the initial turn runs under so
+        // runDaemonLoop can `--resume` it — the forked transcript session when
+        // inheritance succeeded, else the generated daemon session id (passed as
+        // `--session-id`). Undefined for batch clones (no resume).
+        ...resumableSessionId !== void 0 ? { resumableSessionId } : {}
       });
       handles.push(handle);
       opts.reporter.info("cast.spawn", { cloneId, worktree: wt2.path });
@@ -44277,6 +44369,35 @@ async function runCastCommand(rt2, opts) {
     });
     const ctrl = new AbortController();
     const budgetTimer = setTimeout(() => ctrl.abort(), opts.tickBudgetMs);
+    const daemonDriveLoops = [];
+    if (sessionMode === "daemon" && rt2.ctx.workQueue) {
+      const wq = rt2.ctx.workQueue;
+      for (const h of handles) {
+        const spec = h.resumeSpec;
+        if (!spec) continue;
+        daemonDriveLoops.push(
+          h.exit.then(
+            () => runDaemonLoop({
+              sessionId: spec.sessionId,
+              cloneId: h.cloneId,
+              castId: opts.castId,
+              worktree: spec.worktree,
+              workQueue: wq,
+              appendSystemPrompt: spec.appendSystemPrompt,
+              env: spec.env,
+              pollIntervalMs: opts.cycleIntervalMs,
+              maxResumeFailures: 3,
+              maxEmptyPolls: Number.MAX_SAFE_INTEGER,
+              signal: ctrl.signal,
+              ...spec.mcpConfigPath !== void 0 ? { mcpConfigPath: spec.mcpConfigPath } : {},
+              ...opts.daemonResumeRunner !== void 0 ? { runner: opts.daemonResumeRunner } : {}
+            }).catch(() => void 0),
+            // Initial turn failed (spawn_failed) → nothing to resume.
+            () => void 0
+          )
+        );
+      }
+    }
     let loopResult;
     try {
       loopResult = await runTickLoop({
@@ -44295,8 +44416,12 @@ async function runCastCommand(rt2, opts) {
           }
         } : void 0,
         allDone: async () => {
-          if (pairDispatcher?.isDone) return true;
-          if (stormDispatcher?.isDone) return true;
+          if (pairDispatcher || stormDispatcher) {
+            if (pairDispatcher?.isDone || stormDispatcher?.isDone) return true;
+            const all2 = await rt2.ctx.registry.list();
+            const ours2 = all2.filter((c) => cloneIds.includes(c.clone_id));
+            return ours2.length === cloneIds.length && ours2.every((c) => c.state === "DEAD");
+          }
           const all = await rt2.ctx.registry.list();
           const ours = all.filter((c) => cloneIds.includes(c.clone_id));
           if (ours.length < cloneIds.length) return false;
@@ -44320,6 +44445,10 @@ async function runCastCommand(rt2, opts) {
       });
     } finally {
       clearTimeout(budgetTimer);
+    }
+    if (daemonDriveLoops.length > 0) {
+      ctrl.abort();
+      await Promise.allSettled(daemonDriveLoops);
     }
     if (loopResult.aborted) {
       opts.reporter.info("cast.budget_abort", {
@@ -51323,8 +51452,20 @@ function fixModeThresholdDefaults(mode) {
     // 20 min between tool calls
     startupGraceMs: 9e5,
     // 15 min cold-boot grace
-    tickBudgetMs: 36e5
+    tickBudgetMs: 36e5,
     // 60 min — must exceed the heartbeat window
+    // #M11: pair-programming / test-storm are DAEMON modes — a clone (e.g. the
+    // reviewer) legitimately goes IDLE/WAITING_FOR_TASK between turns, waiting
+    // for the resume-loop to push the next work item once its partner finishes.
+    // A partner's turn can take a full heartbeatTimeoutMs (20 min), so the idle
+    // reapers must tolerate at least that long or a correctly-waiting daemon is
+    // reaped mid-cast (the #M11 recurrence: reviewer reaped at the 600s idle-
+    // heartbeat default while the writer was still working). Give daemon idle
+    // states the same generous envelope as the active-work timeout, with margin.
+    idleHeartbeatTimeoutMs: 18e5,
+    // 30 min — survive a full partner turn + margin
+    maxIdleTimeMs: 18e5
+    // 30 min — ditto for the idle-duration reaper
   };
 }
 function thresholdUndercutWarnings(mode, flags) {
@@ -51567,6 +51708,8 @@ async function main() {
       if (fixDefaults) {
         thresholdOverrides.heartbeatTimeoutMs = fixDefaults.heartbeatTimeoutMs;
         thresholdOverrides.startupGraceMs = fixDefaults.startupGraceMs;
+        thresholdOverrides.idleHeartbeatTimeoutMs = fixDefaults.idleHeartbeatTimeoutMs;
+        thresholdOverrides.maxIdleTimeMs = fixDefaults.maxIdleTimeMs;
         if (options2.tickBudgetMs === 15e5) {
           options2.tickBudgetMs = fixDefaults.tickBudgetMs;
         }

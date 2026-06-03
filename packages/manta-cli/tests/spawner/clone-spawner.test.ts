@@ -387,6 +387,79 @@ describe('clone-spawner', () => {
     expect(captured[0]!.metadata?.role).toBe('reviewer');
   });
 
+  // #M11: a daemon clone's initial turn must run under the resumable session id
+  // (so runDaemonLoop can `--resume` it later) and the handle must expose a
+  // resumeSpec carrying byte-identical env/priming for the resume path. Batch
+  // clones get neither.
+  it('daemon clone runs under resumableSessionId and exposes a resumeSpec (bug #M11)', async () => {
+    fx = await makeRepoFixture();
+    const seenInputs: Array<{ sessionId: string | undefined; mcpConfigPath: string | undefined }> = [];
+    const realRunner = runFakeCloneScript({ scriptPath: fixturePath });
+    const capturingRunner = {
+      run(input: Parameters<typeof realRunner.run>[0]) {
+        seenInputs.push({ sessionId: input.sessionId, mcpConfigPath: input.mcpConfigPath });
+        return realRunner.run(input);
+      },
+    };
+    const snap = makeSnapshotFor({
+      cloneId: 'B',
+      castId: 'cast-pair-2',
+      approachHint: 'reviewer',
+      sessionMode: 'daemon',
+      sessionId: 'cast-pair-2-B-uuid',
+    });
+    const handle = await spawnClone({
+      repoRoot: fx.root,
+      snapshot: snap,
+      worktree: fx.root,
+      runner: capturingRunner,
+      registry: makeRegistryFake(),
+      casts: makeFakeCasts().creator,
+      castMode: 'pair-programming',
+      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'daemon' },
+      castRoster: [{ clone_id: 'B', assignment: null }],
+      resumableSessionId: 'cast-pair-2-B-uuid',
+    });
+    await handle.exit;
+    // initial turn pinned to the resumable session id
+    expect(seenInputs[0]!.sessionId).toBe('cast-pair-2-B-uuid');
+    // resumeSpec is present and complete
+    expect(handle.isDaemon).toBe(true);
+    expect(handle.resumeSpec).toBeDefined();
+    expect(handle.resumeSpec!.sessionId).toBe('cast-pair-2-B-uuid');
+    expect(handle.resumeSpec!.worktree).toBe(fx.root);
+    expect(handle.resumeSpec!.env.MANTA_CLONE_ID).toBe('B');
+    expect(handle.resumeSpec!.appendSystemPrompt.length).toBeGreaterThan(0);
+  });
+
+  it('batch clone gets NO resumeSpec and no pinned session id (regression)', async () => {
+    fx = await makeRepoFixture();
+    const seenInputs: Array<{ sessionId: string | undefined }> = [];
+    const realRunner = runFakeCloneScript({ scriptPath: fixturePath });
+    const capturingRunner = {
+      run(input: Parameters<typeof realRunner.run>[0]) {
+        seenInputs.push({ sessionId: input.sessionId });
+        return realRunner.run(input);
+      },
+    };
+    const handle = await spawnClone({
+      repoRoot: fx.root,
+      snapshot: makeSnapshotFor({ cloneId: 'A', castId: 'cast-batch-1' }),
+      worktree: fx.root,
+      runner: capturingRunner,
+      registry: makeRegistryFake(),
+      casts: makeFakeCasts().creator,
+      castMode: 'recon-swarm',
+      castPolicy: { peer_messaging: 'allowed', auto_merge_threshold: null, session_mode: 'batch' },
+      castRoster: [{ clone_id: 'A', assignment: null }],
+      // no resumableSessionId for batch
+    });
+    await handle.exit;
+    expect(seenInputs[0]!.sessionId).toBeUndefined();
+    expect(handle.resumeSpec).toBeUndefined();
+    expect(handle.isDaemon).toBe(false);
+  });
+
   it('runClaudeCli passes --session-id when provided in input', async () => {
     const runner = runClaudeCli({ claudeBin: '/usr/bin/echo' });
     const proc = runner.run({

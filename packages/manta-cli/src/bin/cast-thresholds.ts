@@ -20,6 +20,8 @@ export interface FixModeDefaults {
   heartbeatTimeoutMs: number;
   startupGraceMs: number;
   tickBudgetMs: number;
+  idleHeartbeatTimeoutMs: number;
+  maxIdleTimeMs: number;
 }
 
 /** Returns the FIX-mode timing defaults, or null for read/quick modes. */
@@ -29,6 +31,16 @@ export function fixModeThresholdDefaults(mode: string): FixModeDefaults | null {
     heartbeatTimeoutMs: 1_200_000, // 20 min between tool calls
     startupGraceMs: 900_000, // 15 min cold-boot grace
     tickBudgetMs: 3_600_000, // 60 min — must exceed the heartbeat window
+    // #M11: pair-programming / test-storm are DAEMON modes — a clone (e.g. the
+    // reviewer) legitimately goes IDLE/WAITING_FOR_TASK between turns, waiting
+    // for the resume-loop to push the next work item once its partner finishes.
+    // A partner's turn can take a full heartbeatTimeoutMs (20 min), so the idle
+    // reapers must tolerate at least that long or a correctly-waiting daemon is
+    // reaped mid-cast (the #M11 recurrence: reviewer reaped at the 600s idle-
+    // heartbeat default while the writer was still working). Give daemon idle
+    // states the same generous envelope as the active-work timeout, with margin.
+    idleHeartbeatTimeoutMs: 1_800_000, // 30 min — survive a full partner turn + margin
+    maxIdleTimeMs: 1_800_000, // 30 min — ditto for the idle-duration reaper
   };
 }
 
