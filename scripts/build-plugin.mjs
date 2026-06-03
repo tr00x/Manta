@@ -46,7 +46,9 @@ const RUNTIME_MODULES = ['proper-lockfile', 'graceful-fs', 'retry', 'signal-exit
 // manta-prompt-router.cjs is the UserPromptSubmit hook bin (root hooks/hooks.json
 // → ${CLAUDE_PLUGIN_ROOT}/dist/bin/manta-prompt-router.cjs); injects the
 // manta-orchestrate skill on a Manta-intent prompt.
-const artifacts = ['manta.cjs', 'server.cjs', 'manta-statusline.cjs', 'manta-session-priming.cjs', 'manta-prompt-router.cjs'];
+// manta-skill-gate.cjs (PreToolUse) + manta-skill-mark.cjs (PostToolUse on Skill)
+// enforce "read a manta-* skill before a cast runs"; both bundled here.
+const artifacts = ['manta.cjs', 'server.cjs', 'manta-statusline.cjs', 'manta-session-priming.cjs', 'manta-prompt-router.cjs', 'manta-skill-gate.cjs', 'manta-skill-mark.cjs'];
 
 for (const f of artifacts) {
   if (!existsSync(join(srcBin, f))) {

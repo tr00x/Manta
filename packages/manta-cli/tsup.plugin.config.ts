@@ -38,6 +38,11 @@ export default defineConfig({
     // prompt it injects the manta-orchestrate skill body so the console is in
     // context the moment the user reaches for Manta. Bundled like the others.
     'bin/manta-prompt-router': 'src/bin/manta-prompt-router.ts',
+    // PreToolUse cast gate + PostToolUse skill marker — hooks/hooks.json points
+    // Claude Code at these. The gate denies a cast until a manta-* skill is
+    // loaded this session; the marker records the load. "Read the skill, then act."
+    'bin/manta-skill-gate': 'src/bin/manta-skill-gate.ts',
+    'bin/manta-skill-mark': 'src/bin/manta-skill-mark.ts',
   },
   outDir: 'plugin-dist',
   // Inline EVERYTHING — the plugin runtime has no node_modules to fall back on.
