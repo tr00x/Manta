@@ -58,7 +58,7 @@ function isCastAction(p) {
   if (/manta_cast$/i.test(t) || t === "mcp__manta-bus__manta_cast") return true;
   if (t === "Bash") {
     const cmd = p.tool_input?.command ?? "";
-    return /\bmanta(?:\.cjs)?\b[^\n]*\bcast\b/i.test(cmd);
+    return /\bmanta(?:\.cjs)?\s+cast\b/i.test(cmd);
   }
   return false;
 }

@@ -24,6 +24,14 @@ describe('manta-skill-gate (PreToolUse cast gate)', () => {
     expect(isCastAction({ tool_name: 'mcp__manta-bus__manta_status' })).toBe(false);
   });
 
+  it('does NOT false-fire on read commands that merely mention manta + cast paths', () => {
+    // Regression: the old `\bmanta\b[^\n]*\bcast\b` blocked these read-only cmds.
+    expect(isCastAction({ tool_name: 'Bash', tool_input: { command: 'grep -n foo packages/manta-cli/src/commands/cast.ts' } })).toBe(false);
+    expect(isCastAction({ tool_name: 'Bash', tool_input: { command: 'cat docs/manta-bugs.md | grep cast' } })).toBe(false);
+    expect(isCastAction({ tool_name: 'Bash', tool_input: { command: 'ls .manta/state/casts/' } })).toBe(false);
+    expect(isCastAction({ tool_name: 'Bash', tool_input: { command: 'git log --oneline manta-cli | grep cast' } })).toBe(false);
+  });
+
   it('DENIES a cast when the skill sentinel is absent (and injects the skill)', () => {
     const out = decide(
       { tool_name: 'mcp__manta-bus__manta_cast', session_id: 's1' },

@@ -45,9 +45,13 @@ export function isCastAction(p: PreToolUsePayload): boolean {
   if (/manta_cast$/i.test(t) || t === 'mcp__manta-bus__manta_cast') return true;
   if (t === 'Bash') {
     const cmd = p.tool_input?.command ?? '';
-    // `manta cast …`, `manta.cjs cast …`, `node …/manta.cjs cast` — but NOT
-    // unrelated words. Require the literal `cast` subcommand after a manta bin.
-    return /\bmanta(?:\.cjs)?\b[^\n]*\bcast\b/i.test(cmd);
+    // Match an actual cast INVOCATION — the `cast` subcommand IMMEDIATELY after a
+    // manta binary token: `manta cast …`, `manta.cjs cast …`, `node …/manta.cjs
+    // cast …`. The previous `\bmanta\b[^\n]*\bcast\b` was far too broad — it
+    // false-fired on any command merely mentioning a manta path AND the word cast
+    // (e.g. `grep … packages/manta-cli/src/commands/cast.ts`, `cat docs/…cast…`),
+    // blocking read-only commands. Require adjacency: manta(.cjs) <space> cast.
+    return /\bmanta(?:\.cjs)?\s+cast\b/i.test(cmd);
   }
   return false;
 }

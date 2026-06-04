@@ -732,7 +732,7 @@ export async function runCastCommand(
             reason: fork.skipped,
             message:
               fork.skipped === 'over_threshold'
-                ? 'parent transcript exceeds --distill-threshold-bytes; clone boots without transcript inheritance (pass --force-full-transcript to override)'
+                ? 'parent transcript is large (> the safe ceiling); clone is booting COLD (no transcript inheritance) ON PURPOSE — forking a multi-MB transcript blocks the clone in STARTING until it is reaped (#M17). Structured modes (refactor-wave/test-storm/etc.) have self-contained contracts and lose nothing cold. To force full inheritance anyway (accepting the freeze risk on a huge session) pass --force-full-transcript; to raise/lower the ceiling pass --distill-threshold-bytes <n>.'
                 : 'parent transcript not found on disk; clone boots without transcript inheritance',
           });
         }

@@ -243,15 +243,15 @@ async function main(): Promise<void> {
     )
     .option(
       '--force-full-transcript',
-      'Fork the FULL parent transcript regardless of size. This is now the DEFAULT (clones inherit the whole conversation); the flag is kept for back-compat / explicitness and is a no-op. Use --no-full-transcript to opt OUT and re-enable the size guard.',
+      'Fork the FULL parent transcript UNCONDITIONALLY (no size ceiling). Escape hatch only — on a long/huge session this can block every clone in STARTING until it is reaped (#M17), because replaying a multi-MB transcript outruns the boot grace. Default mode already forks full up to a safe 5 MB ceiling without this flag; use --force only when you KNOW the session is small enough or you accept the freeze risk.',
     )
     .option(
       '--no-full-transcript',
-      'Opt OUT of full-transcript inheritance: skip forking a parent transcript larger than --distill-threshold-bytes (the old safe-by-default behaviour — avoids re-ingesting a huge transcript × N clones, at the cost of clones booting without inherited context).',
+      'Opt OUT of warm inheritance: use the conservative 2 MB ceiling (clones cold-boot above it). The old safe-by-default behaviour.',
     )
     .option(
       '--distill-threshold-bytes <n>',
-      'Only with --no-full-transcript: parent transcripts strictly larger than this (bytes) skip transcript inheritance. Default 2 MB. Ignored in the default full-transcript mode.',
+      'Transcript-fork size ceiling (bytes): above this a clone cold-boots instead of forking the transcript (prevents the #M17 STARTING freeze). Overrides the default (5 MB in normal mode, 2 MB under --no-full-transcript). Ignored with --force-full-transcript.',
       parsePositiveIntOption,
     )
     .option(
@@ -328,11 +328,29 @@ async function main(): Promise<void> {
             options.tickBudgetMs = fixDefaults.tickBudgetMs;
           }
         }
-        // Full-transcript inheritance is now the DEFAULT (the operator asked not
-        // to force it every cast). `--no-full-transcript` opts out (commander
-        // sets `fullTranscript=false`); legacy `--force-full-transcript` is a
-        // redundant no-op. So full unless explicitly disabled.
-        const forceFullTranscript = options.fullTranscript !== false;
+        // #M17: transcript-fork policy is 3-state, NOT unconditional-full.
+        // `1636ce2` made full UNCONDITIONAL (Infinity) — which froze every clone
+        // in STARTING on a long session (the multi-MB `claude --resume` replay
+        // blocks the clone before its first heartbeat; the booting-ticker /
+        // roomy grace did NOT save it). Restore a size-guard FLOOR so the DEFAULT
+        // never freezes:
+        //   - default (no flag)        → fork full UP TO a safe ceiling (5 MB);
+        //                                 above it the clone cold-boots + a loud
+        //                                 warning (no freeze, no flag needed for
+        //                                 normal/large sessions).
+        //   - --no-full-transcript     → conservative 2 MB guard.
+        //   - --force-full-transcript  → truly unconditional (Infinity) escape
+        //                                 hatch — may freeze on a huge session,
+        //                                 the operator explicitly accepts that.
+        // `--distill-threshold-bytes <n>` overrides the ceiling in either guarded
+        // mode. `forceFullTranscript` passed to the cast is now the EXPLICIT flag
+        // only (unconditional), not the default.
+        const FULL_TRANSCRIPT_DEFAULT_CEILING = 5_000_000; // 5 MB — honors "full by default" for normal/large sessions, stays below the ~11.7 MB freeze zone
+        const CONSERVATIVE_CEILING = 2_000_000; // 2 MB — the proven-safe original guard
+        const forceFullTranscript = options.forceFullTranscript === true; // explicit unconditional only
+        const transcriptCeiling =
+          options.distillThresholdBytes ??
+          (options.fullTranscript === false ? CONSERVATIVE_CEILING : FULL_TRANSCRIPT_DEFAULT_CEILING);
         // Explicit flags override the mode-aware default.
         // #M13: but warn LOUDLY when an explicit value UNDERCUTS a FIX-mode safe
         // default — a `--startup-grace-ms 600000` on a long full-transcript FIX
@@ -342,7 +360,9 @@ async function main(): Promise<void> {
         for (const w of thresholdUndercutWarnings(mode, {
           heartbeatTimeoutMs: options.heartbeatTimeoutMs,
           startupGraceMs: options.startupGraceMs,
-          forceFullTranscript,
+          // The #M13 grace hint is relevant whenever a transcript IS being forked
+          // (default full-up-to-ceiling, or explicit force) — not only on force.
+          forceFullTranscript: options.fullTranscript !== false,
         })) {
           reporter.warn('cast.threshold_undercut_warning', { ...w });
         }
@@ -375,8 +395,13 @@ async function main(): Promise<void> {
             ...(cloneAssignments !== undefined ? { cloneAssignments } : {}),
             castId: `cast-${Date.now()}`,
             ...(options.parentSessionId !== undefined ? { parentSessionId: options.parentSessionId } : {}),
+            // #M17: forceFullTranscript = EXPLICIT --force-full-transcript only
+            // (unconditional Infinity). The resolved `transcriptCeiling` (default
+            // 5 MB, 2 MB under --no-full-transcript, or an explicit
+            // --distill-threshold-bytes) is the size floor that keeps the default
+            // from freezing on a huge session.
             forceFullTranscript,
-            ...(options.distillThresholdBytes !== undefined ? { distillThresholdBytes: options.distillThresholdBytes } : {}),
+            distillThresholdBytes: transcriptCeiling,
             inheritInstructions: options.inheritInstructions,
             runner: runClaudeCli(),
             reporter,

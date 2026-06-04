@@ -44247,7 +44247,7 @@ async function runCastCommand(rt2, opts) {
             castId: opts.castId,
             cloneId,
             reason: fork.skipped,
-            message: fork.skipped === "over_threshold" ? "parent transcript exceeds --distill-threshold-bytes; clone boots without transcript inheritance (pass --force-full-transcript to override)" : "parent transcript not found on disk; clone boots without transcript inheritance"
+            message: fork.skipped === "over_threshold" ? "parent transcript is large (> the safe ceiling); clone is booting COLD (no transcript inheritance) ON PURPOSE \u2014 forking a multi-MB transcript blocks the clone in STARTING until it is reaped (#M17). Structured modes (refactor-wave/test-storm/etc.) have self-contained contracts and lose nothing cold. To force full inheritance anyway (accepting the freeze risk on a huge session) pass --force-full-transcript; to raise/lower the ceiling pass --distill-threshold-bytes <n>." : "parent transcript not found on disk; clone boots without transcript inheritance"
           });
         }
       }
@@ -51731,13 +51731,13 @@ async function main() {
     "Real Claude session uuid whose transcript clones should inherit (RB1/bug #56). When omitted, resolves from MANTA_PARENT_SESSION_ID then CLAUDE_CODE_SESSION_ID; if all are unset, clones boot without transcript inheritance."
   ).option(
     "--force-full-transcript",
-    "Fork the FULL parent transcript regardless of size. This is now the DEFAULT (clones inherit the whole conversation); the flag is kept for back-compat / explicitness and is a no-op. Use --no-full-transcript to opt OUT and re-enable the size guard."
+    "Fork the FULL parent transcript UNCONDITIONALLY (no size ceiling). Escape hatch only \u2014 on a long/huge session this can block every clone in STARTING until it is reaped (#M17), because replaying a multi-MB transcript outruns the boot grace. Default mode already forks full up to a safe 5 MB ceiling without this flag; use --force only when you KNOW the session is small enough or you accept the freeze risk."
   ).option(
     "--no-full-transcript",
-    "Opt OUT of full-transcript inheritance: skip forking a parent transcript larger than --distill-threshold-bytes (the old safe-by-default behaviour \u2014 avoids re-ingesting a huge transcript \xD7 N clones, at the cost of clones booting without inherited context)."
+    "Opt OUT of warm inheritance: use the conservative 2 MB ceiling (clones cold-boot above it). The old safe-by-default behaviour."
   ).option(
     "--distill-threshold-bytes <n>",
-    "Only with --no-full-transcript: parent transcripts strictly larger than this (bytes) skip transcript inheritance. Default 2 MB. Ignored in the default full-transcript mode.",
+    "Transcript-fork size ceiling (bytes): above this a clone cold-boots instead of forking the transcript (prevents the #M17 STARTING freeze). Overrides the default (5 MB in normal mode, 2 MB under --no-full-transcript). Ignored with --force-full-transcript.",
     parsePositiveIntOption
   ).option(
     "--no-inherit-instructions",
@@ -51757,11 +51757,16 @@ async function main() {
           options2.tickBudgetMs = fixDefaults.tickBudgetMs;
         }
       }
-      const forceFullTranscript = options2.fullTranscript !== false;
+      const FULL_TRANSCRIPT_DEFAULT_CEILING = 5e6;
+      const CONSERVATIVE_CEILING = 2e6;
+      const forceFullTranscript = options2.forceFullTranscript === true;
+      const transcriptCeiling = options2.distillThresholdBytes ?? (options2.fullTranscript === false ? CONSERVATIVE_CEILING : FULL_TRANSCRIPT_DEFAULT_CEILING);
       for (const w2 of thresholdUndercutWarnings(mode, {
         heartbeatTimeoutMs: options2.heartbeatTimeoutMs,
         startupGraceMs: options2.startupGraceMs,
-        forceFullTranscript
+        // The #M13 grace hint is relevant whenever a transcript IS being forked
+        // (default full-up-to-ceiling, or explicit force) — not only on force.
+        forceFullTranscript: options2.fullTranscript !== false
       })) {
         reporter.warn("cast.threshold_undercut_warning", { ...w2 });
       }
@@ -51793,8 +51798,13 @@ async function main() {
           ...cloneAssignments !== void 0 ? { cloneAssignments } : {},
           castId: `cast-${Date.now()}`,
           ...options2.parentSessionId !== void 0 ? { parentSessionId: options2.parentSessionId } : {},
+          // #M17: forceFullTranscript = EXPLICIT --force-full-transcript only
+          // (unconditional Infinity). The resolved `transcriptCeiling` (default
+          // 5 MB, 2 MB under --no-full-transcript, or an explicit
+          // --distill-threshold-bytes) is the size floor that keeps the default
+          // from freezing on a huge session.
           forceFullTranscript,
-          ...options2.distillThresholdBytes !== void 0 ? { distillThresholdBytes: options2.distillThresholdBytes } : {},
+          distillThresholdBytes: transcriptCeiling,
           inheritInstructions: options2.inheritInstructions,
           runner: runClaudeCli(),
           reporter,
