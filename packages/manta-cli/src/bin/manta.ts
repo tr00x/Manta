@@ -243,12 +243,15 @@ async function main(): Promise<void> {
     )
     .option(
       '--force-full-transcript',
-      'Fork the parent transcript regardless of size (bypass --distill-threshold-bytes). RB1/bug #56: by default a transcript larger than the threshold is NOT copied (safe-by-default — avoids re-ingesting an 11.7 MB transcript × N clones).',
-      false,
+      'Fork the FULL parent transcript regardless of size. This is now the DEFAULT (clones inherit the whole conversation); the flag is kept for back-compat / explicitness and is a no-op. Use --no-full-transcript to opt OUT and re-enable the size guard.',
+    )
+    .option(
+      '--no-full-transcript',
+      'Opt OUT of full-transcript inheritance: skip forking a parent transcript larger than --distill-threshold-bytes (the old safe-by-default behaviour — avoids re-ingesting a huge transcript × N clones, at the cost of clones booting without inherited context).',
     )
     .option(
       '--distill-threshold-bytes <n>',
-      'Parent transcripts strictly larger than this (bytes) skip transcript inheritance unless --force-full-transcript is set (RB1/bug #56). Default 2 MB.',
+      'Only with --no-full-transcript: parent transcripts strictly larger than this (bytes) skip transcript inheritance. Default 2 MB. Ignored in the default full-transcript mode.',
       parsePositiveIntOption,
     )
     .option(
@@ -274,7 +277,10 @@ async function main(): Promise<void> {
           heartbeatTimeoutMs?: number;
           startupGraceMs?: number;
           parentSessionId?: string;
-          forceFullTranscript: boolean;
+          // commander: `--no-full-transcript` → `fullTranscript` (default true);
+          // `--force-full-transcript` → `forceFullTranscript` (legacy no-op).
+          fullTranscript: boolean;
+          forceFullTranscript?: boolean;
           distillThresholdBytes?: number;
           inheritInstructions: boolean;
         },
@@ -322,16 +328,21 @@ async function main(): Promise<void> {
             options.tickBudgetMs = fixDefaults.tickBudgetMs;
           }
         }
+        // Full-transcript inheritance is now the DEFAULT (the operator asked not
+        // to force it every cast). `--no-full-transcript` opts out (commander
+        // sets `fullTranscript=false`); legacy `--force-full-transcript` is a
+        // redundant no-op. So full unless explicitly disabled.
+        const forceFullTranscript = options.fullTranscript !== false;
         // Explicit flags override the mode-aware default.
         // #M13: but warn LOUDLY when an explicit value UNDERCUTS a FIX-mode safe
-        // default — a `--startup-grace-ms 600000` on a long `--force-full-transcript`
-        // FIX cast silently lowered the grace below the 900s built for exactly
-        // that case, and a 602s warm-boot got reaped. The override still wins (the
+        // default — a `--startup-grace-ms 600000` on a long full-transcript FIX
+        // cast silently lowered the grace below the 900s built for exactly that
+        // case, and a 602s warm-boot got reaped. The override still wins (the
         // operator may know better), but it must not be silent.
         for (const w of thresholdUndercutWarnings(mode, {
           heartbeatTimeoutMs: options.heartbeatTimeoutMs,
           startupGraceMs: options.startupGraceMs,
-          forceFullTranscript: options.forceFullTranscript,
+          forceFullTranscript,
         })) {
           reporter.warn('cast.threshold_undercut_warning', { ...w });
         }
@@ -364,7 +375,7 @@ async function main(): Promise<void> {
             ...(cloneAssignments !== undefined ? { cloneAssignments } : {}),
             castId: `cast-${Date.now()}`,
             ...(options.parentSessionId !== undefined ? { parentSessionId: options.parentSessionId } : {}),
-            forceFullTranscript: options.forceFullTranscript,
+            forceFullTranscript,
             ...(options.distillThresholdBytes !== undefined ? { distillThresholdBytes: options.distillThresholdBytes } : {}),
             inheritInstructions: options.inheritInstructions,
             runner: runClaudeCli(),

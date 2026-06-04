@@ -51731,11 +51731,13 @@ async function main() {
     "Real Claude session uuid whose transcript clones should inherit (RB1/bug #56). When omitted, resolves from MANTA_PARENT_SESSION_ID then CLAUDE_CODE_SESSION_ID; if all are unset, clones boot without transcript inheritance."
   ).option(
     "--force-full-transcript",
-    "Fork the parent transcript regardless of size (bypass --distill-threshold-bytes). RB1/bug #56: by default a transcript larger than the threshold is NOT copied (safe-by-default \u2014 avoids re-ingesting an 11.7 MB transcript \xD7 N clones).",
-    false
+    "Fork the FULL parent transcript regardless of size. This is now the DEFAULT (clones inherit the whole conversation); the flag is kept for back-compat / explicitness and is a no-op. Use --no-full-transcript to opt OUT and re-enable the size guard."
+  ).option(
+    "--no-full-transcript",
+    "Opt OUT of full-transcript inheritance: skip forking a parent transcript larger than --distill-threshold-bytes (the old safe-by-default behaviour \u2014 avoids re-ingesting a huge transcript \xD7 N clones, at the cost of clones booting without inherited context)."
   ).option(
     "--distill-threshold-bytes <n>",
-    "Parent transcripts strictly larger than this (bytes) skip transcript inheritance unless --force-full-transcript is set (RB1/bug #56). Default 2 MB.",
+    "Only with --no-full-transcript: parent transcripts strictly larger than this (bytes) skip transcript inheritance. Default 2 MB. Ignored in the default full-transcript mode.",
     parsePositiveIntOption
   ).option(
     "--no-inherit-instructions",
@@ -51755,10 +51757,11 @@ async function main() {
           options2.tickBudgetMs = fixDefaults.tickBudgetMs;
         }
       }
+      const forceFullTranscript = options2.fullTranscript !== false;
       for (const w2 of thresholdUndercutWarnings(mode, {
         heartbeatTimeoutMs: options2.heartbeatTimeoutMs,
         startupGraceMs: options2.startupGraceMs,
-        forceFullTranscript: options2.forceFullTranscript
+        forceFullTranscript
       })) {
         reporter.warn("cast.threshold_undercut_warning", { ...w2 });
       }
@@ -51790,7 +51793,7 @@ async function main() {
           ...cloneAssignments !== void 0 ? { cloneAssignments } : {},
           castId: `cast-${Date.now()}`,
           ...options2.parentSessionId !== void 0 ? { parentSessionId: options2.parentSessionId } : {},
-          forceFullTranscript: options2.forceFullTranscript,
+          forceFullTranscript,
           ...options2.distillThresholdBytes !== void 0 ? { distillThresholdBytes: options2.distillThresholdBytes } : {},
           inheritInstructions: options2.inheritInstructions,
           runner: runClaudeCli(),
