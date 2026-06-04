@@ -94,7 +94,7 @@ B:
 
 - `--allowed-paths` / `--forbidden-paths` — scope fence (CSV). `--max-files-changed 0` = read-only.
 - `--max-parallel-clones` — the ONLY usage limit (subscription: no dollars/charges/cooldown).
-- `--force-full-transcript` — fork your WHOLE transcript so clones boot warm with the conversation (default auto-forks up to ~2 MB, then boots cold with a loud warning). Use when the task depends on what was just discussed. On a long session pair it with `--startup-grace-ms 1200000` (don't pass a smaller grace — fix modes already default to a roomy one; undercutting it gets warned).
+- Transcript inheritance — by DEFAULT clones fork your conversation up to a **5 MB ceiling** (no flag; they boot warm). Above it they cold-boot with a loud warning, because forking a multi-MB transcript wedges the clone in STARTING (#M17). `--force-full-transcript` = fork UNCONDITIONALLY (escape hatch; can freeze on a huge session); `--no-full-transcript` = conservative 2 MB; `--distill-threshold-bytes <n>` retunes the ceiling. Structured modes (refactor-wave/test-storm) have self-contained contracts, so cold boot on a long session loses nothing.
 
 ### STEP 2 — Observe (don't busy-poll)
 
