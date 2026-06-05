@@ -33,11 +33,11 @@ Each sanitizer lives in `packages/manta-cli/src/share/` and returns
 
 | Artifact | Sanitizer | Source schema / renderer (file:line) | Key rules |
 |---|---|---|---|
-| Snapshot | `sanitize-snapshot.ts` | `SnapshotSchema` (`packages/manta-snapshot/src/schema.ts:65`) | drop `parentSessionId`/`parentPid`/`budget`/`sessionId`/`recentMessages`; redact `parentWorktree`/`cloneWorktree`; relativise `openFiles[].path`. |
+| Snapshot | `sanitize-snapshot.ts` | `SnapshotSchema` (`packages/manta-snapshot/src/schema.ts:58`) | drop `parentSessionId`/`parentPid`/`budget`/`sessionId`/`recentMessages`; redact `parentWorktree`/`cloneWorktree`; relativise `openFiles[].path`. |
 | Task contract | `sanitize-task-contract.ts` | `TaskContractSchema` (`packages/manta-snapshot/src/schema.ts:28`) | secret-scan `task`+`approachHint` (fatal); relativise scope paths. |
 | Post-mortem | `sanitize-post-mortem.ts` | `renderMarkdown` (`packages/manta-orchestrator/src/post-mortem.ts`) | header redaction only (Worktree/PID/epoch lines); full-text secret scan. |
-| ZK note | `sanitize-zk-note.ts` | `fsMemoryWriters.zkWrite` (`packages/manta-bus/src/memory-writers.ts:81`) | rewrite `created_at`; secret-scan title+body (fatal); body path → warn, no auto-redact. |
-| Event timeline | `sanitize-events.ts` | `renderEventPayload` (`packages/manta-orchestrator/src/post-mortem.ts:156`) | per-type allowlist projection over raw `events.jsonl`, filtered to winner, ts relativised. |
+| ZK note | `sanitize-zk-note.ts` | `fsMemoryWriters.zkWrite` (`packages/manta-bus/src/memory-writers.ts:84`) | rewrite `created_at`; secret-scan title+body (fatal); body path → warn, no auto-redact. |
+| Event timeline | `sanitize-events.ts` | `renderEventPayload` (`packages/manta-orchestrator/src/post-mortem.ts:239`) | per-type allowlist projection over raw `events.jsonl`, filtered to winner, ts relativised. |
 | Worktree diff | `sanitize-worktree-diff.ts` | `git diff <base>..<branch>` | full-text secret scan (fatal). |
 
 The secret-format regex set is centralised in `share/secret-scanner.ts`
@@ -49,7 +49,7 @@ report.
 
 You might assume `events[].payload` needs a recursive path-scan at share time.
 It does not: `renderEventPayload`
-(`packages/manta-orchestrator/src/post-mortem.ts:156`) **already** applies a
+(`packages/manta-orchestrator/src/post-mortem.ts:239`) **already** applies a
 per-type allowlist projection with default-deny — the renderer's own comment
 cites "Post-mortems are then bundled by `manta share`, so a leak here ships
 externally" as the motivation. And `redactPostMortemMetadata`
@@ -96,7 +96,7 @@ bundles, not null.
 ### 3.1 Provenance field mapping (auto-cast triggers)
 
 When auto-cast triggers land, `CastManifestSchema`
-(`packages/manta-bus/src/schema.ts:354`) gains an optional `metadata.trigger`
+(`packages/manta-bus/src/schema.ts:375`) gains an optional `metadata.trigger`
 block. `build-cast-origin.ts` reads it **read-only** and maps it 1:1 into
 `castOrigin.provenance` (wire = snake_case, manifest = camelCase):
 
