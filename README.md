@@ -11,14 +11,14 @@
 
 ### Clone Driven Development
 
-**A new experiment in parallel AI coding — and it actually works.**
+**A new experiment in parallel AI coding.**
 
 Instead of spawning cold, specialized helper agents, Manta makes Claude Code **clone _itself_**: same system prompt, your whole conversation inherited, each copy in its own isolated git worktree, all coordinating over a shared bus.
 
 [![version](https://img.shields.io/badge/version-0.1.0-blue)](CHANGELOG.md)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)](#install)
-[![tests](https://img.shields.io/badge/tests-1667%20passing-brightgreen)](#how-ready-is-it)
+[![tests](https://img.shields.io/badge/tests-1618%20passing-brightgreen)](#how-ready-is-it)
 [![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](#how-ready-is-it)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A2BE2)](#install)
 
@@ -122,7 +122,7 @@ sequenceDiagram
 <summary><b>Step by step (click to expand)</b></summary>
 
 1. **Allocate & isolate.** Manta creates a **git worktree** per clone under `.manta/worktrees/` — a separate checkout on its own branch. Clones never touch your working tree or each other's.
-2. **Inherit your context — conversation _and_ standards.** Manta forks a copy of your live session transcript into each clone and boots it with `claude --print --resume <fork>`, so the clone wakes up knowing the whole conversation. _(There's a safe **default** auto-fork threshold (~2 MB) so a cast doesn't blindly copy a huge transcript across N clones — above it the clone boots cold with a loud warning, never silently. Pass `--force-full-transcript` to fork the whole thing regardless; verified live on an 18 MB session.)_ It **also** copies your project's **`CLAUDE.md` / `CLAUDE.local.md`** into each clone's worktree — a clone's worktree is its own git checkout, and a gitignored `CLAUDE.md` would never reach it otherwise — so the clone also inherits your coding standards, conventions, and guardrails. (Opt out with `--no-inherit-instructions`.)
+2. **Inherit your context — conversation _and_ standards.** Manta forks a copy of your live session transcript into each clone and boots it with `claude --print --resume <fork>`, so the clone wakes up knowing the whole conversation. _(By **default** a clone forks your full transcript up to a safe **5 MB ceiling**, so it boots warm without blindly copying a multi-MB session across N clones; above the ceiling it cold-boots with a warning instead of freezing in `STARTING`. `--no-full-transcript` uses a conservative 2 MB ceiling, `--force-full-transcript` forks unconditionally with no ceiling, and `--distill-threshold-bytes <n>` retunes it.)_ It **also** copies your project's **`CLAUDE.md` / `CLAUDE.local.md`** into each clone's worktree — a clone's worktree is its own git checkout, and a gitignored `CLAUDE.md` would never reach it otherwise — so the clone also inherits your coding standards, conventions, and guardrails. (Opt out with `--no-inherit-instructions`.)
 3. **Hand off a contract.** Each clone gets a **task contract** — what to build, which paths it may touch, its budget, success criteria — and acknowledges it on the bus before starting.
 4. **Work in parallel, coordinate on the bus.** Clones talk through the **Manta bus** (an MCP server): **file locks** (no two edit the same file), **work claims**, **broadcasts**, **heartbeats**. No clone can silently corrupt shared state.
 5. **Commit & die gracefully.** A clone writes a report, commits to its branch, releases its locks, and signals its own death. It does **not** push — you pull.
@@ -308,10 +308,10 @@ Honest status — `0.1.0`, **early but real**. Everything below is verified by t
 | **Merge-review gate**        | ✓ runs the real quality gate before scoring competing branches                                               |
 | **Usage guardrail**          | ✓ subscription-aware parallelism cap (`--max-parallel-clones`) — no dollars, charges, or cooldown           |
 | **Distribution**             | ✓ self-contained npm artifact + a validated Claude Code plugin                                               |
-| **Concurrent casts**         | ✓ safe — disjoint clone slots + a data-loss guard (verified 4 in parallel)                                   |
+| **Concurrent casts**         | ✓ disjoint clone slots + a worktree data-loss guard keep parallel casts from corrupting shared state         |
 | **Clone safety**             | ✓ an always-on guard enforces each clone's path scope + blocks dangerous ops in the harness                  |
 | **Observability**            | ✓ live statusline, `manta doctor`, `manta tail`, post-run reports                                            |
-| **Tests**                    | ✓ **1667 passing** (real-Claude end-to-end tests run on demand, never as a silent skip)                      |
+| **Tests**                    | ✓ **1618 passing** (real-Claude end-to-end tests run on demand, never as a silent skip)                      |
 
 > [!WARNING]
 > **Known limitations** — none block normal use:

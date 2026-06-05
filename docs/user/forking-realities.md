@@ -119,7 +119,6 @@ A:
 B:
   task: rewrite the SQL
   approach_hint: denormalize the order-totals column
-  token_estimate: 300000
   deadline_seconds: 1800
 C:
   task: rewrite the SQL
@@ -134,29 +133,17 @@ Same content as JSON:
 ```json
 {
   "A": { "task": "rewrite the SQL", "approach_hint": "use an index on orders.customer_id" },
-  "B": { "task": "rewrite the SQL", "approach_hint": "denormalize", "token_estimate": 300000 }
+  "B": { "task": "rewrite the SQL", "approach_hint": "denormalize" }
 }
 ```
 
-All fields are optional. Missing fields fall back to the cast-level
-defaults from `--task`, `--allowed-paths`, etc. (the per-clone token-estimate
-budget is internal and applied automatically).
-Supplying `scope` is all-or-nothing — the bus's `ScopeSchema` is `.strict()`,
-so you must provide `allowed_paths` and `max_files_changed` together if you
-override scope at all.
-
-### Asymmetric usage estimates
-
-The cumulative usage gate sums the **effective** per-clone token estimate against
-the internal per-cast ceiling. If the overlay puts both clones at a high
-`token_estimate` that together exceed the per-cast ceiling, the cast is rejected
-up front (token estimates are a subscription-usage proxy, not dollars):
-
-```
-[manta] invalid_input: cumulative per-clone usage estimate (A=900000 + B=900000
-        = 1800000) exceeds the per-cast usage budget (1500000). Lower the
-        per-clone overrides in --tasks, or spawn fewer clones.
-```
+The valid `CloneAssignment` fields are `task`, `approach_hint`, `scope`,
+`deadline_seconds`, and `role` — the schema is `.strict()`, so an unknown key
+(e.g. a `token_estimate`) is rejected with a schema-mismatch error. All fields
+are optional; missing fields fall back to the cast-level defaults from `--task`,
+`--allowed-paths`, etc. Supplying `scope` is all-or-nothing — the bus's
+`ScopeSchema` is `.strict()`, so you must provide `allowed_paths` and
+`max_files_changed` together if you override scope at all.
 
 ### Roster typo guard
 

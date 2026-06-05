@@ -33,7 +33,8 @@ competing-solutions approach (use `forking-realities` instead).
    investigation reports. **No merge-review** is produced — the reports
    are complementary, not competing.
 
-**Charge cost:** 2 charges per cast (same tier as `forking-realities`).
+Claude Code is subscription-based, so there are no per-cast charges — the
+only cast limit is `--max-parallel-clones` (how many clones run at once).
 
 ## CLI examples
 
@@ -65,7 +66,8 @@ manta cast bug-hunt \
   --task "Investigate memory leak in the WebSocket handler"
 ```
 
-With cost preview:
+Validate without spawning (`--dry-run` checks the mode, clone count, and
+scope, then exits — no clones are launched):
 
 ```bash
 manta cast bug-hunt --clones 2 --task "..." --dry-run

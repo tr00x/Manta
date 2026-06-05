@@ -15,9 +15,12 @@ independent viewpoints instead of groupthink.
 - **3–5 clones** (the CLI rejects `<3` or `>5`: 5 independent proposers is the
   spec ideal, 3 is the minimum for a meaningful crowd).
 - Every clone gets the **same question** and proposes **one** solution, with its
-  reasoning. Clones propose **independently** — no peeking, no peer chatter: the
-  bus rejects sibling `manta.message` and cross-clone `manta.task_contract.read`,
-  exactly like `forking-realities`.
+  reasoning. Clones are expected to propose **independently** — no peeking, no
+  peer chatter. Unlike `forking-realities`, the bus does **not** structurally
+  reject council sibling `manta.message` / cross-clone `manta.task_contract.read`
+  (that fence is keyed to `cast_mode === 'forking-realities'` only). Council
+  independence is enforced by the `manta-council` clone skill plus the cast's
+  recorded `peer_messaging: denied` policy, not by a hard bus wall.
 - **No auto-merge, no scoring engine.** Unlike forking-realities (which scores
   branches and writes a merge-review), council produces N *proposals* for a human
   judgment call. You read them and aggregate by hand — the value is the diversity

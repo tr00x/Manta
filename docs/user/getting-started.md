@@ -89,7 +89,7 @@ is a subscription, so there are no per-clone dollar flags to set.
 
 The CLI:
 
-1. Creates `.manta/worktrees/clone-A` and `.manta/worktrees/clone-B`.
+1. Creates `.manta/worktrees/clone-cast-<ts>-A` and `.manta/worktrees/clone-cast-<ts>-B` (worktree dirs are cast-scoped — `clone-<castId>-<letter>`, where `castId` is `cast-<ts>`).
 2. Writes per-clone snapshots to `.manta/snapshots/cast-<ts>/`.
 3. Spawns two `claude --print` subprocesses, each pointing at its worktree.
 4. Ticks the orchestrator while clones are alive.
@@ -101,7 +101,7 @@ The CLI:
 - `docs/post-mortems/<date>-cast-<ts>-B.md` — same for clone B.
 - `docs/zk/*.md` — atomic insights the clones wrote before dying.
 - `docs/para/projects.md` — append-only fact log.
-- `.manta/worktrees/clone-A/`, `clone-B/` — the actual worktrees, kept for inspection.
+- `.manta/worktrees/clone-cast-<ts>-A/`, `clone-cast-<ts>-B/` — the actual worktrees, kept for inspection.
 
 ## 7. If something goes wrong
 
@@ -123,9 +123,9 @@ _before_ launching the `claude` process (Phase-1 lockdown).
 
 If `manta status` shows clones spawned but never moving past `STARTING`:
 
-1. Run `claude --version` — verify it is ≥ 2.1.132 (the `--append-system-prompt` flag is required).
+1. Run `claude --version` — verify the `claude` CLI is on `PATH` and recent enough to support `--append-system-prompt` (the flag Manta primes each clone with). `manta doctor` runs this same presence check.
 2. Run `claude mcp list` and verify `manta-bus` is listed as user-scope.
-3. Inspect `.manta/state/registry.json`; if a clone record is missing entirely, the spawner failed to pre-register (file an issue with the cast-id from `.manta/casts/`).
+3. Inspect `.manta/state/registry.json`; if a clone record is missing entirely, the spawner failed to pre-register (file an issue with the cast-id from `.manta/state/casts/`).
 4. If you re-run a cast after a previous failure, run `manta recover` first to clean orphaned registry records — `Registry.register` throws on duplicate `clone_id`.
 
 **Heavy MCP servers and clone boot.** A clone is a real `claude` process, so a slow MCP handshake delays its first heartbeat. To keep boot fast, Manta spawns each clone with `--strict-mcp-config` and a generated config (`.manta/clone-mcp.json` in the worktree) containing **`manta-bus` plus your light MCP servers only** — it filters out heavy boot-wedgers (language-server / LSP servers like serena, computer-use, desktop control). This matters most for a language-server MCP configured with a per-directory project root (e.g. serena's `--project-from-cwd`): without the filter it would cold-index the whole repo inside *every* clone's worktree and the clone would hang in `STARTING` until reaped. If you *want* a clone to keep a server Manta filters, that's a deliberate non-default — open an issue with your use case. Long fix casts (`refactor-wave`, `bug-hunt`, `pair-programming`, `test-storm`) also get a roomier default heartbeat/grace automatically, so a long coding+test stretch isn't mistaken for a hang.
@@ -221,8 +221,8 @@ worktree at spawn, so clones inherit the same project rules (see "Project
 instructions" inheritance). This block is about the **orchestrator** side: making
 your main agent reach for Manta and read the docs instead of half-remembering.
 
-> **`[manta] not a git repo root`?** Manta's state (registry, charges, worktrees) is **per-repo**, keyed
-> on the git root — so the stateful CLI commands (`status`, `cost`, `charges`, `cast`, `cleanup`, …) must
+> **`[manta] not a git repo root`?** Manta's state (registry, locks, casts, worktrees) is **per-repo**, keyed
+> on the git root — so the stateful CLI commands (`status`, `cast`, `recover`, `cleanup`, `limit`, …) must
 > be run from the **repo root**, not a subdirectory. This is by design (per-repo isolation: a cast in
 > project A never leaks into project B). The exception is `manta doctor`, which walks up to find `.git`
 > so it can health-check from anywhere. If a command errors with `not a git repo root`, `cd` to the repo

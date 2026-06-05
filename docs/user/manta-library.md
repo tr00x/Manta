@@ -45,6 +45,7 @@ On success, the command prints a short summary:
 Installed @manta-library/refactor-megapack@1.3.0
   path:    /Users/you/.manta/library/@manta-library/refactor-megapack/1.3.0
   lockfile: /path/to/repo/manta-lock.json
+  integrity: sha256-<base64>
   modes:   1
   skills:  4
   commands: 2
@@ -178,12 +179,12 @@ The full install command surface. Every flag is a deliberate trade-off; defaults
 | Flag | Behaviour | Notes |
 |---|---|---|
 | `--force` | Override the "already installed" collision; the existing install at `~/.manta/library/<scope>/<name>/<version>/` is removed before the staged install is renamed in. | Surfaces a one-line warning. Use for re-installing a tampered or partially-installed package; also the recovery action printed by exit 19. |
-| `--offline` | Refuse any network call. Only `./local.tgz` spec forms succeed; `@scope/name` and `git+https://…` specs fail with exit 11 (`network_required_for_spec_kind`). | Used by CI replay against a vendored tarball; also a safety net when working on a flight. |
+| `--offline` | Refuse any network call. Only `./local.tgz` spec forms succeed; `@scope/name` and `git+https://…` specs fail with exit 11 (`install_network_required_for_spec_kind`). | Used by CI replay against a vendored tarball; also a safety net when working on a flight. |
 | `--integrity sha256-<base64>` | Pre-pin the expected tarball hash; the fetch step refuses to proceed if the actual `contentSha256Hex` after fetch does not match. Prints both values on failure with exit 13 (`checksum_mismatch`). | Belt-and-suspenders against npm-cache-poisoning or git-tag-mutation; mirrors `--integrity` in lockfile-based package managers. |
-| `--dry-run` | Run the install pipeline through steps 1–6 (parse, resolve, fetch, extract, compat, validate) but skip the staged commit and lockfile/index writes. Print the would-be summary, exit 0. | Used by `manta library doctor` and by CI replay to confirm a tarball still validates after the CLI upgraded. |
-| `--json` | Emit the success summary as a single JSON line with `{ name, version, integrity, contributedModes, contributedSkills, contributedCommands, contributedTemplates, lockfilePath, installPath }`. On error, emit `{ error: { code, message, hint? } }`. | Pipe to `jq`; pair with `--dry-run` to query what an install would do. |
-| `--no-validate` | Skip the `validatePackage` call. Prints a loud warning: `[manta] install: --no-validate; manifest is parsed but content is not validated.` | Reserved for CI replay of a tarball that was already validated upstream. Not advertised — production installs should always validate. |
-| `--no-hooks` | **Defaults to `true`.** Refuses to copy any `manifest.contributes.hooks` payload. `--no-hooks=false` is rejected at flag parse with `hook distribution is not supported; --no-hooks cannot be disabled`. | The flag ships with hard-refuse semantics now so the default can be flipped later without a CLI API break. |
+| `--dry-run` | Run the install pipeline through steps 1–6 (parse, resolve, fetch, extract, compat, validate) but skip the staged commit and lockfile/index writes. Print the would-be summary, exit 0. | Used by CI replay to confirm a tarball still validates after the CLI upgraded. |
+| `--json` | Emit the success summary as a single JSON line with `{ name, version, integrity, contributedModes, contributedSkills, contributedCommands, contributedTemplates, lockfilePath, installPath, dryRun }`. On error, emit `{ error: { code, message } }`. | Pipe to `jq`; pair with `--dry-run` to query what an install would do. |
+| `--no-validate` | Skip the `validatePackage` call. Prints a loud warning: `[manta] install: --no-validate; manifest is parsed but content is not validated` | Reserved for CI replay of a tarball that was already validated upstream. Not advertised — production installs should always validate. |
+| `--no-hooks` | **Defaults to `true`.** Refuses to copy any `manifest.contributes.hooks` payload. `--no-hooks=false` (and `--hooks`) is rejected at flag parse (exit 11) with `[manta] install: hooks distribution is not yet available; --no-hooks cannot be disabled`. | The flag ships with hard-refuse semantics now so the default can be flipped later without a CLI API break. |
 
 ## `manta library` observability subcommands
 
@@ -229,13 +230,12 @@ The cast manifest on disk records the host dispatcher mode (`mode: 'recon-swarm'
 
 | Symptom | Exit | What it means | What to do |
 |---|---|---|---|
-| `install_spec_parse_failed: cannot parse spec "..."` | 1 | The spec form isn't one of the three supported shapes. | Use `@scope/name@range`, `git+https://...#ref`, or `./local.tgz`. |
-| `install_network_failed: cannot fetch ...` | 1 | `npm pack` or `git clone` shelled out and failed. | Check `npm ping` and your network. npm-spec installs require `npm` in `$PATH`. Re-run with `--offline` against a local tarball if you have one. |
-| `network_required_for_spec_kind` | 11 | `--offline` was given but the spec needs the network. | Vendor a tarball and install from `./vendored.tgz`, or drop `--offline`. |
-| `install_manifest_invalid: ...` | 1 | The tarball's `manta-package.json` is missing, not JSON, or fails the schema. | Inspect the tarball with `tar tzf <path>` and validate the manifest by hand against `MantaPackageManifestSchema` in `@manta/skill-validator`. |
+| `install_spec_parse_failed: cannot parse spec "..."` | 11 | The spec form isn't one of the three supported shapes. | Use `@scope/name@range`, `git+https://...#ref`, or `./local.tgz`. |
+| `install_network_failed: cannot fetch ...` | 11 | `npm pack` or `git clone` shelled out and failed. | Check `npm ping` and your network. npm-spec installs require `npm` in `$PATH`. Re-run with `--offline` against a local tarball if you have one. |
+| `install_network_required_for_spec_kind` | 11 | `--offline` was given but the spec needs the network. | Vendor a tarball and install from `./vendored.tgz`, or drop `--offline`. |
+| `install_manifest_invalid: ...` | 14 | The tarball's `manta-package.json` is missing, not JSON, or fails the schema. | Inspect the tarball with `tar tzf <path>` and validate the manifest by hand against `MantaPackageManifestSchema` in `@manta/skill-validator`. |
 | `checksum_mismatch` | 13 | `--integrity sha256-<base64>` was given and the fetched tarball did not match. | Confirm the expected hash; if it is right, treat the source as compromised and report to the package author. |
 | `install_validation_failed: ...` | 14 | A skill/command/mode declared in the manifest doesn't exist on disk, or one exists on disk that the manifest doesn't declare. | Re-check the package author's contributes table — fix the manifest or the on-disk file. The error message names the offending path. |
-| `mode_conflict_library` | 14 | Two installed packages contribute the same library-mode name. | Pick one. `manta uninstall` the other; library-mode names must be unique across the install set. |
 | `install_already_installed: ...` | 15 | A previous install of the same name+version exists. | Re-run with `--force` to overwrite, or run `manta uninstall <name>@<version>` first. |
 | `cast: manta_version_compat_unmet` | 16 | An installed library package no longer satisfies the CLI's version after an upgrade. | Follow the three printed recovery options. `manta library doctor` reports this proactively. |
 | `uninstall: multiple versions of <name> installed` | 18 | The spec omitted a version and more than one is installed. | Re-run with `@<version>`. |
@@ -247,4 +247,4 @@ The cast manifest on disk records the host dispatcher mode (`mode: 'recon-swarm'
 
 - **Building a library package:** the package layout mirrors the validator's `validatePackage` contract — top-level `manta-package.json` plus `skills/<name>/SKILL.md`, `commands/<name>.md`, `modes/<name>/mode.json`, `templates/<name>`. Drive-by files (on disk but undeclared) are rejected; declare everything in `contributes`.
 - **`ModeRegistry` architecture note:** [`docs/internals/mode-registry.md`](../internals/mode-registry.md) covers the `basedOn` host-dispatcher inheritance model, the cast-manifest dual recording, and where to extend when richer library-mode semantics are wanted.
-- **`manta share`:** builds a `.mantapkg.tar.gz` from a finalised cast, reusing the manifest schema and the metadata sanitizer. See [`manta-share.md`](./manta-share.md).
+- **`manta share`:** builds a `.manta-pkg.tar.gz` from a finalised cast, reusing the manifest schema and the metadata sanitizer. See [`manta-share.md`](./manta-share.md).

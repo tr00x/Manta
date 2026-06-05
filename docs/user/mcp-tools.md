@@ -57,7 +57,9 @@ JSON alongside the raw text and exit code.
 ### `manta_abort`, `manta_kill`
 
 Mutating. `manta_abort` marks **every** live clone DEAD with a post-mortem;
-`manta_kill` does it for a single clone id. Both accept an optional `reason`.
+`manta_kill` does it for a single clone id. `manta_abort` **requires** a
+`reason` (a guard against an accidental global stop — it lands on every
+post-mortem); `manta_kill`'s `reason` is optional.
 
 ## Binary resolution
 

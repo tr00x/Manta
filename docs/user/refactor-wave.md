@@ -34,8 +34,6 @@ those manually or in a single `recon-swarm`).
    type-check + tests — pnpm/npm, pytest, cargo, or go).
 7. A merge-all report is written to `docs/merge-all-reports/`.
 
-**Charge cost:** 2 charges per cast.
-
 ## Module partitioning
 
 Partitions must be **strictly disjoint**:
@@ -85,7 +83,6 @@ Key fields:
 | `scope.allowed_paths` | Yes | Disjoint module paths for this clone |
 | `scope.forbidden_paths` | Recommended | Exclude other clones' modules |
 | `scope.max_files_changed` | Recommended | Safety cap on file writes |
-| `token_estimate` | No | Per-clone token-estimate (usage) override |
 | `deadline_seconds` | No | Per-clone deadline override |
 
 ## CLI examples
@@ -109,7 +106,8 @@ manta cast refactor-wave \
   --max-parallel-clones 3
 ```
 
-Cost preview:
+Validate without spawning (`--dry-run` checks the mode, partitions, and
+scope, then exits — no clones are launched):
 
 ```bash
 manta cast refactor-wave --clones 2 --task "..." --tasks plan.yaml --dry-run
