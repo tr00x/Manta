@@ -37,6 +37,44 @@ describe('Registry', () => {
     expect(r.state).toBe('STARTING');
   });
 
+  // #65: the spawner records the clone's OWN process pid after launch (register
+  // pre-registers BEFORE the process exists, so clone_pid starts undefined).
+  it('recordClonePid persists the clone process id on a live record', async () => {
+    await registry.register({
+      clone_id: 'A',
+      mode: 'recon-swarm',
+      parent_pid: 1234,
+      worktree: '/tmp/w',
+      metadata: {},
+    });
+    expect((await registry.get('A')).clone_pid).toBeUndefined();
+    await registry.recordClonePid('A', 9001);
+    expect((await registry.get('A')).clone_pid).toBe(9001);
+  });
+
+  it('recordClonePid records even on a DEAD record (keeps a just-reaped orphan killable) without reviving it', async () => {
+    // skeptic-review #65-2: if the reaper marks the clone DEAD in the window
+    // between register and recordClonePid, dropping the pid would orphan a
+    // process kill/recover can never reach. Storing it must NOT change state.
+    await registry.register({
+      clone_id: 'A',
+      mode: 'recon-swarm',
+      parent_pid: 1234,
+      worktree: '/tmp/w',
+      metadata: {},
+    });
+    await registry.markDead('A', 'gone');
+    await registry.recordClonePid('A', 9001);
+    const r = await registry.get('A');
+    expect(r.clone_pid).toBe(9001); // pid persisted — orphan stays reachable
+    expect(r.state).toBe('DEAD'); // …but the clone is NOT revived
+    expect(r.death_reason).toBe('gone'); // original death preserved
+  });
+
+  it('recordClonePid is a silent no-op on an absent record (never throws)', async () => {
+    await expect(registry.recordClonePid('GHOST', 9001)).resolves.toBeUndefined();
+  });
+
   it('register twice for same clone_id is a conflict', async () => {
     await registry.register({
       clone_id: 'A',

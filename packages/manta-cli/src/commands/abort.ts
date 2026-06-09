@@ -2,13 +2,10 @@ import type { Runtime } from '../runtime.js';
 import type { Reporter } from '../output/reporter.js';
 import type { CommandResult } from './status.js';
 import { fsPostMortemWriter, runPostMortem } from '@manta/orchestrator';
+import { reapPids, type KillFn, type ReapTarget } from '../spawner/reap-pids.js';
 
-/**
- * Injectable OS-signal seam (default: real `process.kill`). Tests stub this to
- * assert abort signals every live clone's process group without sending real
- * signals. Kept narrow (pid + signal) so the stub is trivial.
- */
-export type KillFn = (pid: number, signal: NodeJS.Signals) => void;
+/** Re-exported for command callers/tests that stub the OS-signal seam. */
+export type { KillFn };
 
 export interface RunAbortOptions {
   reason: string;
@@ -19,42 +16,8 @@ export interface RunAbortOptions {
   gracefulMs?: number;
   /** Sleep seam (tests pass a no-op to skip the real grace wait). */
   sleep?: (ms: number) => Promise<void>;
-}
-
-const DEFAULT_GRACEFUL_MS = 5_000;
-
-const realKill: KillFn = (pid, signal) => {
-  process.kill(pid, signal);
-};
-
-const realSleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-
-/**
- * Best-effort signal to a clone's recorded process AND its process group.
- *
- * `parent_pid` is the `manta cast` spawner's pid; the `claude --print` clones
- * are its children in the same process group, so signalling the group (the
- * negative pid) reaps the whole runaway tree. Bug #65 class: before this,
- * `manta abort` only markDead'd the registry record and left the OS processes
- * alive — orphan clones that kept burning tokens after the operator aborted.
- *
- * Falls back to the bare pid when the group signal fails (the spawner may not
- * be a group leader). Every failure is swallowed: a process that already exited
- * (ESRCH) or a since-reused pid must never abort the abort. We also refuse to
- * signal pid <= 1 (init / whole system) or our own abort process (self-kill).
- */
-function signalCloneTree(pid: number, signal: NodeJS.Signals, kill: KillFn): void {
-  if (!Number.isInteger(pid) || pid <= 1 || pid === process.pid) return;
-  try {
-    kill(-pid, signal); // negative pid = the process group
-  } catch {
-    try {
-      kill(pid, signal); // fall back to the single recorded process
-    } catch {
-      // already gone / reused — nothing left to signal
-    }
-  }
+  /** PID-liveness re-probe before SIGKILL (tests pass `() => true`). */
+  isAlive?: (pid: number) => boolean;
 }
 
 /**
@@ -74,23 +37,26 @@ export async function runAbortCommand(
   const all = await rt.ctx.registry.list();
   const live = all.filter((c) => c.state !== 'DEAD');
 
-  const kill = opts.kill ?? realKill;
-  const sleep = opts.sleep ?? realSleep;
-  const gracefulMs = opts.gracefulMs ?? DEFAULT_GRACEFUL_MS;
-
   // ── Phase 1: stop the OS processes BEFORE markDead ──────────────────────
-  // SIGTERM every live clone's process group first (clean shutdown chance),
-  // wait the grace once, then SIGKILL any survivor. Done before markDead so the
-  // registry can never claim a clone is DEAD while its process is still running.
-  const livePids = live
-    .map((c) => c.parent_pid)
-    .filter((pid): pid is number => typeof pid === 'number');
-
-  for (const pid of livePids) signalCloneTree(pid, 'SIGTERM', kill);
-  if (livePids.length > 0) {
-    await sleep(gracefulMs);
-    for (const pid of livePids) signalCloneTree(pid, 'SIGKILL', kill);
+  // SIGTERM every live clone, wait the grace once, then SIGKILL survivors —
+  // done before markDead so the registry can never claim a clone is DEAD while
+  // its process is still running. Two targets per clone:
+  //   • parent_pid as a GROUP signal — reaps the whole still-live cast tree
+  //     (the `claude --print` children + their MCP-server grandchildren).
+  //   • clone_pid as a bare-process signal (#65) — reaches a clone whose parent
+  //     cast process has already exited (reparented to init), which the group
+  //     signal can no longer hit.
+  const targets: ReapTarget[] = [];
+  for (const c of live) {
+    if (typeof c.parent_pid === 'number') targets.push({ pid: c.parent_pid, group: true });
+    if (typeof c.clone_pid === 'number') targets.push({ pid: c.clone_pid, group: false });
   }
+  await reapPids(targets, {
+    ...(opts.kill !== undefined ? { kill: opts.kill } : {}),
+    ...(opts.sleep !== undefined ? { sleep: opts.sleep } : {}),
+    ...(opts.gracefulMs !== undefined ? { gracefulMs: opts.gracefulMs } : {}),
+    ...(opts.isAlive !== undefined ? { isAlive: opts.isAlive } : {}),
+  });
 
   // ── Phase 2: markDead + audit trail ─────────────────────────────────────
   const writer = fsPostMortemWriter({

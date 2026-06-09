@@ -55,6 +55,12 @@ export interface RegistryWriter {
    */
   touch(cloneId: string): Promise<void>;
   /**
+   * #65: persist the clone's OWN OS process id once the runner has launched it,
+   * so `manta abort`/`kill`/`recover` can signal the actual process — not just
+   * mark the registry row DEAD — even after the parent cast process has exited.
+   */
+  recordClonePid(cloneId: string, pid: number): Promise<void>;
+  /**
    * bug #70: read a clone's current state, used by the booting-ticker to know
    * when to stop touching. Returns null if the record is gone (deregistered).
    * `Registry.get` throws BusNotFoundError; this seam swallows that to null so
@@ -315,6 +321,20 @@ export async function spawnClone(opts: SpawnCloneOptions): Promise<CloneHandle> 
     await opts.registry.touch(cloneId);
   } catch {
     // non-fatal — see comment above.
+  }
+
+  // #65: persist the clone's OWN process id now that the child exists, so a
+  // later `manta abort`/`kill`/`recover` can SIGTERM/SIGKILL the actual `claude`
+  // process — not just mark the registry row DEAD — even after this cast process
+  // has exited and the clone was reparented to init. Best-effort: a failed pid
+  // write must never fail the spawn (the orphan-reap is defence-in-depth on top
+  // of the in-cast handle.terminate ladder, not the only stop path).
+  if (typeof proc.pid === 'number') {
+    try {
+      await opts.registry.recordClonePid(cloneId, proc.pid);
+    } catch {
+      // non-fatal — abort/recover fall back to the parent process group.
+    }
   }
 
   // I-1 (Chunk-1 review): with `reject: false`, `claude --print` (or any

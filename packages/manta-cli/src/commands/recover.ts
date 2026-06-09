@@ -3,9 +3,19 @@ import type { Reporter } from '../output/reporter.js';
 import type { CommandResult } from './status.js';
 import { CliError } from '../errors.js';
 import { sweepOrphanWorktrees } from '../spawner/graveyard.js';
+import { isProcessAlive } from '@manta/orchestrator';
+import { reapPids, type KillFn } from '../spawner/reap-pids.js';
 
 export interface RunRecoverOptions {
   reporter: Reporter;
+  /** Override the OS kill seam (tests). Defaults to `process.kill`. */
+  kill?: KillFn;
+  /** PID-liveness probe seam (tests). Defaults to the real `process.kill(pid,0)` probe. */
+  isAlive?: (pid: number) => boolean;
+  /** Sleep seam (tests pass a no-op to skip the real grace wait). */
+  sleep?: (ms: number) => Promise<void>;
+  /** Grace, in ms, between SIGTERM and SIGKILL. Default 5000. */
+  gracefulMs?: number;
 }
 
 /**
@@ -62,6 +72,35 @@ export async function runRecoverCommand(
     });
   }
 
+  // Bug #65: a clone whose process outlived its parent cast (reparented to init
+  // once the `manta cast` process exited) is marked DEAD by the death-detector,
+  // but its `claude --print` keeps running — an orphan burning subscription
+  // rate that no in-cast `handle.terminate` can reach anymore. recover is the
+  // post-crash cleanup surface, so SIGTERM→SIGKILL any DEAD record whose own
+  // recorded pid is still alive. Bare-process signal (group:false): never the
+  // parent group, so an unrelated live cast sharing a recycled pgid is safe.
+  const aliveProbe = opts.isAlive ?? isProcessAlive;
+  const orphanTargets = allClones
+    .filter(
+      (c): c is typeof c & { clone_pid: number } =>
+        c.state === 'DEAD' && typeof c.clone_pid === 'number' && aliveProbe(c.clone_pid),
+    )
+    .map((c) => ({ pid: c.clone_pid, group: false as const }));
+  let orphanProcessesSignalled = 0;
+  try {
+    orphanProcessesSignalled = await reapPids(orphanTargets, {
+      isAlive: aliveProbe,
+      ...(opts.kill !== undefined ? { kill: opts.kill } : {}),
+      ...(opts.sleep !== undefined ? { sleep: opts.sleep } : {}),
+      ...(opts.gracefulMs !== undefined ? { gracefulMs: opts.gracefulMs } : {}),
+    });
+  } catch (err) {
+    // Non-fatal — bus state was already recovered above. Surface and continue.
+    opts.reporter.warn('recover.orphan_process_reap_failed', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   opts.reporter.info('recover', {
     deadDetected: result.deadClones.length,
     locksReaped: result.reapedLocks.length,
@@ -69,6 +108,7 @@ export async function runRecoverCommand(
     postMortems: result.postMortems.length,
     orphanWorktreesRemoved: sweep.removed.length,
     orphanWorktreesFailed: sweep.failed.length,
+    orphanProcessesSignalled,
   });
   const stdout = [
     `Recovery complete:`,
@@ -79,6 +119,9 @@ export async function runRecoverCommand(
     `  ${sweep.removed.length} orphan worktree(s) removed`,
     ...(sweep.failed.length > 0
       ? [`  ${sweep.failed.length} orphan worktree(s) failed to remove (see warnings)`]
+      : []),
+    ...(orphanProcessesSignalled > 0
+      ? [`  ${orphanProcessesSignalled} orphan process(es) signalled`]
       : []),
   ].join('\n');
   return { exitCode: 0, stdout };

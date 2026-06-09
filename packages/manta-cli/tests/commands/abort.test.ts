@@ -14,7 +14,9 @@ function killRecorder() {
   const kill: KillFn = (pid, signal) => {
     signals.push({ pid, signal });
   };
-  return { signals, kill, sleep: async () => {}, gracefulMs: 0 };
+  // Fake pids aren't real processes; treat them as alive so the SIGKILL
+  // re-probe (#65-1) doesn't skip them and the order assertions hold.
+  return { signals, kill, sleep: async () => {}, gracefulMs: 0, isAlive: () => true };
 }
 
 describe('abort command', () => {
@@ -133,6 +135,7 @@ describe('abort command', () => {
       kill,
       sleep: async () => {},
       gracefulMs: 0,
+      isAlive: () => true,
     });
 
     // Both live pids were signalled at the GROUP level (negative pid), SIGTERM
@@ -220,5 +223,37 @@ describe('abort command', () => {
     expect(result.exitCode).toBe(0);
     expect((await rt.ctx.registry.get('A')).state).toBe('DEAD');
     expect((await rt.ctx.registry.get('B')).state).toBe('DEAD');
+  });
+
+  it("also signals each clone's OWN pid (clone_pid) bare — reaches an orphan whose parent cast process exited (#65)", async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({ repoRoot: fx.root });
+    await rt.ctx.registry.register({
+      clone_id: 'A',
+      mode: 'recon-swarm',
+      parent_pid: 4242,
+      worktree: fx.root,
+      metadata: { cast_id: 'cast-a' },
+    });
+    // The spawner records the clone's OWN `claude` pid after launch.
+    await rt.ctx.registry.recordClonePid('A', 9001);
+
+    const rec = killRecorder();
+    await runAbortCommand(rt, {
+      reason: 'user-abort',
+      reporter: createReporter({ sink: new MemorySink() }),
+      ...rec,
+    });
+
+    // The parent group (-4242) reaps a still-live cast tree; the clone's own pid
+    // 9001 (bare, positive) reaches a `claude` whose parent cast process already
+    // exited — the group signal would miss it. Each gets SIGTERM then SIGKILL.
+    expect(rec.signals).toEqual([
+      { pid: -4242, signal: 'SIGTERM' },
+      { pid: 9001, signal: 'SIGTERM' },
+      { pid: -4242, signal: 'SIGKILL' },
+      { pid: 9001, signal: 'SIGKILL' },
+    ]);
+    expect((await rt.ctx.registry.get('A')).state).toBe('DEAD');
   });
 });

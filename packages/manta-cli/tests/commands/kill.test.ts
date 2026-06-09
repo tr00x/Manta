@@ -47,4 +47,80 @@ describe('kill command', () => {
       }),
     ).rejects.toMatchObject({ name: 'CliError', kind: 'not_found' });
   });
+
+  it("SIGTERM→SIGKILLs ONLY the clone's own pid (never the parent group) before markDead (#65)", async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({ repoRoot: fx.root });
+    await rt.ctx.registry.register({
+      clone_id: 'A',
+      mode: 'recon-swarm',
+      parent_pid: 4242,
+      worktree: fx.root,
+      metadata: { cast_id: 'cast-k' },
+    });
+    await rt.ctx.registry.recordClonePid('A', 9001);
+
+    const order: string[] = [];
+    const signals: Array<{ pid: number; signal: NodeJS.Signals }> = [];
+    const kill = (pid: number, signal: NodeJS.Signals) => {
+      signals.push({ pid, signal });
+      order.push(`kill:${signal}:${pid}`);
+    };
+    const reg = rt.ctx.registry as unknown as {
+      markDead: (...args: unknown[]) => Promise<unknown>;
+    };
+    const origMarkDead = reg.markDead.bind(rt.ctx.registry);
+    reg.markDead = async (...args: unknown[]) => {
+      order.push(`markDead:${String(args[0])}`);
+      return origMarkDead(...args);
+    };
+
+    await runKillCommand(rt, {
+      cloneId: 'A',
+      reason: 'manual',
+      reporter: createReporter({ sink: new MemorySink() }),
+      kill,
+      sleep: async () => {},
+      gracefulMs: 0,
+      isAlive: () => true,
+    });
+
+    // ONLY the clone's own pid 9001 (bare, positive) — never the parent group
+    // (-4242) — so killing one clone never reaps a sibling or a running cast.
+    expect(signals).toEqual([
+      { pid: 9001, signal: 'SIGTERM' },
+      { pid: 9001, signal: 'SIGKILL' },
+    ]);
+    // Every signal preceded markDead (never DEAD while the process runs).
+    const lastKill = order.map((s) => s.startsWith('kill:')).lastIndexOf(true);
+    const firstMarkDead = order.findIndex((s) => s.startsWith('markDead:'));
+    expect(lastKill).toBeGreaterThanOrEqual(0);
+    expect(firstMarkDead).toBeGreaterThan(lastKill);
+    expect((await rt.ctx.registry.get('A')).state).toBe('DEAD');
+  });
+
+  it('no-ops the OS signal when the clone has no recorded pid (legacy / killed pre-launch)', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({ repoRoot: fx.root });
+    await rt.ctx.registry.register({
+      clone_id: 'A',
+      mode: 'recon-swarm',
+      parent_pid: 4242,
+      worktree: fx.root,
+      metadata: { cast_id: 'cast-k' },
+    });
+    // No recordClonePid → clone_pid is undefined.
+    const signals: Array<{ pid: number; signal: NodeJS.Signals }> = [];
+    const result = await runKillCommand(rt, {
+      cloneId: 'A',
+      reason: 'manual',
+      reporter: createReporter({ sink: new MemorySink() }),
+      kill: (pid: number, signal: NodeJS.Signals) => signals.push({ pid, signal }),
+      sleep: async () => {},
+      gracefulMs: 0,
+    });
+    expect(signals).toHaveLength(0); // nothing to signal — but still…
+    expect(result.exitCode).toBe(0);
+    expect((await rt.ctx.registry.get('A')).state).toBe('DEAD'); // …marked DEAD
+  });
 });

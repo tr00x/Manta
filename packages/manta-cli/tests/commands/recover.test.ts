@@ -50,4 +50,104 @@ describe('recover command', () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('Recovery complete');
   });
+
+  it("SIGTERM→SIGKILLs a DEAD clone whose OWN process is still alive — an orphan (#65)", async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: { heartbeatTimeoutMs: 1, startupGraceMs: 1, parentPidCheckEnabled: false },
+    });
+    await rt.ctx.registry.register({
+      clone_id: 'A',
+      mode: 'recon-swarm',
+      parent_pid: 1,
+      worktree: fx.root,
+      metadata: { cast_id: 'cast-r' },
+    });
+    await rt.ctx.registry.recordClonePid('A', 9001);
+    await new Promise((r) => setTimeout(r, 20)); // heartbeat goes stale → runCycle marks DEAD
+
+    const signals: Array<{ pid: number; signal: NodeJS.Signals }> = [];
+    const sink = new MemorySink();
+    const result = await runRecoverCommand(rt, {
+      reporter: createReporter({ sink }),
+      kill: (pid: number, signal: NodeJS.Signals) => signals.push({ pid, signal }),
+      isAlive: (pid: number) => pid === 9001, // the orphan `claude` is still running
+      sleep: async () => {},
+      gracefulMs: 0,
+    });
+
+    expect((await rt.ctx.registry.get('A')).state).toBe('DEAD');
+    // The orphan's OWN pid 9001 (bare) was SIGTERM'd then SIGKILL'd.
+    expect(signals).toEqual([
+      { pid: 9001, signal: 'SIGTERM' },
+      { pid: 9001, signal: 'SIGKILL' },
+    ]);
+    const ev = sink.lines.find((l) => l.event === 'recover');
+    expect(ev?.payload.orphanProcessesSignalled).toBe(1);
+    expect(result.stdout).toContain('orphan process');
+  });
+
+  it('reaps an orphan whose pid was recorded AFTER it was marked DEAD (#65-2 race)', async () => {
+    // The reaper can mark a clone DEAD in the window between register and the
+    // spawner's recordClonePid. recordClonePid must still persist the pid (it
+    // does not revive the clone), or the orphan becomes unreachable.
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: { parentPidCheckEnabled: false },
+    });
+    await rt.ctx.registry.register({
+      clone_id: 'A',
+      mode: 'recon-swarm',
+      parent_pid: 1,
+      worktree: fx.root,
+      metadata: { cast_id: 'cast-r' },
+    });
+    await rt.ctx.registry.markDead('A', 'reaped mid-spawn');
+    await rt.ctx.registry.recordClonePid('A', 9001); // spawner lands the pid AFTER DEAD
+    expect((await rt.ctx.registry.get('A')).clone_pid).toBe(9001);
+
+    const signals: Array<{ pid: number; signal: NodeJS.Signals }> = [];
+    await runRecoverCommand(rt, {
+      reporter: createReporter({ sink: new MemorySink() }),
+      kill: (pid: number, signal: NodeJS.Signals) => signals.push({ pid, signal }),
+      isAlive: (pid: number) => pid === 9001,
+      sleep: async () => {},
+      gracefulMs: 0,
+    });
+    // The orphan (DEAD + live pid recorded post-mortem) is still reachable.
+    expect(signals).toEqual([
+      { pid: 9001, signal: 'SIGTERM' },
+      { pid: 9001, signal: 'SIGKILL' },
+    ]);
+  });
+
+  it('does not signal a DEAD clone whose process is already gone', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: { heartbeatTimeoutMs: 1, startupGraceMs: 1, parentPidCheckEnabled: false },
+    });
+    await rt.ctx.registry.register({
+      clone_id: 'A',
+      mode: 'recon-swarm',
+      parent_pid: 1,
+      worktree: fx.root,
+      metadata: { cast_id: 'cast-r' },
+    });
+    await rt.ctx.registry.recordClonePid('A', 9001);
+    await new Promise((r) => setTimeout(r, 20));
+
+    const signals: Array<{ pid: number; signal: NodeJS.Signals }> = [];
+    const result = await runRecoverCommand(rt, {
+      reporter: createReporter({ sink: new MemorySink() }),
+      kill: (pid: number, signal: NodeJS.Signals) => signals.push({ pid, signal }),
+      isAlive: () => false, // process already gone
+      sleep: async () => {},
+      gracefulMs: 0,
+    });
+    expect(signals).toHaveLength(0);
+    expect(result.exitCode).toBe(0);
+  });
 });

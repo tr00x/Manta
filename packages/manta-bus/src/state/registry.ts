@@ -8,6 +8,14 @@ export interface CloneRecord {
   clone_id: string;
   mode: Mode;
   parent_pid: number;
+  /**
+   * The clone's OWN OS process id (the `claude --print` child). Unset until the
+   * spawner launches the process (register pre-registers BEFORE the process
+   * exists, so it starts undefined and `recordClonePid` fills it in). Used by
+   * `manta abort`/`kill`/`recover` to SIGTERM/SIGKILL the actual process — not
+   * just mark the row DEAD — even after the parent cast process has exited (#65).
+   */
+  clone_pid?: number;
   worktree: string;
   metadata: Record<string, string>;
   registered_at: number;
@@ -141,6 +149,45 @@ export class Registry {
         if (!r) return current;
         if (r.state === 'DEAD') return current;
         r.last_heartbeat_at = this.clock.now();
+        return current;
+      },
+      auditAppend,
+    );
+  }
+
+  /**
+   * Persist a clone's OWN OS process id once the spawner has launched it.
+   * Pre-registration (`register`) runs BEFORE the `claude --print` child exists,
+   * so `clone_pid` starts undefined and is filled in here right after launch.
+   *
+   * Why it matters (#65): the registry only stored `parent_pid` (the `manta
+   * cast` spawner's pid). A clone whose parent cast process has exited is
+   * reparented to init — a SEPARATE `manta abort`/`kill`/`recover` process can
+   * no longer reach it through the parent's process group, so the orphan keeps
+   * burning subscription rate while merely marked DEAD. Persisting the clone's
+   * own pid lets any later operator command signal the actual process.
+   *
+   * Records even on a DEAD record (skeptic-review #65-2): the pid is known-
+   * correct at spawn time regardless of registry state, and if the reaper marked
+   * the clone DEAD in the tiny window between `register` and this call, dropping
+   * the pid would manufacture an orphan that `kill`/`recover` can never reach
+   * (they signal `clone_pid`, and a reparented orphan's parent group is gone) —
+   * the exact failure #65 fixes. Storing the pid does NOT revive the clone (state
+   * is untouched); the kill paths gate the SIGNAL on liveness + DEAD-state, never
+   * the storage on state. Only silent no-op is an ABSENT record (no row to set).
+   */
+  async recordClonePid(
+    cloneId: string,
+    pid: number,
+    auditAppend?: () => Promise<void>,
+  ): Promise<void> {
+    await atomicMutateJson<RegistryFile>(
+      this.paths.registry,
+      empty,
+      (current) => {
+        const r = current.clones[cloneId];
+        if (!r) return current;
+        r.clone_pid = pid;
         return current;
       },
       auditAppend,

@@ -4,6 +4,7 @@ export interface RegistryFake {
   records: CloneRecord[];
   register(input: RegisterInput): Promise<CloneRecord>;
   touch(cloneId: string): Promise<void>;
+  recordClonePid(cloneId: string, pid: number): Promise<void>;
   getState(cloneId: string): Promise<string | null>;
   markDead(cloneId: string, reason: string): Promise<CloneRecord>;
   get(cloneId: string): Promise<CloneRecord>;
@@ -43,6 +44,14 @@ export function makeRegistryFake(opts: RegistryFakeOptions = {}): RegistryFake {
       const rec = records.find((r) => r.clone_id === cloneId);
       if (!rec || rec.state === 'DEAD') return;
       rec.last_heartbeat_at = now++;
+    },
+    async recordClonePid(cloneId, pid) {
+      // #65: persist the clone's own pid after launch; records even on DEAD so a
+      // reaper that fired between register and this call can't orphan the pid.
+      // Only an absent record is a no-op.
+      const rec = records.find((r) => r.clone_id === cloneId);
+      if (!rec) return;
+      rec.clone_pid = pid;
     },
     async getState(cloneId) {
       // bug #70: non-throwing state read for the booting-ticker.
