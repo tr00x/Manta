@@ -226,6 +226,37 @@ export class Registry {
     ).then((next) => next.clones[cloneId]!);
   }
 
+  /**
+   * Remove clone records matching `shouldPurge`. Only EVER deletes records that
+   * are already terminal (`state === 'DEAD'`) AND satisfy the predicate, re-
+   * checked under the file mutex — so a record re-registered (DEAD → STARTING)
+   * between the caller's snapshot and this mutation is left untouched. Returns
+   * the ids actually removed.
+   *
+   * GC for settled DEAD records (`manta recover --purge-dead`, bug #68). This is
+   * the one mutation that does NOT need a paired-inside-the-mutex audit append
+   * (#24/#54): the clone's `death` event already lives in `events.jsonl` as the
+   * permanent historical record, so dropping the (terminal) registry row loses
+   * no reconstruction information — it's pure GC, not a state transition. The
+   * caller logs a single `recover_purged_dead` event with the returned ids.
+   */
+  async purgeDead(shouldPurge: (record: CloneRecord) => boolean): Promise<string[]> {
+    const removed: string[] = [];
+    await atomicMutateJson<RegistryFile>(this.paths.registry, empty, (current) => {
+      // Reset on every invocation: atomicMutateJson may re-run the mutator on
+      // lock contention, and we must not double-count a retried purge.
+      removed.length = 0;
+      for (const [id, r] of Object.entries(current.clones)) {
+        if (r.state === 'DEAD' && shouldPurge(r)) {
+          delete current.clones[id];
+          removed.push(id);
+        }
+      }
+      return current;
+    });
+    return removed;
+  }
+
   async get(cloneId: string): Promise<CloneRecord> {
     const file = await atomicReadJson<RegistryFile>(this.paths.registry, empty);
     const r = file.clones[cloneId];

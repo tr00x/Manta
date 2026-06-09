@@ -150,4 +150,100 @@ describe('recover command', () => {
     expect(signals).toHaveLength(0);
     expect(result.exitCode).toBe(0);
   });
+
+  // Bug #68: `--purge-dead` GCs settled DEAD records so they stop cluttering
+  // `manta status`. Only a record that is process-gone AND whose cast has no
+  // live sibling may be dropped.
+  it('--purge-dead drops a settled DEAD record (process gone, cast settled)', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: { parentPidCheckEnabled: false },
+    });
+    await rt.ctx.registry.register({
+      clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: fx.root, metadata: { cast_id: 'cast-r' },
+    });
+    await rt.ctx.registry.recordClonePid('A', 9001);
+    await rt.ctx.registry.markDead('A', 'finished');
+
+    const sink = new MemorySink();
+    const result = await runRecoverCommand(rt, {
+      reporter: createReporter({ sink }),
+      isAlive: () => false, // the clone's process is gone
+      purgeDead: true,
+    });
+    expect(result.exitCode).toBe(0);
+    await expect(rt.ctx.registry.get('A')).rejects.toThrow(); // record removed
+    expect(sink.lines.find((l) => l.event === 'recover')?.payload.deadPurged).toBe(1);
+    const purgeEvent = (await rt.ctx.events.readAll()).find((e) => e.type === 'recover_purged_dead');
+    expect((purgeEvent?.payload as { clone_ids: string[] }).clone_ids).toEqual(['A']);
+  });
+
+  it('--purge-dead KEEPS a DEAD record whose process is still alive (mid-reap orphan)', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: { parentPidCheckEnabled: false },
+    });
+    await rt.ctx.registry.register({
+      clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: fx.root, metadata: { cast_id: 'cast-r' },
+    });
+    await rt.ctx.registry.recordClonePid('A', 9001);
+    await rt.ctx.registry.markDead('A', 'finished');
+
+    const sink = new MemorySink();
+    await runRecoverCommand(rt, {
+      reporter: createReporter({ sink }),
+      kill: () => {}, // swallow the orphan SIGTERM/SIGKILL
+      isAlive: (pid: number) => pid === 9001, // orphan still alive
+      sleep: async () => {},
+      gracefulMs: 0,
+      purgeDead: true,
+    });
+    expect((await rt.ctx.registry.get('A')).state).toBe('DEAD'); // NOT purged
+    expect(sink.lines.find((l) => l.event === 'recover')?.payload.deadPurged).toBe(0);
+  });
+
+  it('--purge-dead KEEPS a DEAD record whose cast still has a live sibling', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: { parentPidCheckEnabled: false },
+    });
+    // A is DEAD, B (same cast) is still WORKING → cast not settled.
+    await rt.ctx.registry.register({
+      clone_id: 'A', mode: 'pair-programming', parent_pid: 1, worktree: fx.root, metadata: { cast_id: 'cast-r' },
+    });
+    await rt.ctx.registry.register({
+      clone_id: 'B', mode: 'pair-programming', parent_pid: 1, worktree: fx.root, metadata: { cast_id: 'cast-r' },
+    });
+    await rt.ctx.registry.heartbeat({ clone_id: 'B', state: 'WORKING' });
+    await rt.ctx.registry.markDead('A', 'writer done');
+
+    const sink = new MemorySink();
+    await runRecoverCommand(rt, {
+      reporter: createReporter({ sink }),
+      isAlive: () => false,
+      purgeDead: true,
+    });
+    expect((await rt.ctx.registry.get('A')).state).toBe('DEAD'); // kept — sibling B is live
+    expect(sink.lines.find((l) => l.event === 'recover')?.payload.deadPurged).toBe(0);
+  });
+
+  it('without --purge-dead, settled DEAD records are NOT removed', async () => {
+    fx = await makeRepoFixture();
+    const rt = await createRuntime({
+      repoRoot: fx.root,
+      thresholdOverrides: { parentPidCheckEnabled: false },
+    });
+    await rt.ctx.registry.register({
+      clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: fx.root, metadata: { cast_id: 'cast-r' },
+    });
+    await rt.ctx.registry.markDead('A', 'finished');
+
+    const sink = new MemorySink();
+    const result = await runRecoverCommand(rt, { reporter: createReporter({ sink }), isAlive: () => false });
+    expect((await rt.ctx.registry.get('A')).state).toBe('DEAD'); // still present
+    expect(result.stdout).not.toContain('purged');
+  });
 });

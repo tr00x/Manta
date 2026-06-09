@@ -383,6 +383,38 @@ describe('Registry', () => {
     const before = await registry.get('A');
     expect(before.session_mode).toBeUndefined();
   });
+
+  // Bug #68: purgeDead GCs settled DEAD records (`manta recover --purge-dead`).
+  describe('purgeDead', () => {
+    it('removes only DEAD records matching the predicate, returns their ids', async () => {
+      await registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/a', metadata: {} });
+      await registry.register({ clone_id: 'B', mode: 'recon-swarm', parent_pid: 1, worktree: '/b', metadata: {} });
+      await registry.register({ clone_id: 'C', mode: 'recon-swarm', parent_pid: 1, worktree: '/c', metadata: {} });
+      await registry.markDead('A', 'done');
+      await registry.markDead('B', 'done');
+      // C stays alive (STARTING). A matches; B is DEAD but predicate says no.
+      const removed = await registry.purgeDead((r) => r.clone_id === 'A');
+      expect(removed).toEqual(['A']);
+      await expect(registry.get('A')).rejects.toThrow(BusNotFoundError);
+      expect((await registry.get('B')).state).toBe('DEAD'); // predicate-excluded, kept
+      expect((await registry.get('C')).state).toBe('STARTING'); // not DEAD, never eligible
+    });
+
+    it('NEVER removes a non-DEAD record even if the predicate matches it', async () => {
+      await registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/a', metadata: {} });
+      await registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+      const removed = await registry.purgeDead(() => true); // predicate says purge everything
+      expect(removed).toEqual([]);
+      expect((await registry.get('A')).state).toBe('WORKING'); // a live clone is untouchable
+    });
+
+    it('returns an empty list when nothing matches', async () => {
+      await registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/a', metadata: {} });
+      await registry.markDead('A', 'done');
+      expect(await registry.purgeDead(() => false)).toEqual([]);
+      expect((await registry.get('A')).state).toBe('DEAD');
+    });
+  });
 });
 
 describe('Registry — cross-process safety', () => {

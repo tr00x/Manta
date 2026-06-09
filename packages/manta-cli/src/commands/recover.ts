@@ -16,6 +16,12 @@ export interface RunRecoverOptions {
   sleep?: (ms: number) => Promise<void>;
   /** Grace, in ms, between SIGTERM and SIGKILL. Default 5000. */
   gracefulMs?: number;
+  /**
+   * Bug #68: also drop settled DEAD clone records from the registry so they
+   * stop cluttering `manta status`. Off by default — recover's core job is
+   * liveness recovery, not list tidying; the purge is opt-in.
+   */
+  purgeDead?: boolean;
 }
 
 /**
@@ -101,6 +107,43 @@ export async function runRecoverCommand(
     });
   }
 
+  // Bug #68: with --purge-dead, GC settled DEAD records so they stop cluttering
+  // `manta status`. Only purge a DEAD record that is genuinely finished:
+  //   (a) its own process is gone (absent clone_pid, or the probe says dead) —
+  //       never purge a record whose orphan we just SIGTERM'd but is mid-grace;
+  //   (b) no NON-DEAD sibling shares its cast_id — i.e. the whole cast settled,
+  //       so we don't tear a record out from under a still-running cast.
+  // The death event stays in events.jsonl, so this loses no history.
+  let deadPurged = 0;
+  if (opts.purgeDead) {
+    const liveCastIds = new Set(
+      allClones
+        .filter((c) => c.state !== 'DEAD')
+        .map((c) => c.metadata?.cast_id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0),
+    );
+    try {
+      const purgedIds = await rt.ctx.registry.purgeDead((r) => {
+        const processGone = typeof r.clone_pid !== 'number' || !aliveProbe(r.clone_pid);
+        const castId = r.metadata?.cast_id;
+        const castSettled = !(typeof castId === 'string' && liveCastIds.has(castId));
+        return processGone && castSettled;
+      });
+      deadPurged = purgedIds.length;
+      if (purgedIds.length > 0) {
+        await rt.ctx.events.append({
+          type: 'recover_purged_dead',
+          payload: { clone_ids: purgedIds },
+        });
+      }
+    } catch (err) {
+      // Non-fatal — the rest of recovery already succeeded. Surface and continue.
+      opts.reporter.warn('recover.purge_dead_failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   opts.reporter.info('recover', {
     deadDetected: result.deadClones.length,
     locksReaped: result.reapedLocks.length,
@@ -109,6 +152,7 @@ export async function runRecoverCommand(
     orphanWorktreesRemoved: sweep.removed.length,
     orphanWorktreesFailed: sweep.failed.length,
     orphanProcessesSignalled,
+    deadPurged,
   });
   const stdout = [
     `Recovery complete:`,
@@ -122,6 +166,9 @@ export async function runRecoverCommand(
       : []),
     ...(orphanProcessesSignalled > 0
       ? [`  ${orphanProcessesSignalled} orphan process(es) signalled`]
+      : []),
+    ...(opts.purgeDead
+      ? [`  ${deadPurged} settled DEAD record(s) purged`]
       : []),
   ].join('\n');
   return { exitCode: 0, stdout };

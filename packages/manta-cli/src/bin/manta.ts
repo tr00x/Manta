@@ -443,8 +443,9 @@ async function main(): Promise<void> {
   program
     .command('recover')
     .description('Run one orchestrator cycle to clean up stale state')
-    .action(async () => {
-      await runWithRuntime((rt) => runRecoverCommand(rt, { reporter }));
+    .option('--purge-dead', 'also drop settled DEAD clone records from the registry (tidy `manta status`)', false)
+    .action(async (options: { purgeDead: boolean }) => {
+      await runWithRuntime((rt) => runRecoverCommand(rt, { reporter, purgeDead: options.purgeDead }));
     });
 
   program
