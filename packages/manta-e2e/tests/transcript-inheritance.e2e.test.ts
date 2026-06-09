@@ -327,24 +327,32 @@ describe.skipIf(noClaude)('transcript inheritance end-to-end against real claude
     // conversation, so a single ack proves priming coexisted with --resume.
     expect(events.some((e) => e.type === 'contract_ack')).toBe(true);
 
-    // (B) Per-clone, robust to soft-prior variance: each clone emitted ≥1 clone-driven Manta
-    // lifecycle event. Every type below is appended ONLY when a clone calls the matching manta.* MCP
-    // tool, all of which exist solely because of the appended system prompt. None is emitted by the
-    // spawner or orchestrator on a clone's behalf — the spawner writes the registry record and task
-    // contract directly (no event), and the reaper emits `reaped`, not these. So any one of them,
-    // tagged with a clone's id, proves that clone ran under Manta priming, regardless of which
-    // ceremony steps it happened to follow.
+    // (B) Bus-path integration: at least one clone-driven Manta lifecycle event was
+    // recorded. Every type below is appended ONLY when a clone calls the matching
+    // manta.* MCP tool — tools that exist solely because of the appended system
+    // prompt; none is emitted by the spawner/orchestrator on a clone's behalf. So a
+    // single clone-tagged occurrence proves the appended prompt's manta.* surface
+    // reached the clones (the bus integration, not just file writes).
+    //
+    // NOTE: this is deliberately CAST-level, not per-clone. PER-clone priming is
+    // already proven above by Step 3: EVERY clone wrote token.txt, which is only
+    // possible with BOTH --resume (to know the parent-only token) AND the appended
+    // task contract (to know to write it) — so --append-system-prompt cannot have
+    // been dropped for any clone, or Step 3 would have failed. A per-clone bus-event
+    // requirement here is FLAKY and tests the wrong thing: the startup ceremony is a
+    // SOFT prior (docs/internals/claude-code-pitfalls.md), so a primed clone may
+    // legitimately do its whole task via file I/O and never call a manta.* tool —
+    // observed live as an intermittent zero-events clone that nonetheless reproduced
+    // the token. Asserting it per-clone tested soft-prior compliance, not the CLI-arg
+    // coexistence this step is about. (E2e rot: this was a false-invariant assertion.)
     const CLONE_DRIVEN_EVENTS = new Set([
       'heartbeat', 'contract_ack', 'contract_refresh', 'suicide_intent', 'zk_write', 'death',
       'drift_report', 'claim', 'release', 'lock', 'unlock', 'renew_lock', 'para_append',
       'broadcast', 'message',
     ]);
-    for (const id of ['A', 'B']) {
-      const ranUnderPriming = events.some(
-        (e) => e.clone_id === id && CLONE_DRIVEN_EVENTS.has(e.type),
-      );
-      expect(ranUnderPriming).toBe(true);
-    }
+    expect(
+      events.some((e) => typeof e.clone_id === 'string' && CLONE_DRIVEN_EVENTS.has(e.type)),
+    ).toBe(true);
   }, 35 * 60 * 1000);
 
   it('cross-mode: forking-realities clones also inherit context (write-mode, same fork primitive)', async () => {

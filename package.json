@@ -21,6 +21,7 @@
     "format": "prettier --write 'packages/**/*.{ts,json,md}'",
     "typecheck": "tsc -b && pnpm --filter @manta/e2e run typecheck",
     "gate": "pnpm typecheck && pnpm lint && pnpm test",
+    "gate:e2e": "MANTA_E2E=1 pnpm --filter @manta/e2e test",
     "clean": "tsc -b --clean && rimraf 'packages/*/dist'",
     "e2e:recon-swarm": "MANTA_E2E=1 pnpm --filter @manta/e2e test"
   },

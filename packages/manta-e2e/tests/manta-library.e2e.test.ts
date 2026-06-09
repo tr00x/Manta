@@ -235,8 +235,10 @@ describe.skipIf(noClaude)('manta library install + cast + uninstall round-trip (
       expect(listJson.installs[0]!.packageName).toBe(FIXTURE_PACKAGE_NAME);
       expect(listJson.installs[0]!.modes).toContain(FIXTURE_LIBRARY_MODE);
 
-      // Step 4: cast --dry-run on the library mode. Asserts mode resolved
-      // through the library + the budget preview succeeded.
+      // Step 4: cast --dry-run on the library mode. Asserts the mode resolved
+      // through the library + the dry-run preview succeeded. (#M7: the budget/
+      // charges system was removed, so there is no `--no-charge-check` flag and
+      // no cost preview anymore — dry-run just validates + previews the plan.)
       const dryR = await execa(
         'node',
         [
@@ -248,7 +250,6 @@ describe.skipIf(noClaude)('manta library install + cast + uninstall round-trip (
           '--task',
           'e2e library-mode dry-run',
           '--dry-run',
-          '--no-charge-check',
           '--max-files-changed',
           '1',
         ],
@@ -256,9 +257,33 @@ describe.skipIf(noClaude)('manta library install + cast + uninstall round-trip (
       );
       expect(dryR.exitCode, dryR.stderr).toBe(0);
       const dryOut = dryR.stdout + '\n' + dryR.stderr;
-      // Cast --dry-run prints a cost preview; the library-mode path must have
-      // resolved to the recon-swarm dispatcher (basedOn).
-      expect(dryOut.toLowerCase()).toContain('dry-run');
+      // Cast --dry-run previews the plan; the library-mode path must have
+      // resolved to the recon-swarm dispatcher (basedOn). The CLI prints
+      // "dry run complete for cast …" (space, not hyphen), so match either form.
+      expect(dryOut.toLowerCase()).toMatch(/dry[ -]run/);
+
+      // #71: the cast's MCP pre-flight runs `claude mcp get manta-bus`. This
+      // round-trip isolates HOME (to sandbox the library install dir under
+      // ~/.manta/library/), which ALSO hides the dev machine's user-scope bus
+      // registration — so without this the pre-flight aborts the cast with "no
+      // MCP servers configured". Register the bus in the fixture repo's project
+      // .mcp.json so the pre-flight resolves it (exit 0); clones still boot from
+      // the spawner's own curated MCP profile, not this file.
+      const busServer = path.join(repoRoot, 'packages/manta-bus/dist/bin/server.cjs');
+      await fs.writeFile(
+        path.join(fx.repoDir, '.mcp.json'),
+        JSON.stringify({
+          mcpServers: {
+            'manta-bus': {
+              type: 'stdio',
+              command: 'node',
+              args: [busServer],
+              env: { MANTA_REPO_ROOT: fx.repoDir },
+            },
+          },
+        }),
+        'utf8',
+      );
 
       // Step 5: real cast — small budget, single clone, claude must produce
       // a deliverable artifact. We don't grade the artifact (same convention

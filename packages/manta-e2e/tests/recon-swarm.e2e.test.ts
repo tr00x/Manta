@@ -232,9 +232,11 @@ describe.skipIf(noClaude)('recon-swarm end-to-end against real claude', () => {
     expect(snaps).toContain('A.snapshot.json');
     expect(snaps).toContain('B.snapshot.json');
 
-    // Worktrees retained
+    // Worktrees retained. #64: worktree dirs are cast-scoped (`clone-<castId>-<L>`)
+    // to kill the letter→dir aliasing, so the path includes the cast id (the
+    // snapshot dir name IS the cast id, e.g. `cast-…`).
     for (const id of ['A', 'B']) {
-      const wt = path.join(fx.root, '.manta/worktrees', `clone-${id}`);
+      const wt = path.join(fx.root, '.manta/worktrees', `clone-${snapDirs[0]}-${id}`);
       await expect(fs.access(wt)).resolves.toBeUndefined();
     }
   }, 28 * 60 * 1000);

@@ -37,7 +37,7 @@ describe.skipIf(noClaude)('bug-hunt end-to-end against real claude', () => {
     await fx.cleanup();
   });
 
-  it('runs a 2-clone bug-hunt with investigation reports, no merge-review, forensic timeline, and charges', async () => {
+  it('runs a 2-clone bug-hunt with investigation reports, no merge-review, and a forensic timeline', async () => {
     fx = await makeSampleRepo();
 
     const tasksYaml = path.join(fx.root, 'tasks.yaml');
@@ -173,15 +173,11 @@ describe.skipIf(noClaude)('bug-hunt end-to-end against real claude', () => {
     const ftLines = ftBody.trim().split('\n').filter((l) => l.length > 0);
     expect(ftLines.length).toBeGreaterThanOrEqual(1);
     const firstEntry = JSON.parse(ftLines[0]!) as Record<string, unknown>;
-    expect(firstEntry.cast_id).toBe(observedCastId);
-
-    // ── Charge system recorded cost ─────────────────────────────────────
-    const chargesPath = path.join(fx.root, '.manta', 'state', 'charges.json');
-    const chargesRaw = await fs.readFile(chargesPath, 'utf-8');
-    const chargesState = JSON.parse(chargesRaw) as {
-      current_charges: number;
-      total_casts: number;
-    };
-    expect(chargesState.total_casts).toBeGreaterThanOrEqual(1);
+    // The cast↔timeline link is the FILENAME (`<castId>.ndjson`, asserted above);
+    // a per-line entry is a TimelineSnapshot { ts, cycleNumber, clones[] } and
+    // carries NO cast_id field. Assert the snapshot shape instead.
+    expect(Array.isArray(firstEntry.clones)).toBe(true);
+    expect(typeof firstEntry.ts).toBe('number');
+    // (Charge-system assertions removed — the budget/charges system was deleted, #M7.)
   }, 28 * 60 * 1000);
 });

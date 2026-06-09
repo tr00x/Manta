@@ -223,8 +223,10 @@ describe.skipIf(noClaude)('forking-realities end-to-end against real claude', ()
     expect(snaps).toContain('B.snapshot.json');
 
     // ── Worktrees retained ──────────────────────────────────────────────
+    // #64: worktree dirs are cast-scoped (`clone-<castId>-<L>`); the snapshot dir
+    // name IS the cast id.
     for (const id of ['A', 'B']) {
-      const wt = path.join(fx.root, '.manta/worktrees', `clone-${id}`);
+      const wt = path.join(fx.root, '.manta/worktrees', `clone-${snapDirs[0]}-${id}`);
       await expect(fs.access(wt)).resolves.toBeUndefined();
     }
 
@@ -275,6 +277,10 @@ describe.skipIf(noClaude)('forking-realities end-to-end against real claude', ()
     const ftLines = ftBody.trim().split('\n').filter((l) => l.length > 0);
     expect(ftLines.length).toBeGreaterThanOrEqual(1);
     const firstEntry = JSON.parse(ftLines[0]!) as Record<string, unknown>;
-    expect(firstEntry.cast_id).toBe(observedCastId);
+    // The cast↔timeline link is the FILENAME (`<castId>.ndjson`, asserted above);
+    // a per-line entry is a TimelineSnapshot { ts, cycleNumber, clones[] } and
+    // carries NO cast_id field. Assert the snapshot shape instead.
+    expect(Array.isArray(firstEntry.clones)).toBe(true);
+    expect(typeof firstEntry.ts).toBe('number');
   }, 28 * 60 * 1000);
 });
