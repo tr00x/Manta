@@ -98,8 +98,29 @@ export async function findDeadClones(
       }
     }
 
-    if (options.thresholds.parentPidCheckEnabled && !options.probe.alive(r.parent_pid)) {
-      reasons.push(`parent pid ${r.parent_pid} not alive`);
+    if (options.thresholds.parentPidCheckEnabled) {
+      if (!options.probe.alive(r.parent_pid)) {
+        reasons.push(`parent pid ${r.parent_pid} not alive`);
+      }
+      // bug #M18: a clone whose OWN `claude` process vanishes mid-work (OOM,
+      // SIGKILL, a crash) emits no death/suicide_intent event, so the only signal
+      // left is heartbeat staleness — and for FIX modes that timeout is 20 min
+      // (#M12). During that window the clone sits phantom-WORKING and, worst of
+      // all, its paired pair-programming reviewer blocks on a writer that no
+      // longer exists. The parent-pid check above does NOT catch this: the parent
+      // cast process is still alive (only the child died). #65 now persists the
+      // clone's OWN pid, so probe it directly — a recorded-but-dead clone_pid
+      // means the process is genuinely gone, so reap it in this cycle (~5s)
+      // instead of waiting out the whole heartbeat window and freeing any blocked
+      // sibling on the next cycle. clone_pid is undefined in the brief window
+      // between `register` and the spawner's post-launch `recordClonePid`, so only
+      // probe a recorded positive pid (absent → fall through to the heartbeat /
+      // startup-grace logic). Marking DEAD here only mutates registry state — no
+      // process is signalled in findDeadClones — so even a recycled pid that reads
+      // alive is safe: the worst case is a delayed reap, never a wrong kill.
+      if (r.clone_pid != null && r.clone_pid > 0 && !options.probe.alive(r.clone_pid)) {
+        reasons.push(`clone pid ${r.clone_pid} not alive (process vanished)`);
+      }
     }
     if (reasons.length > 0) {
       out.push({ clone_id: r.clone_id, record: r, reason: reasons.join('; ') });

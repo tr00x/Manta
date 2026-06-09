@@ -40,7 +40,12 @@ export type Thresholds = z.infer<typeof ThresholdsSchema>;
 //  - staleLockMs (15s): Sec 4 — locks renew every 5s; 15s = 3 missed renews. Locks are
 //    held inside tight critical sections, not across reads/edits, so 15s is appropriate.
 //  - cycleIntervalMs (5s): catches dead clones within one heartbeat window without thrashing.
-//  - parentPidCheckEnabled: spec Sec 9 blocker #5 — must be on by default
+//  - parentPidCheckEnabled: spec Sec 9 blocker #5 — must be on by default. Gates
+//    BOTH OS-liveness reaps: the parent cast pid (orphan detection) AND the
+//    clone's own pid (bug #M18 vanished-process detection). One switch because
+//    both rely on process.kill(pid,0); disabling it (e.g. an env with unreliable
+//    pids or a fake probe) turns off all pid-based reaping, leaving heartbeat /
+//    grace timeouts as the only liveness signal.
 export const defaultThresholds: Thresholds = {
   heartbeatTimeoutMs: 300_000,
   startupGraceMs: 600_000,

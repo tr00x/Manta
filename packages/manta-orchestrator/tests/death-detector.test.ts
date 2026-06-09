@@ -142,6 +142,111 @@ describe('death-detector', () => {
     expect(result).toEqual([]);
   });
 
+  // Bug #M18: a clone whose own `claude` process vanishes mid-work (OOM, SIGKILL,
+  // crash) emits no death event. Its parent cast is still alive (so the parent-pid
+  // check does NOT catch it) and its heartbeat won't go stale for up to 20 min on
+  // a FIX mode — so it sits phantom-WORKING and a paired reviewer blocks forever.
+  // #65 persists the clone's own pid; probe it so a vanished process is reaped in
+  // the same cycle.
+  it('M18: a WORKING clone whose own process vanished is reaped even though the parent is alive', async () => {
+    await ctx.registry.register({ clone_id: 'A', mode: 'pair-programming', parent_pid: 1, worktree: '/w', metadata: {} });
+    await ctx.registry.recordClonePid('A', 4242);
+    await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    ctx.clock.advance(1_000); // heartbeat perfectly fresh — only the process death betrays it
+    const result = await findDeadClones(ctx, {
+      thresholds: defaultThresholds,
+      // parent (pid 1) alive, clone's own pid (4242) dead
+      probe: makeProbe({ alive: (pid) => pid !== 4242 }),
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0]!.clone_id).toBe('A');
+    expect(result[0]!.reason).toMatch(/process vanished/);
+    expect(result[0]!.reason).toMatch(/clone pid 4242/);
+    expect(result[0]!.reason).not.toMatch(/parent/); // parent is alive
+  });
+
+  it('M18: a WORKING clone whose own process is alive is NOT reaped', async () => {
+    await ctx.registry.register({ clone_id: 'A', mode: 'pair-programming', parent_pid: 1, worktree: '/w', metadata: {} });
+    await ctx.registry.recordClonePid('A', 4242);
+    await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    ctx.clock.advance(1_000);
+    const result = await findDeadClones(ctx, {
+      thresholds: defaultThresholds,
+      probe: makeProbe({ alive: () => true }), // both pids alive
+    });
+    expect(result).toEqual([]);
+  });
+
+  it('M18: vanished-process reap honors parentPidCheckEnabled=false (no pid-based reaping)', async () => {
+    await ctx.registry.register({ clone_id: 'A', mode: 'pair-programming', parent_pid: 1, worktree: '/w', metadata: {} });
+    await ctx.registry.recordClonePid('A', 4242);
+    await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    ctx.clock.advance(1_000);
+    const result = await findDeadClones(ctx, {
+      thresholds: { ...defaultThresholds, parentPidCheckEnabled: false },
+      probe: makeProbe({ alive: (pid) => pid !== 4242 }), // clone pid dead but checks disabled
+    });
+    expect(result).toEqual([]);
+  });
+
+  it('M18: a clone with NO recorded clone_pid is not reaped on the vanished path (register→record window)', async () => {
+    // Between register and the spawner's recordClonePid, clone_pid is undefined.
+    // The probe returning "dead for everything" must NOT manufacture a vanished
+    // reap from an absent pid — the heartbeat/grace logic governs that window.
+    await ctx.registry.register({ clone_id: 'A', mode: 'pair-programming', parent_pid: 1, worktree: '/w', metadata: {} });
+    await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    ctx.clock.advance(1_000); // fresh heartbeat, no clone_pid recorded yet
+    const result = await findDeadClones(ctx, {
+      thresholds: defaultThresholds,
+      // parent (pid 1) alive so the parent check is silent; clone_pid absent
+      probe: makeProbe({ alive: (pid) => pid === 1 }),
+    });
+    expect(result).toEqual([]);
+  });
+
+  it('M18: a long-dead WORKING clone joins both reasons (stale heartbeat AND vanished pid), one finding', async () => {
+    // The realistic case: the process died minutes ago, so BOTH the heartbeat is
+    // stale AND the pid is gone. Must report a SINGLE record whose reason names
+    // both — not two findings, not a swallowed signal.
+    await ctx.registry.register({ clone_id: 'A', mode: 'pair-programming', parent_pid: 1, worktree: '/w', metadata: {} });
+    await ctx.registry.recordClonePid('A', 4242);
+    await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    ctx.clock.advance(defaultThresholds.heartbeatTimeoutMs + 1_000); // heartbeat now stale too
+    const result = await findDeadClones(ctx, {
+      thresholds: defaultThresholds,
+      probe: makeProbe({ alive: (pid) => pid !== 4242 }), // parent alive, clone gone
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0]!.reason).toMatch(/heartbeat/);
+    expect(result[0]!.reason).toMatch(/process vanished/);
+  });
+
+  it('M18: once the vanished writer is DEAD, its blocked reviewer is freed (reaped on idle)', async () => {
+    // End-to-end shape of the #M18 wedge: writer A's process vanishes, reviewer B
+    // waits forever. Cycle 1 reaps A (vanished pid). After A is marked DEAD,
+    // B's `waitingOnLiveWriter` protection lapses and B is reaped on maxIdleTimeMs.
+    await ctx.registry.register({ clone_id: 'A', mode: 'pair-programming', parent_pid: 1, worktree: '/wa', metadata: { role: 'writer' } });
+    await ctx.registry.register({ clone_id: 'B', mode: 'pair-programming', parent_pid: 1, worktree: '/wb', metadata: { role: 'reviewer' } });
+    await ctx.registry.recordClonePid('A', 4242);
+    await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    await ctx.registry.heartbeat({ clone_id: 'B', state: 'WORKING' });
+    ctx.clock.advance(1_000);
+    await ctx.registry.heartbeat({ clone_id: 'B', state: 'IDLE' }); // reviewer waits for writer
+    ctx.clock.advance(defaultThresholds.maxIdleTimeMs + 60_000);
+    await ctx.registry.touch('B'); // keep B's heartbeat fresh; only idle_since is stale
+    const probe = makeProbe({ alive: (pid) => pid !== 4242 }); // A's process gone
+
+    // Cycle 1: A reaped as vanished; B still protected (A not yet DEAD in registry).
+    const cycle1 = await findDeadClones(ctx, { thresholds: defaultThresholds, probe });
+    expect(cycle1.find((r) => r.clone_id === 'A')?.reason).toMatch(/process vanished/);
+    expect(cycle1.find((r) => r.clone_id === 'B')).toBeUndefined();
+
+    // Orchestrator marks A DEAD, then the next cycle frees B.
+    await ctx.registry.markDead('A', cycle1.find((r) => r.clone_id === 'A')!.reason);
+    const cycle2 = await findDeadClones(ctx, { thresholds: defaultThresholds, probe });
+    expect(cycle2.find((r) => r.clone_id === 'B')?.reason).toMatch(/maxIdleTimeMs/);
+  });
+
   it('IDLE clone NOT killed within maxIdleTimeMs and idleHeartbeatTimeoutMs', async () => {
     await ctx.registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
     await ctx.registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
