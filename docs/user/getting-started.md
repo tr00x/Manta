@@ -106,9 +106,10 @@ The CLI:
 ## 7. If something goes wrong
 
 - `manta status` — current view of the bus.
-- `manta recover` — runs one orchestrator cycle, reaping zombies.
-- `manta abort` — mark every live clone DEAD with post-mortems.
-- `manta kill <id>` — same for a single clone.
+- `manta recover` — runs one orchestrator cycle: reaps zombies (stale heartbeats, dead-parent orphans), stale locks/claims, and writes missing post-mortems. It also **kills any still-running clone process whose record is already DEAD** — a clone whose parent cast exited can be reparented to init and keep running; recover signals its recorded pid (SIGTERM → grace → SIGKILL).
+- `manta recover --purge-dead` — additionally **drops settled DEAD clone records** from the registry so they stop showing in `manta status`. Only a record whose process is gone *and* whose whole cast has settled (no live sibling) is removed; the clone's `death` event stays in `events.jsonl`, so nothing is lost. Use this to tidy the list without the nuclear `manta cleanup` (which uninstalls the bus + wipes all state).
+- `manta abort` — mark every live clone DEAD with post-mortems, and signal each one's process group + its own pid so nothing keeps running.
+- `manta kill <id>` — same for a single clone (signals only that clone's own pid — no sibling/cast collateral).
 
 If a worktree won't go away or a lock is stuck, open a GitHub issue with the cast id and `manta status` output.
 

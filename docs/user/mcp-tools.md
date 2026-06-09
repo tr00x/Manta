@@ -61,6 +61,15 @@ Mutating. `manta_abort` marks **every** live clone DEAD with a post-mortem;
 `reason` (a guard against an accidental global stop — it lands on every
 post-mortem); `manta_kill`'s `reason` is optional.
 
+Both also **signal the actual OS processes**, not just the registry: each clone's
+own `claude` pid is recorded at spawn, so `manta_abort` SIGTERM→SIGKILLs every
+live clone's process group **and** its own pid (reaching a clone reparented to
+init after its cast exited), while `manta_kill` signals only that one clone's pid
+— no sibling or cast collateral. `manta recover` is the post-crash surface: it
+reaps any DEAD record whose process is still alive, and `--purge-dead` also drops
+settled DEAD records from the registry (the `death` event stays in
+`events.jsonl`).
+
 ## Binary resolution
 
 The server locates the `manta` binary in this order:
