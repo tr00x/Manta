@@ -19,7 +19,7 @@
     "lint": "eslint 'packages/**/src/**/*.ts' --no-error-on-unmatched-pattern",
     "lint:fix": "eslint 'packages/**/src/**/*.ts' --fix --no-error-on-unmatched-pattern",
     "format": "prettier --write 'packages/**/*.{ts,json,md}'",
-    "typecheck": "tsc -b",
+    "typecheck": "tsc -b && pnpm --filter @manta/e2e run typecheck",
     "gate": "pnpm typecheck && pnpm lint && pnpm test",
     "clean": "tsc -b --clean && rimraf 'packages/*/dist'",
     "e2e:recon-swarm": "MANTA_E2E=1 pnpm --filter @manta/e2e test"

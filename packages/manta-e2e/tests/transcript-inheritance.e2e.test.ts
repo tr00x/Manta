@@ -139,7 +139,14 @@ async function runReconCast(opts: {
   if (recorderError) throw recorderError;
   if (!r) throw new Error('cast process did not produce a result');
 
-  return { exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr, observedCastId };
+  // #70: under exactOptionalPropertyTypes, `observedCastId?: string` rejects an
+  // explicit `undefined` — omit the key when unset instead of assigning undefined.
+  return {
+    exitCode: r.exitCode,
+    stdout: r.stdout,
+    stderr: r.stderr,
+    ...(observedCastId !== undefined ? { observedCastId } : {}),
+  };
 }
 
 /**
