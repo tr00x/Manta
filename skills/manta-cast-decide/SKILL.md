@@ -66,11 +66,16 @@ supported". Don't suggest it.
 The real question is "am I within my subscription's usage?", never "can I afford the dollars?" (there
 are none — no charges, no cooldown, no dollar budget). Check:
 
-- **Parallelism**: how many clones at once? `--max-parallel-clones` (default 5) is the one hard cap. More
-  parallel clones drain your subscription's rate limit faster and load your machine harder — spawn the
-  fewest that actually parallelize. Exhausting your Claude Code usage limit blocks you for *hours*.
-- **Serial casts**: don't pile casts back-to-back. If the previous cast hasn't settled (`manta status`
-  shows a clone still WORKING), wait for it before launching the next.
+- **Parallelism**: how many clones at once? `--max-parallel-clones` (default 5) caps how many clones of a
+  *single* cast spawn at once. More parallel clones drain your subscription's rate limit faster and load
+  your machine harder — spawn the fewest that actually parallelize. Exhausting your Claude Code usage
+  limit blocks you for *hours*.
+- **The global clone budget is 5 letters (A–E), shared across ALL running casts.** Concurrent casts are
+  SAFE — they get disjoint letters + cast-scoped worktrees, no collision — but the SUM of live clones
+  across everything must stay ≤ 5 (e.g. a recon-swarm ×2 + a bug-hunt ×1 = 3 is fine; three ×3 casts is
+  not — the 9th–6th are rejected with `concurrent_cast_limit_reached`). You don't have to serialize, but
+  you do have to fit the budget. Serial is still simpler to observe/harvest, so overlap only when the
+  parallelism earns the extra bookkeeping.
 - Use **`--dry-run`** to preview the plan (modes, clone count, scope) without spawning.
 
 ### Long session? Force full inheritance.

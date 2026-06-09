@@ -93,7 +93,8 @@ B:
 **Flags that matter** (full set: `docs/user/mcp-tools.md` + the mode guide):
 
 - `--allowed-paths` / `--forbidden-paths` — scope fence (CSV). `--max-files-changed 0` = read-only.
-- `--max-parallel-clones` — the ONLY usage limit (subscription: no dollars/charges/cooldown).
+- `--max-parallel-clones` — caps how many clones of **one cast** spawn at once (machine/rate-limit guard); default 5. NOT a cross-cast limit.
+- **Concurrent casts of different modes are SAFE.** You can launch e.g. a `recon-swarm --clones 2` and a `bug-hunt --clones 1` at the same time — they get **disjoint** clone letters (the allocator treats every other cast's live letters as taken) and **cast-scoped worktrees** (`clone-<castId>-<L>`), so no collision. The only ceiling is the **5-letter global pool**: keep the SUM of live clones across all running casts ≤ 5 (e.g. 2+2+1, or one ×5). Overrun → the new cast is rejected with `concurrent_cast_limit_reached`. Tip: serial is still *simpler* to observe/harvest (`manta status` shows all casts' letters interleaved), so overlap when the parallelism is worth the bookkeeping.
 - Transcript inheritance — by DEFAULT clones fork your conversation up to a **5 MB ceiling** (no flag; they boot warm). Above it they cold-boot with a loud warning, because forking a multi-MB transcript wedges the clone in STARTING (#M17). `--force-full-transcript` = fork UNCONDITIONALLY (escape hatch; can freeze on a huge session); `--no-full-transcript` = conservative 2 MB; `--distill-threshold-bytes <n>` retunes the ceiling. Structured modes (refactor-wave/test-storm) have self-contained contracts, so cold boot on a long session loses nothing.
 
 ### STEP 2 — Observe (don't busy-poll)
@@ -152,7 +153,7 @@ Both DEAD → `cat docs/merge-reviews/<id>.md`, follow `manta-merge-review`,
 
 ## Forbidden
 
-- **Parallel casts at once** — serial only (clone-letter/worktree collision). One cast's clones all DEAD before the next.
+- **More than 5 live clones at once, total.** Clone letters are a global pool of **A–E (5)** shared across every running cast, so the SUM of live clones across all concurrent casts can't exceed 5. Overrun and the allocator rejects the new cast with `concurrent_cast_limit_reached` ("wait or abort"). Parallel casts ARE safe (see below) — they're just bounded by this 5-letter budget.
 - **Busy-polling `manta status`** in a tight loop.
 - **Blind-merging every branch** from a forking cast — follow the verdict.
 - **Pulling a clone's whole transcript into yours** "to help" — kills the fresh-context advantage. Read its deliverable + report.
