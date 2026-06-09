@@ -27,19 +27,21 @@ export function parsePositiveIntOption(raw: string): number {
 
 /**
  * Commander coercer for integer-valued flags where `0` is a MEANINGFUL value,
- * not a disabled guard. The sole user today is `--max-files-changed`, where
- * `0` = read-only (a clone that may write nothing) and is perfectly valid —
- * so {@link parsePositiveIntOption} (which rejects `0`) would be wrong here.
- * A bare `parseInt` still has the NaN-disarm hazard: `parseInt('abc', 10)` is
- * `NaN`, and a downstream `Number.isInteger(NaN)` guard would reject it with a
- * confusing "got NaN" message instead of a clean "expected a non-negative
- * integer". `parseInt`'s trailing-garbage leniency (`5abc` → 5) is rejected on
- * purpose. Negatives are rejected by the `\d+`-only pattern (no leading minus).
+ * not a disabled guard. Users: `--max-files-changed` (`0` = read-only, a clone
+ * that may write nothing) and the `--since` timestamp filters on replay/audit
+ * (`0` = from epoch) — bug #60. For these {@link parsePositiveIntOption} (which
+ * rejects `0`) would be wrong. A bare `parseInt` still has the NaN-disarm
+ * hazard: `parseInt('abc', 10)` is `NaN`, and a downstream comparison against
+ * `NaN` is always false — silently disabling the filter/guard. `parseInt`'s
+ * trailing-garbage leniency (`5abc` → 5) is rejected on purpose. Negatives are
+ * rejected by the `\d+`-only pattern (no leading minus). The message is generic
+ * (no flag-specific hint) because the coercer is shared; each flag's own
+ * `.option()` description carries any per-flag meaning of `0`.
  */
 export function parseNonNegativeIntOption(raw: string): number {
   const trimmed = raw.trim();
   if (!/^\d+$/.test(trimmed)) {
-    throw new InvalidArgumentError('expected a non-negative integer (0 = read-only)');
+    throw new InvalidArgumentError('expected a non-negative integer');
   }
   return Number.parseInt(trimmed, 10);
 }

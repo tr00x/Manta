@@ -468,13 +468,15 @@ async function main(): Promise<void> {
     .command('inspect <cloneId>')
     .description('Deep-dive into a single clone: registry, contract, locks, events')
     .option('--json', 'output as JSON', false)
-    .option('--events <n>', 'number of recent events to show', '10')
-    .action(async (cloneId: string, options: { json: boolean; events: string }) => {
+    // bug #60: coerce + validate at the CLI boundary. A bare parseInt accepts
+    // NaN on garbage (`--events abc`) and the old `|| 10` masked it silently.
+    .option('--events <n>', 'number of recent events to show', parsePositiveIntOption, 10)
+    .action(async (cloneId: string, options: { json: boolean; events: number }) => {
       await runWithRuntime((rt) =>
         runInspectCommand(rt, {
           cloneId,
           json: options.json,
-          eventCount: Math.min(parseInt(options.events, 10) || 10, 100),
+          eventCount: Math.min(options.events, 100),
           reporter,
         }),
       );
@@ -483,11 +485,24 @@ async function main(): Promise<void> {
   program
     .command('tail <cloneId> [durationSeconds]')
     .description('Stream events for a clone in real-time')
-    .option('--interval <ms>', 'polling interval in milliseconds', '2000')
+    .option('--interval <ms>', 'polling interval in milliseconds', parsePositiveIntOption, 2000)
     .option('--raw', 'output raw JSON per line', false)
-    .action(async (cloneId: string, durationSeconds: string | undefined, options: { interval: string; raw: boolean }) => {
-      const durationMs = (durationSeconds != null ? parseInt(durationSeconds, 10) : 300) * 1000;
-      const intervalMs = parseInt(options.interval, 10) || 2000;
+    .action(async (cloneId: string, durationSeconds: string | undefined, options: { interval: number; raw: boolean }) => {
+      // bug #60: durationSeconds is a POSITIONAL arg (no commander coercer), so a
+      // bad value (`tail X abc`) would parseInt→NaN→NaN*1000→NaN durationMs and the
+      // window clamp below collapses to NaN. Validate it at the boundary instead.
+      let durationSec = 300;
+      if (durationSeconds != null) {
+        const t = durationSeconds.trim();
+        if (!/^\d+$/.test(t) || Number.parseInt(t, 10) <= 0) {
+          process.stderr.write('[manta] tail: durationSeconds must be a positive integer (seconds)\n');
+          process.exitCode = 1;
+          return;
+        }
+        durationSec = Number.parseInt(t, 10);
+      }
+      const durationMs = durationSec * 1000;
+      const intervalMs = options.interval;
       await runWithRuntime((rt) =>
         runTailCommand(rt, {
           cloneId,
@@ -504,14 +519,16 @@ async function main(): Promise<void> {
     .description('Replay the timeline of a cast showing phased events and clone summaries')
     .option('-f, --format <format>', 'output format: markdown or json', 'markdown')
     .option('-c, --clone <id>', 'filter to a specific clone (repeatable)', (val: string, prev: string[]) => [...prev, val], [] as string[])
-    .option('--since <timestamp>', 'only show events after this Unix timestamp (ms)')
-    .action(async (castId: string, options: { format: string; clone: string[]; since?: string }) => {
+    // bug #60: a bad --since (`replay X --since abc`) parseInt'd to NaN, and the
+    // downstream `event.ts > NaN` filter is always false → silently shows nothing.
+    .option('--since <timestamp>', 'only show events after this Unix timestamp (ms)', parseNonNegativeIntOption)
+    .action(async (castId: string, options: { format: string; clone: string[]; since?: number }) => {
       await runWithRuntime((rt) =>
         runReplayCommand(rt, {
           castId,
           format: options.format === 'json' ? 'json' : 'markdown',
           ...(options.clone.length > 0 ? { cloneIds: options.clone } : {}),
-          ...(options.since != null ? { since: parseInt(options.since, 10) } : {}),
+          ...(options.since != null ? { since: options.since } : {}),
           reporter,
         }),
       );
@@ -522,20 +539,25 @@ async function main(): Promise<void> {
     .description('Audit trail for a single clone: events, gaps, and statistics')
     .option('-f, --format <format>', 'output format: markdown or json', 'markdown')
     .option('-t, --type <type>', 'filter by event type or group (repeatable)', (val: string, prev: string[]) => [...prev, val], [] as string[])
-    .option('--since <timestamp>', 'only show events after this Unix timestamp (ms)')
-    .option('-l, --limit <n>', 'max events to show (most recent)')
+    // bug #60: coerce all three numeric flags at the boundary. Bare parseInt
+    // accepted NaN — a bad --since silently filtered out everything, a bad --limit
+    // hit audit.ts's `limit > 0` guard and silently applied no limit, a bad
+    // --gap-threshold made every gap an anomaly. --limit uses the positive coercer
+    // (0 = show nothing is a footgun, reject it); --since allows 0 (epoch).
+    .option('--since <timestamp>', 'only show events after this Unix timestamp (ms)', parseNonNegativeIntOption)
+    .option('-l, --limit <n>', 'max events to show (most recent)', parsePositiveIntOption)
     .option('--gaps', 'highlight gap anomalies', false)
-    .option('--gap-threshold <seconds>', 'gap anomaly threshold in seconds', '30')
-    .action(async (cloneId: string, options: { format: string; type: string[]; since?: string; limit?: string; gaps: boolean; gapThreshold: string }) => {
+    .option('--gap-threshold <seconds>', 'gap anomaly threshold in seconds', parsePositiveIntOption, 30)
+    .action(async (cloneId: string, options: { format: string; type: string[]; since?: number; limit?: number; gaps: boolean; gapThreshold: number }) => {
       await runWithRuntime((rt) =>
         runAuditCommand(rt, {
           cloneId,
           format: options.format === 'json' ? 'json' : 'markdown',
           ...(options.type.length > 0 ? { typeFilter: options.type } : {}),
-          ...(options.since != null ? { since: parseInt(options.since, 10) } : {}),
-          ...(options.limit != null ? { limit: parseInt(options.limit, 10) } : {}),
+          ...(options.since != null ? { since: options.since } : {}),
+          ...(options.limit != null ? { limit: options.limit } : {}),
           ...(options.gaps ? { gaps: true } : {}),
-          ...(options.gaps ? { gapThreshold: parseInt(options.gapThreshold, 10) } : {}),
+          ...(options.gaps ? { gapThreshold: options.gapThreshold } : {}),
           reporter,
         }),
       );
