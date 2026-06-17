@@ -9415,9 +9415,11 @@ var init_registry = __esm({
                   `cannot transition from BLOCKED to IDLE; unblock to WORKING first`
                 );
               }
-              r.idle_since = this.clock.now();
-              r.tasks_completed = (r.tasks_completed ?? 0) + 1;
-              r.last_task_completed_at = this.clock.now();
+              if (r.state !== "IDLE") {
+                r.idle_since = this.clock.now();
+                r.tasks_completed = (r.tasks_completed ?? 0) + 1;
+                r.last_task_completed_at = this.clock.now();
+              }
             }
             if (r.state === "IDLE" && input.state === "WORKING") {
               delete r.idle_since;
@@ -9465,6 +9467,40 @@ var init_registry = __esm({
           auditAppend
         );
       }
+      /**
+       * Persist a clone's OWN OS process id once the spawner has launched it.
+       * Pre-registration (`register`) runs BEFORE the `claude --print` child exists,
+       * so `clone_pid` starts undefined and is filled in here right after launch.
+       *
+       * Why it matters (#65): the registry only stored `parent_pid` (the `manta
+       * cast` spawner's pid). A clone whose parent cast process has exited is
+       * reparented to init — a SEPARATE `manta abort`/`kill`/`recover` process can
+       * no longer reach it through the parent's process group, so the orphan keeps
+       * burning subscription rate while merely marked DEAD. Persisting the clone's
+       * own pid lets any later operator command signal the actual process.
+       *
+       * Records even on a DEAD record (skeptic-review #65-2): the pid is known-
+       * correct at spawn time regardless of registry state, and if the reaper marked
+       * the clone DEAD in the tiny window between `register` and this call, dropping
+       * the pid would manufacture an orphan that `kill`/`recover` can never reach
+       * (they signal `clone_pid`, and a reparented orphan's parent group is gone) —
+       * the exact failure #65 fixes. Storing the pid does NOT revive the clone (state
+       * is untouched); the kill paths gate the SIGNAL on liveness + DEAD-state, never
+       * the storage on state. Only silent no-op is an ABSENT record (no row to set).
+       */
+      async recordClonePid(cloneId, pid, auditAppend) {
+        await atomicMutateJson(
+          this.paths.registry,
+          empty,
+          (current) => {
+            const r = current.clones[cloneId];
+            if (!r) return current;
+            r.clone_pid = pid;
+            return current;
+          },
+          auditAppend
+        );
+      }
       async markDead(cloneId, reason, auditAppend, observedLastHeartbeatAt) {
         return atomicMutateJson(
           this.paths.registry,
@@ -9484,6 +9520,34 @@ var init_registry = __esm({
           },
           auditAppend
         ).then((next) => next.clones[cloneId]);
+      }
+      /**
+       * Remove clone records matching `shouldPurge`. Only EVER deletes records that
+       * are already terminal (`state === 'DEAD'`) AND satisfy the predicate, re-
+       * checked under the file mutex — so a record re-registered (DEAD → STARTING)
+       * between the caller's snapshot and this mutation is left untouched. Returns
+       * the ids actually removed.
+       *
+       * GC for settled DEAD records (`manta recover --purge-dead`, bug #68). This is
+       * the one mutation that does NOT need a paired-inside-the-mutex audit append
+       * (#24/#54): the clone's `death` event already lives in `events.jsonl` as the
+       * permanent historical record, so dropping the (terminal) registry row loses
+       * no reconstruction information — it's pure GC, not a state transition. The
+       * caller logs a single `recover_purged_dead` event with the returned ids.
+       */
+      async purgeDead(shouldPurge) {
+        const removed = [];
+        await atomicMutateJson(this.paths.registry, empty, (current) => {
+          removed.length = 0;
+          for (const [id, r] of Object.entries(current.clones)) {
+            if (r.state === "DEAD" && shouldPurge(r)) {
+              delete current.clones[id];
+              removed.push(id);
+            }
+          }
+          return current;
+        });
+        return removed;
       }
       async get(cloneId) {
         const file = await atomicReadJson(this.paths.registry, empty);
@@ -24371,8 +24435,13 @@ async function findDeadClones(ctx, options2) {
         );
       }
     }
-    if (options2.thresholds.parentPidCheckEnabled && !options2.probe.alive(r.parent_pid)) {
-      reasons.push(`parent pid ${r.parent_pid} not alive`);
+    if (options2.thresholds.parentPidCheckEnabled) {
+      if (!options2.probe.alive(r.parent_pid)) {
+        reasons.push(`parent pid ${r.parent_pid} not alive`);
+      }
+      if (r.clone_pid != null && r.clone_pid > 0 && !options2.probe.alive(r.clone_pid)) {
+        reasons.push(`clone pid ${r.clone_pid} not alive (process vanished)`);
+      }
     }
     if (reasons.length > 0) {
       out.push({ clone_id: r.clone_id, record: r, reason: reasons.join("; ") });
@@ -25163,7 +25232,11 @@ async function runMergeReview(ctx, opts) {
     payload: {
       cast_id: opts.castId,
       verdict: result.verdict,
-      winner_clone_id: ranked[0]?.cloneId ?? null,
+      // Same winner the markdown proposes for `git merge`: a tie-break can pick
+      // a clone other than ranked[0] (axis-priority / pareto / self-certainty),
+      // so deriving this from ranked[0] alone would record a winner in the
+      // durable event log that contradicts the writeup and the auto-merge.
+      winner_clone_id: tieBreak?.winner.cloneId ?? ranked[0]?.cloneId ?? null,
       scores: ranked.map((r) => ({ clone_id: r.cloneId, score: r.score })),
       tie_break_method: tieBreak?.method ?? null
     }
@@ -42337,6 +42410,12 @@ async function spawnClone(opts) {
     await opts.registry.touch(cloneId);
   } catch {
   }
+  if (typeof proc.pid === "number") {
+    try {
+      await opts.registry.recordClonePid(cloneId, proc.pid);
+    } catch {
+    }
+  }
   const exit = (async () => {
     let r;
     try {
@@ -42557,7 +42636,7 @@ async function runDaemonLoop(opts) {
     } finally {
       opts.signal?.removeEventListener("abort", killOnAbort);
     }
-    if (exitResult.failed && exitResult.exitCode == null) {
+    if (exitResult.failed) {
       consecutiveFailures++;
       try {
         await opts.workQueue.release(item.id);
@@ -44200,6 +44279,9 @@ async function runCastCommand(rt2, opts) {
       effective[id].approachHint = effective[id].approachHint ?? "proposer";
     }
   }
+  const ctrl = new AbortController();
+  let budgetTimer;
+  const daemonDriveLoops = [];
   try {
     let sharedWorktree = null;
     if (opts.mode === "test-storm") {
@@ -44386,9 +44468,7 @@ async function runCastCommand(rt2, opts) {
       }),
       timeline
     });
-    const ctrl = new AbortController();
-    const budgetTimer = setTimeout(() => ctrl.abort(), opts.tickBudgetMs);
-    const daemonDriveLoops = [];
+    budgetTimer = setTimeout(() => ctrl.abort(), opts.tickBudgetMs);
     if (sessionMode === "daemon" && rt2.ctx.workQueue) {
       const wq = rt2.ctx.workQueue;
       for (const h of handles) {
@@ -44622,6 +44702,8 @@ async function runCastCommand(rt2, opts) {
       stdout: `Cast ${opts.castId} complete: ${cloneIds.length} clone(s).`
     };
   } catch (err) {
+    ctrl.abort();
+    await Promise.allSettled(daemonDriveLoops);
     await Promise.all(
       handles.map(async (h) => {
         try {
@@ -44645,6 +44727,7 @@ async function runCastCommand(rt2, opts) {
     if (err instanceof CliError) throw err;
     throw new CliError("cast failed", { kind: "cast_failed", cause: err });
   } finally {
+    clearTimeout(budgetTimer);
     await Promise.all(
       handles.map(async (h) => {
         try {
@@ -44841,6 +44924,53 @@ async function runStatusCommand(rt2, opts) {
 // src/commands/kill.ts
 init_cjs_shims();
 init_src3();
+
+// src/spawner/reap-pids.ts
+init_cjs_shims();
+init_src3();
+var realKill = (pid, signal) => {
+  process.kill(pid, signal);
+};
+var realSleep = (ms2) => new Promise((resolve14) => setTimeout(resolve14, ms2));
+var DEFAULT_GRACEFUL_MS2 = 5e3;
+function signalOne(target, signal, kill) {
+  const { pid, group } = target;
+  if (!Number.isInteger(pid) || pid <= 1 || pid === process.pid) return;
+  if (group) {
+    try {
+      kill(-pid, signal);
+      return;
+    } catch {
+    }
+  }
+  try {
+    kill(pid, signal);
+  } catch {
+  }
+}
+async function reapPids(targets, opts = {}) {
+  const kill = opts.kill ?? realKill;
+  const sleep2 = opts.sleep ?? realSleep;
+  const gracefulMs = opts.gracefulMs ?? DEFAULT_GRACEFUL_MS2;
+  const isAlive = opts.isAlive ?? isProcessAlive;
+  const seen = /* @__PURE__ */ new Set();
+  const valid = targets.filter((t) => {
+    if (!Number.isInteger(t.pid) || t.pid <= 1 || t.pid === process.pid) return false;
+    const key = `${t.group ? "-" : ""}${t.pid}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  if (valid.length === 0) return 0;
+  for (const t of valid) signalOne(t, "SIGTERM", kill);
+  await sleep2(gracefulMs);
+  for (const t of valid) {
+    if (isAlive(t.pid)) signalOne(t, "SIGKILL", kill);
+  }
+  return valid.length;
+}
+
+// src/commands/kill.ts
 async function runKillCommand(rt2, opts) {
   let record2;
   try {
@@ -44849,6 +44979,14 @@ async function runKillCommand(rt2, opts) {
     throw new CliError(`clone not found: ${opts.cloneId}`, {
       kind: "not_found",
       cause: err
+    });
+  }
+  if (record2.state !== "DEAD" && typeof record2.clone_pid === "number") {
+    await reapPids([{ pid: record2.clone_pid, group: false }], {
+      ...opts.kill !== void 0 ? { kill: opts.kill } : {},
+      ...opts.sleep !== void 0 ? { sleep: opts.sleep } : {},
+      ...opts.gracefulMs !== void 0 ? { gracefulMs: opts.gracefulMs } : {},
+      ...opts.isAlive !== void 0 ? { isAlive: opts.isAlive } : {}
     });
   }
   const writer = fsPostMortemWriter({
@@ -44876,34 +45014,20 @@ async function runKillCommand(rt2, opts) {
 // src/commands/abort.ts
 init_cjs_shims();
 init_src3();
-var DEFAULT_GRACEFUL_MS2 = 5e3;
-var realKill = (pid, signal) => {
-  process.kill(pid, signal);
-};
-var realSleep = (ms2) => new Promise((resolve14) => setTimeout(resolve14, ms2));
-function signalCloneTree(pid, signal, kill) {
-  if (!Number.isInteger(pid) || pid <= 1 || pid === process.pid) return;
-  try {
-    kill(-pid, signal);
-  } catch {
-    try {
-      kill(pid, signal);
-    } catch {
-    }
-  }
-}
 async function runAbortCommand(rt2, opts) {
   const all = await rt2.ctx.registry.list();
   const live = all.filter((c) => c.state !== "DEAD");
-  const kill = opts.kill ?? realKill;
-  const sleep2 = opts.sleep ?? realSleep;
-  const gracefulMs = opts.gracefulMs ?? DEFAULT_GRACEFUL_MS2;
-  const livePids = live.map((c) => c.parent_pid).filter((pid) => typeof pid === "number");
-  for (const pid of livePids) signalCloneTree(pid, "SIGTERM", kill);
-  if (livePids.length > 0) {
-    await sleep2(gracefulMs);
-    for (const pid of livePids) signalCloneTree(pid, "SIGKILL", kill);
+  const targets = [];
+  for (const c of live) {
+    if (typeof c.parent_pid === "number") targets.push({ pid: c.parent_pid, group: true });
+    if (typeof c.clone_pid === "number") targets.push({ pid: c.clone_pid, group: false });
   }
+  await reapPids(targets, {
+    ...opts.kill !== void 0 ? { kill: opts.kill } : {},
+    ...opts.sleep !== void 0 ? { sleep: opts.sleep } : {},
+    ...opts.gracefulMs !== void 0 ? { gracefulMs: opts.gracefulMs } : {},
+    ...opts.isAlive !== void 0 ? { isAlive: opts.isAlive } : {}
+  });
   const writer = fsPostMortemWriter({
     repoRoot: rt2.repoRoot,
     postMortemDir: rt2.thresholds.postMortemDir
@@ -44990,6 +45114,7 @@ async function safeRealpath(p2) {
 }
 
 // src/commands/recover.ts
+init_src3();
 async function runRecoverCommand(rt2, opts) {
   let result;
   try {
@@ -45012,13 +45137,57 @@ async function runRecoverCommand(rt2, opts) {
       error: err instanceof Error ? err.message : String(err)
     });
   }
+  const aliveProbe = opts.isAlive ?? isProcessAlive;
+  const orphanTargets = allClones.filter(
+    (c) => c.state === "DEAD" && typeof c.clone_pid === "number" && aliveProbe(c.clone_pid)
+  ).map((c) => ({ pid: c.clone_pid, group: false }));
+  let orphanProcessesSignalled = 0;
+  try {
+    orphanProcessesSignalled = await reapPids(orphanTargets, {
+      isAlive: aliveProbe,
+      ...opts.kill !== void 0 ? { kill: opts.kill } : {},
+      ...opts.sleep !== void 0 ? { sleep: opts.sleep } : {},
+      ...opts.gracefulMs !== void 0 ? { gracefulMs: opts.gracefulMs } : {}
+    });
+  } catch (err) {
+    opts.reporter.warn("recover.orphan_process_reap_failed", {
+      error: err instanceof Error ? err.message : String(err)
+    });
+  }
+  let deadPurged = 0;
+  if (opts.purgeDead) {
+    const liveCastIds = new Set(
+      allClones.filter((c) => c.state !== "DEAD").map((c) => c.metadata?.cast_id).filter((id) => typeof id === "string" && id.length > 0)
+    );
+    try {
+      const purgedIds = await rt2.ctx.registry.purgeDead((r) => {
+        const processGone = typeof r.clone_pid !== "number" || !aliveProbe(r.clone_pid);
+        const castId = r.metadata?.cast_id;
+        const castSettled = !(typeof castId === "string" && liveCastIds.has(castId));
+        return processGone && castSettled;
+      });
+      deadPurged = purgedIds.length;
+      if (purgedIds.length > 0) {
+        await rt2.ctx.events.append({
+          type: "recover_purged_dead",
+          payload: { clone_ids: purgedIds }
+        });
+      }
+    } catch (err) {
+      opts.reporter.warn("recover.purge_dead_failed", {
+        error: err instanceof Error ? err.message : String(err)
+      });
+    }
+  }
   opts.reporter.info("recover", {
     deadDetected: result.deadClones.length,
     locksReaped: result.reapedLocks.length,
     claimsReaped: result.reapedClaims.length,
     postMortems: result.postMortems.length,
     orphanWorktreesRemoved: sweep.removed.length,
-    orphanWorktreesFailed: sweep.failed.length
+    orphanWorktreesFailed: sweep.failed.length,
+    orphanProcessesSignalled,
+    deadPurged
   });
   const stdout = [
     `Recovery complete:`,
@@ -45027,7 +45196,9 @@ async function runRecoverCommand(rt2, opts) {
     `  ${result.reapedClaims.length} expired claim(s) reaped`,
     `  ${result.postMortems.length} post-mortem(s) written`,
     `  ${sweep.removed.length} orphan worktree(s) removed`,
-    ...sweep.failed.length > 0 ? [`  ${sweep.failed.length} orphan worktree(s) failed to remove (see warnings)`] : []
+    ...sweep.failed.length > 0 ? [`  ${sweep.failed.length} orphan worktree(s) failed to remove (see warnings)`] : [],
+    ...orphanProcessesSignalled > 0 ? [`  ${orphanProcessesSignalled} orphan process(es) signalled`] : [],
+    ...opts.purgeDead ? [`  ${deadPurged} settled DEAD record(s) purged`] : []
   ].join("\n");
   return { exitCode: 0, stdout };
 }
@@ -45642,6 +45813,17 @@ async function runDaemonStopCommand(rt2, opts) {
   const daemonClones = allClones.filter(
     (c) => c.session_mode === "daemon" && c.state !== "DEAD"
   );
+  const targets = [];
+  for (const c of daemonClones) {
+    if (typeof c.parent_pid === "number") targets.push({ pid: c.parent_pid, group: true });
+    if (typeof c.clone_pid === "number") targets.push({ pid: c.clone_pid, group: false });
+  }
+  await reapPids(targets, {
+    ...opts.kill !== void 0 ? { kill: opts.kill } : {},
+    ...opts.sleep !== void 0 ? { sleep: opts.sleep } : {},
+    ...opts.gracefulMs !== void 0 ? { gracefulMs: opts.gracefulMs } : {},
+    ...opts.isAlive !== void 0 ? { isAlive: opts.isAlive } : {}
+  });
   for (const c of daemonClones) {
     await rt2.ctx.registry.markDead(
       c.clone_id,
@@ -51473,7 +51655,7 @@ function parsePositiveIntOption(raw) {
 function parseNonNegativeIntOption(raw) {
   const trimmed = raw.trim();
   if (!/^\d+$/.test(trimmed)) {
-    throw new InvalidArgumentError("expected a non-negative integer (0 = read-only)");
+    throw new InvalidArgumentError("expected a non-negative integer");
   }
   return Number.parseInt(trimmed, 10);
 }
@@ -51827,8 +52009,8 @@ async function main() {
       (rt2) => runAbortCommand(rt2, { reason: options2.reason, reporter })
     );
   });
-  program2.command("recover").description("Run one orchestrator cycle to clean up stale state").action(async () => {
-    await runWithRuntime((rt2) => runRecoverCommand(rt2, { reporter }));
+  program2.command("recover").description("Run one orchestrator cycle to clean up stale state").option("--purge-dead", "also drop settled DEAD clone records from the registry (tidy `manta status`)", false).action(async (options2) => {
+    await runWithRuntime((rt2) => runRecoverCommand(rt2, { reporter, purgeDead: options2.purgeDead }));
   });
   program2.command("promote <target>").description("Merge the winning candidate from a forking-realities cast (format: castId/cloneId)").action(async (target) => {
     const sep14 = target.indexOf("/");
@@ -51843,19 +52025,29 @@ async function main() {
       (rt2) => runPromoteCommand(rt2, { castId, cloneId, reporter })
     );
   });
-  program2.command("inspect <cloneId>").description("Deep-dive into a single clone: registry, contract, locks, events").option("--json", "output as JSON", false).option("--events <n>", "number of recent events to show", "10").action(async (cloneId, options2) => {
+  program2.command("inspect <cloneId>").description("Deep-dive into a single clone: registry, contract, locks, events").option("--json", "output as JSON", false).option("--events <n>", "number of recent events to show", parsePositiveIntOption, 10).action(async (cloneId, options2) => {
     await runWithRuntime(
       (rt2) => runInspectCommand(rt2, {
         cloneId,
         json: options2.json,
-        eventCount: Math.min(parseInt(options2.events, 10) || 10, 100),
+        eventCount: Math.min(options2.events, 100),
         reporter
       })
     );
   });
-  program2.command("tail <cloneId> [durationSeconds]").description("Stream events for a clone in real-time").option("--interval <ms>", "polling interval in milliseconds", "2000").option("--raw", "output raw JSON per line", false).action(async (cloneId, durationSeconds, options2) => {
-    const durationMs = (durationSeconds != null ? parseInt(durationSeconds, 10) : 300) * 1e3;
-    const intervalMs = parseInt(options2.interval, 10) || 2e3;
+  program2.command("tail <cloneId> [durationSeconds]").description("Stream events for a clone in real-time").option("--interval <ms>", "polling interval in milliseconds", parsePositiveIntOption, 2e3).option("--raw", "output raw JSON per line", false).action(async (cloneId, durationSeconds, options2) => {
+    let durationSec = 300;
+    if (durationSeconds != null) {
+      const t = durationSeconds.trim();
+      if (!/^\d+$/.test(t) || Number.parseInt(t, 10) <= 0) {
+        process.stderr.write("[manta] tail: durationSeconds must be a positive integer (seconds)\n");
+        process.exitCode = 1;
+        return;
+      }
+      durationSec = Number.parseInt(t, 10);
+    }
+    const durationMs = durationSec * 1e3;
+    const intervalMs = options2.interval;
     await runWithRuntime(
       (rt2) => runTailCommand(rt2, {
         cloneId,
@@ -51866,27 +52058,27 @@ async function main() {
       })
     );
   });
-  program2.command("replay <castId>").description("Replay the timeline of a cast showing phased events and clone summaries").option("-f, --format <format>", "output format: markdown or json", "markdown").option("-c, --clone <id>", "filter to a specific clone (repeatable)", (val, prev) => [...prev, val], []).option("--since <timestamp>", "only show events after this Unix timestamp (ms)").action(async (castId, options2) => {
+  program2.command("replay <castId>").description("Replay the timeline of a cast showing phased events and clone summaries").option("-f, --format <format>", "output format: markdown or json", "markdown").option("-c, --clone <id>", "filter to a specific clone (repeatable)", (val, prev) => [...prev, val], []).option("--since <timestamp>", "only show events after this Unix timestamp (ms)", parseNonNegativeIntOption).action(async (castId, options2) => {
     await runWithRuntime(
       (rt2) => runReplayCommand(rt2, {
         castId,
         format: options2.format === "json" ? "json" : "markdown",
         ...options2.clone.length > 0 ? { cloneIds: options2.clone } : {},
-        ...options2.since != null ? { since: parseInt(options2.since, 10) } : {},
+        ...options2.since != null ? { since: options2.since } : {},
         reporter
       })
     );
   });
-  program2.command("audit <cloneId>").description("Audit trail for a single clone: events, gaps, and statistics").option("-f, --format <format>", "output format: markdown or json", "markdown").option("-t, --type <type>", "filter by event type or group (repeatable)", (val, prev) => [...prev, val], []).option("--since <timestamp>", "only show events after this Unix timestamp (ms)").option("-l, --limit <n>", "max events to show (most recent)").option("--gaps", "highlight gap anomalies", false).option("--gap-threshold <seconds>", "gap anomaly threshold in seconds", "30").action(async (cloneId, options2) => {
+  program2.command("audit <cloneId>").description("Audit trail for a single clone: events, gaps, and statistics").option("-f, --format <format>", "output format: markdown or json", "markdown").option("-t, --type <type>", "filter by event type or group (repeatable)", (val, prev) => [...prev, val], []).option("--since <timestamp>", "only show events after this Unix timestamp (ms)", parseNonNegativeIntOption).option("-l, --limit <n>", "max events to show (most recent)", parsePositiveIntOption).option("--gaps", "highlight gap anomalies", false).option("--gap-threshold <seconds>", "gap anomaly threshold in seconds", parsePositiveIntOption, 30).action(async (cloneId, options2) => {
     await runWithRuntime(
       (rt2) => runAuditCommand(rt2, {
         cloneId,
         format: options2.format === "json" ? "json" : "markdown",
         ...options2.type.length > 0 ? { typeFilter: options2.type } : {},
-        ...options2.since != null ? { since: parseInt(options2.since, 10) } : {},
-        ...options2.limit != null ? { limit: parseInt(options2.limit, 10) } : {},
+        ...options2.since != null ? { since: options2.since } : {},
+        ...options2.limit != null ? { limit: options2.limit } : {},
         ...options2.gaps ? { gaps: true } : {},
-        ...options2.gaps ? { gapThreshold: parseInt(options2.gapThreshold, 10) } : {},
+        ...options2.gaps ? { gapThreshold: options2.gapThreshold } : {},
         reporter
       })
     );

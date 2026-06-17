@@ -20497,9 +20497,11 @@ var Registry = class {
               `cannot transition from BLOCKED to IDLE; unblock to WORKING first`
             );
           }
-          r.idle_since = this.clock.now();
-          r.tasks_completed = (r.tasks_completed ?? 0) + 1;
-          r.last_task_completed_at = this.clock.now();
+          if (r.state !== "IDLE") {
+            r.idle_since = this.clock.now();
+            r.tasks_completed = (r.tasks_completed ?? 0) + 1;
+            r.last_task_completed_at = this.clock.now();
+          }
         }
         if (r.state === "IDLE" && input.state === "WORKING") {
           delete r.idle_since;
@@ -20547,6 +20549,40 @@ var Registry = class {
       auditAppend
     );
   }
+  /**
+   * Persist a clone's OWN OS process id once the spawner has launched it.
+   * Pre-registration (`register`) runs BEFORE the `claude --print` child exists,
+   * so `clone_pid` starts undefined and is filled in here right after launch.
+   *
+   * Why it matters (#65): the registry only stored `parent_pid` (the `manta
+   * cast` spawner's pid). A clone whose parent cast process has exited is
+   * reparented to init — a SEPARATE `manta abort`/`kill`/`recover` process can
+   * no longer reach it through the parent's process group, so the orphan keeps
+   * burning subscription rate while merely marked DEAD. Persisting the clone's
+   * own pid lets any later operator command signal the actual process.
+   *
+   * Records even on a DEAD record (skeptic-review #65-2): the pid is known-
+   * correct at spawn time regardless of registry state, and if the reaper marked
+   * the clone DEAD in the tiny window between `register` and this call, dropping
+   * the pid would manufacture an orphan that `kill`/`recover` can never reach
+   * (they signal `clone_pid`, and a reparented orphan's parent group is gone) —
+   * the exact failure #65 fixes. Storing the pid does NOT revive the clone (state
+   * is untouched); the kill paths gate the SIGNAL on liveness + DEAD-state, never
+   * the storage on state. Only silent no-op is an ABSENT record (no row to set).
+   */
+  async recordClonePid(cloneId, pid, auditAppend) {
+    await atomicMutateJson(
+      this.paths.registry,
+      empty,
+      (current) => {
+        const r = current.clones[cloneId];
+        if (!r) return current;
+        r.clone_pid = pid;
+        return current;
+      },
+      auditAppend
+    );
+  }
   async markDead(cloneId, reason, auditAppend, observedLastHeartbeatAt) {
     return atomicMutateJson(
       this.paths.registry,
@@ -20566,6 +20602,34 @@ var Registry = class {
       },
       auditAppend
     ).then((next) => next.clones[cloneId]);
+  }
+  /**
+   * Remove clone records matching `shouldPurge`. Only EVER deletes records that
+   * are already terminal (`state === 'DEAD'`) AND satisfy the predicate, re-
+   * checked under the file mutex — so a record re-registered (DEAD → STARTING)
+   * between the caller's snapshot and this mutation is left untouched. Returns
+   * the ids actually removed.
+   *
+   * GC for settled DEAD records (`manta recover --purge-dead`, bug #68). This is
+   * the one mutation that does NOT need a paired-inside-the-mutex audit append
+   * (#24/#54): the clone's `death` event already lives in `events.jsonl` as the
+   * permanent historical record, so dropping the (terminal) registry row loses
+   * no reconstruction information — it's pure GC, not a state transition. The
+   * caller logs a single `recover_purged_dead` event with the returned ids.
+   */
+  async purgeDead(shouldPurge) {
+    const removed = [];
+    await atomicMutateJson(this.paths.registry, empty, (current) => {
+      removed.length = 0;
+      for (const [id, r] of Object.entries(current.clones)) {
+        if (r.state === "DEAD" && shouldPurge(r)) {
+          delete current.clones[id];
+          removed.push(id);
+        }
+      }
+      return current;
+    });
+    return removed;
   }
   async get(cloneId) {
     const file = await atomicReadJson(this.paths.registry, empty);
