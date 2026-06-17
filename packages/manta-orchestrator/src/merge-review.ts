@@ -175,7 +175,11 @@ export async function runMergeReview(
     payload: {
       cast_id: opts.castId,
       verdict: result.verdict,
-      winner_clone_id: ranked[0]?.cloneId ?? null,
+      // Same winner the markdown proposes for `git merge`: a tie-break can pick
+      // a clone other than ranked[0] (axis-priority / pareto / self-certainty),
+      // so deriving this from ranked[0] alone would record a winner in the
+      // durable event log that contradicts the writeup and the auto-merge.
+      winner_clone_id: tieBreak?.winner.cloneId ?? ranked[0]?.cloneId ?? null,
       scores: ranked.map((r) => ({ clone_id: r.cloneId, score: r.score })),
       tie_break_method: tieBreak?.method ?? null,
     },

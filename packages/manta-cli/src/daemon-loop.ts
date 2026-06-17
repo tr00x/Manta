@@ -94,7 +94,12 @@ export async function runDaemonLoop(
       opts.signal?.removeEventListener('abort', killOnAbort);
     }
 
-    if (exitResult.failed && exitResult.exitCode == null) {
+    // ANY failed turn is a lost turn — a non-null non-zero exit (turn/model
+    // error, crash, exit 1) means the work was NOT done. Gating only on a null
+    // exit code (spawn failure) let a crash-looping resume fall through to
+    // `complete()` below: the item was marked done, the failure counter reset,
+    // and `max_failures` could never trip. Treat every failure as a retry.
+    if (exitResult.failed) {
       consecutiveFailures++;
       // Bug #27 fix: release the claimed item back to the queue so it can be
       // retried (by this clone on next poll or by another daemon clone).
