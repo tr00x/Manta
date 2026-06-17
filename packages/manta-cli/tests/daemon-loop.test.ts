@@ -175,6 +175,27 @@ describe('runDaemonLoop', () => {
     expect(reclaimable!.attempts).toBe(1);
   });
 
+  it('treats a non-zero exit turn as a failure, not a silent completion', async () => {
+    // Regression: a resumed turn that BOOTS but exits non-zero (turn/model
+    // error, crash, exit 1) did NOT do the work. Pre-fix the failure branch was
+    // gated on a NULL exit code (spawn failure only), so a non-null non-zero
+    // exit fell through to complete() — the failed item was marked done and
+    // lost, the failure counter reset, and max_failures could never trip.
+    const exitOneRunner: CloneRunner = {
+      run() {
+        return execa(process.execPath, ['-e', 'process.exit(1)'], { reject: false });
+      },
+    };
+    const item = makeWorkItem({ id: 'wq-exit1', target_clone_id: 'A' });
+    const wq = makeFakeWorkQueue([item]);
+    const result = await runDaemonLoop(
+      makeOpts({ workQueue: wq, runner: exitOneRunner, maxResumeFailures: 1 }),
+    );
+    expect(result.exitReason).toBe('max_failures');
+    expect(result.itemsCompleted).toEqual([]); // NOT completed
+    expect(wq.released).toContain('wq-exit1'); // released back for retry
+  });
+
   it('resets empty poll counter when item is found', async () => {
     let dequeueCount = 0;
     const item = makeWorkItem({ id: 'wq-reset', target_clone_id: 'A' });

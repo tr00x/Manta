@@ -157,6 +157,43 @@ describe('daemon stop command', () => {
     expect(updated.state).toBe('DEAD');
   });
 
+  it('reaps daemon clone OS processes before marking them DEAD (bug #65)', async () => {
+    // Regression: markDead only relabels the registry — a daemon clone's
+    // `claude --print`/`--resume` keeps running (burning the subscription)
+    // unless `daemon stop` actually signals it, like abort/kill do.
+    await ctx.registry.register({
+      clone_id: 'A',
+      mode: 'pair-programming',
+      parent_pid: 4242,
+      worktree: '/w',
+      metadata: {},
+    });
+    await ctx.registry.heartbeat({ clone_id: 'A', state: 'IDLE' });
+    const regPath = ctx.paths.registry;
+    const regData = JSON.parse(await fs.readFile(regPath, 'utf-8'));
+    regData.clones.A.session_mode = 'daemon';
+    regData.clones.A.clone_pid = 5151;
+    await fs.writeFile(regPath, JSON.stringify(regData));
+
+    const killed: Array<{ pid: number; signal: string }> = [];
+    const rt = makeRuntime(ctx, root);
+    const result = await runDaemonStopCommand(rt, {
+      reporter: noopReporter,
+      reason: 'test',
+      kill: (pid, signal) => { killed.push({ pid, signal }); },
+      sleep: async () => {},
+      isAlive: () => true,
+    });
+    expect(result.exitCode).toBe(0);
+    // parent_pid is signalled as a process GROUP (negative pid); clone_pid bare.
+    // Both get SIGTERM then SIGKILL (the isAlive stub keeps them "alive").
+    expect(killed).toContainEqual({ pid: -4242, signal: 'SIGTERM' });
+    expect(killed).toContainEqual({ pid: 5151, signal: 'SIGTERM' });
+    expect(killed).toContainEqual({ pid: -4242, signal: 'SIGKILL' });
+    expect(killed).toContainEqual({ pid: 5151, signal: 'SIGKILL' });
+    expect((await ctx.registry.get('A')).state).toBe('DEAD');
+  });
+
   it('returns 0 with count=0 when no daemon clones', async () => {
     const rt = makeRuntime(ctx, root);
     const result = await runDaemonStopCommand(rt, { reporter: noopReporter });

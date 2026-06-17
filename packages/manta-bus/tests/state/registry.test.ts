@@ -306,6 +306,24 @@ describe('Registry', () => {
     expect(r.tasks_completed).toBe(2);
   });
 
+  it('repeat IDLE heartbeats (keepalive) do not re-count tasks or reset idle_since', async () => {
+    // Regression: the IDLE block must fire only on a real transition INTO idle.
+    // A clone already IDLE may send repeat IDLE heartbeats as keepalive; counting
+    // those would inflate tasks_completed (no task finished) and reset idle_since,
+    // erasing when idleness actually began.
+    await registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
+    await registry.heartbeat({ clone_id: 'A', state: 'WORKING' });
+    clock.advance(1_000);
+    await registry.heartbeat({ clone_id: 'A', state: 'IDLE' }); // real WORKING→IDLE transition
+    const firstIdleSince = (await registry.get('A')).idle_since;
+    clock.advance(5_000);
+    await registry.heartbeat({ clone_id: 'A', state: 'IDLE' }); // keepalive — no transition
+    await registry.heartbeat({ clone_id: 'A', state: 'IDLE' }); // keepalive — no transition
+    const r = await registry.get('A');
+    expect(r.tasks_completed).toBe(1); // not 3
+    expect(r.idle_since).toBe(firstIdleSince); // not reset to the later now
+  });
+
   it('heartbeat from IDLE to WORKING clears idle_since', async () => {
     await registry.register({ clone_id: 'A', mode: 'recon-swarm', parent_pid: 1, worktree: '/w', metadata: {} });
     await registry.heartbeat({ clone_id: 'A', state: 'WORKING' });

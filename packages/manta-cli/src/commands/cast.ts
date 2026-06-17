@@ -658,6 +658,15 @@ export async function runCastCommand(
     }
   }
 
+  // Hoisted above the try so the catch/finally teardown can stop the budget
+  // timer and drain the daemon resume-loops even when the try throws BEFORE the
+  // happy-path cleanup runs. Otherwise a throw (e.g. from runTickLoop) leaves an
+  // in-flight runDaemonLoop holding a never-aborted signal — it can spawn/orphan
+  // a `claude --resume` during teardown, and its rejection goes unhandled.
+  const ctrl = new AbortController();
+  let budgetTimer: ReturnType<typeof setTimeout> | undefined;
+  const daemonDriveLoops: Array<Promise<unknown>> = [];
+
   try {
     // test-storm: create ONE shared worktree for all clones
     let sharedWorktree: WorktreeRecord | null = null;
@@ -907,8 +916,7 @@ export async function runCastCommand(
       timeline,
     });
 
-    const ctrl = new AbortController();
-    const budgetTimer = setTimeout(() => ctrl.abort(), opts.tickBudgetMs);
+    budgetTimer = setTimeout(() => ctrl.abort(), opts.tickBudgetMs);
 
     // #M11 — drive each daemon clone's SECOND+ turn. A daemon clone (pair
     // reviewer/writer, test-storm roles, doc-chaser) runs ONE `--print` turn at
@@ -925,7 +933,6 @@ export async function runCastCommand(
     // unchanged. maxEmptyPolls is effectively unbounded — the loop ends on abort,
     // not on a quiet gap, so a reviewer waiting out a long writer turn is not
     // dropped (a runaway is still bounded by the budget timer that aborts ctrl).
-    const daemonDriveLoops: Array<Promise<unknown>> = [];
     if (sessionMode === 'daemon' && rt.ctx.workQueue) {
       const wq = rt.ctx.workQueue;
       for (const h of handles) {
@@ -1257,6 +1264,12 @@ export async function runCastCommand(
       stdout: `Cast ${opts.castId} complete: ${cloneIds.length} clone(s).`,
     };
   } catch (err) {
+    // Stop the daemon resume-loops BEFORE terminating handles (same order as the
+    // happy path): abort so no loop spawns a fresh `claude --resume` during
+    // teardown, then drain so none outlives the cast or leaves an unhandled
+    // rejection. Idempotent if the budget timer already aborted.
+    ctrl.abort();
+    await Promise.allSettled(daemonDriveLoops);
     // Best-effort terminate of any running children; SIGTERM with SIGKILL
     // escalation (I-5) so a hung clone can't block the failure path.
     await Promise.all(
@@ -1292,6 +1305,10 @@ export async function runCastCommand(
     if (err instanceof CliError) throw err;
     throw new CliError('cast failed', { kind: 'cast_failed', cause: err });
   } finally {
+    // Clear the budget timer on every exit path. The happy path clears it once
+    // the tick-loop ends, but a throw before then would leave it armed — a
+    // dangling timer that keeps the event loop alive until tickBudgetMs.
+    clearTimeout(budgetTimer);
     // Bug #40 defensive last line: every cast exit path — happy return,
     // catch-rethrow, or any exception escaping both — must leave zero live
     // child processes behind. The catch above already terminates on error

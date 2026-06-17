@@ -230,6 +230,37 @@ describe('runMergeReview', () => {
     expect(event.payload).toHaveProperty('scores');
     expect(event.payload).toHaveProperty('tie_break_method');
   });
+
+  it('records the tie-break winner (not ranked[0]) in the merge_review event', async () => {
+    // Regression: when a tie-break resolves to a clone OTHER than the top-ranked
+    // one (here via self_certainty), the durable event's winner_clone_id must
+    // match the writeup and the proposed `git merge` — deriving it from ranked[0]
+    // alone wrote a contradictory winner into the audit log.
+    const manifest = makeManifest('cast-tie', ['c1', 'c2'], { autoMergeThreshold: 0.1 });
+    const ctx = mockBusContext([manifest], [], []);
+    const writer = inMemoryMergeReviewWriter();
+
+    // Identical metrics → identical composite scores with every axis tied, so
+    // neither axis-priority nor pareto can separate them; self_certainty decides.
+    // c2 (rank 2 by stable order) has the higher certainty by >= 0.5 → it wins.
+    const { result } = await runMergeReview(ctx, {
+      castId: 'cast-tie',
+      candidates: [
+        makeCandidate('c1', { selfCertainty: 0.1 }),
+        makeCandidate('c2', { selfCertainty: 0.9 }),
+      ],
+      config: DEFAULT_SCORING_CONFIG,
+      writer,
+    });
+
+    expect(result.ranked[0]!.cloneId).toBe('c1'); // top by score (stable order)
+    expect(result.tieBreak?.method).toBe('self_certainty');
+    expect(result.tieBreak?.winner.cloneId).toBe('c2'); // tie-break flips the winner
+
+    const event = ctx._appendedEvents[0] as { payload: Record<string, unknown> };
+    expect(event.payload.winner_clone_id).toBe('c2'); // matches tie-break, not ranked[0]
+    expect(writer.captured[0]!.body).toContain('git merge manta/cast-tie/c2');
+  });
 });
 
 describe('renderMergeReviewMarkdown', () => {

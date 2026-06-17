@@ -18,7 +18,7 @@ Instead of spawning cold, specialized helper agents, Manta makes Claude Code **c
 [![version](https://img.shields.io/badge/version-0.1.0-blue)](CHANGELOG.md)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)](#install)
-[![tests](https://img.shields.io/badge/tests-1618%20passing-brightgreen)](#how-ready-is-it)
+[![tests](https://img.shields.io/badge/tests-1663%20passing-brightgreen)](#how-ready-is-it)
 [![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](#how-ready-is-it)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A2BE2)](#install)
 
@@ -311,7 +311,7 @@ Honest status — `0.1.0`, **early but real**. Everything below is verified by t
 | **Concurrent casts**         | ✓ disjoint clone slots + a worktree data-loss guard keep parallel casts from corrupting shared state         |
 | **Clone safety**             | ✓ an always-on guard enforces each clone's path scope + blocks dangerous ops in the harness                  |
 | **Observability**            | ✓ live statusline, `manta doctor`, `manta tail`, post-run reports                                            |
-| **Tests**                    | ✓ **1618 passing** (real-Claude end-to-end tests run on demand, never as a silent skip)                      |
+| **Tests**                    | ✓ **1663 passing** (real-Claude end-to-end tests run on demand, never as a silent skip)                      |
 
 > [!WARNING]
 > **Known limitations** — none block normal use:

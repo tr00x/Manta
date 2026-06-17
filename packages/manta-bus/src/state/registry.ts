@@ -103,9 +103,15 @@ export class Registry {
               `cannot transition from BLOCKED to IDLE; unblock to WORKING first`,
             );
           }
-          r.idle_since = this.clock.now();
-          r.tasks_completed = (r.tasks_completed ?? 0) + 1;
-          r.last_task_completed_at = this.clock.now();
+          // Only on a real transition INTO idle. A clone already IDLE may send
+          // repeat IDLE heartbeats as keepalive; counting those would inflate
+          // tasks_completed (no task finished) and reset idle_since, erasing
+          // when idleness actually began.
+          if (r.state !== 'IDLE') {
+            r.idle_since = this.clock.now();
+            r.tasks_completed = (r.tasks_completed ?? 0) + 1;
+            r.last_task_completed_at = this.clock.now();
+          }
         }
         if (r.state === 'IDLE' && input.state === 'WORKING') {
           delete r.idle_since;
